@@ -167,6 +167,23 @@ import Testing
         #expect(elapsed < .milliseconds(500), "took \(elapsed)")
     }
 
+    @Test func detectingAHugeBlankPrefixIsBounded() {
+        let huge = String(repeating: "\n", count: 5_000_000) + "{\"a\": 1}"
+        let elapsed = ContinuousClock().measure { _ = ContentKind.detect(huge) }
+        #expect(elapsed < .milliseconds(500), "took \(elapsed)")
+    }
+
+    @Test func leadingSampleSkipsWhitespaceWithinItsLimit() {
+        #expect(ContentKind.leadingSample(of: " \t\r\n[1]") == "[1]")
+        #expect(ContentKind.leadingSample(of: "") == "")
+        #expect(ContentKind.leadingSample(of: "\u{3000}\u{A0}é") == "é", "Unicode spaces are whitespace too")
+        let blank = String(repeating: " ", count: ContentKind.sampleLimit + 10) + "x"
+        #expect(ContentKind.leadingSample(of: blank) == String(repeating: " ", count: 10) + "x",
+                "the skip stops after sampleLimit scalars")
+        #expect(ContentKind.leadingSample(of: String(repeating: "y", count: ContentKind.sampleLimit * 2)).count
+                == ContentKind.sampleLimit)
+    }
+
     @Test func stackTracesNameTheFailure() {
         #expect(title("Traceback (most recent call last):\n  File \"x.py\", line 3\nKeyError: 'id'") == "KeyError: 'id'")
         #expect(title("java.lang.IllegalStateException: closed\n\tat a.B.c(B.java:1)\n\tat a.B.d(B.java:2)")

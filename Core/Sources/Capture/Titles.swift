@@ -24,7 +24,7 @@ public struct RuleTitler: Titler {
         // never scan a whole multi-megabyte body on every edit.
         // Leading whitespace is skipped, as detection skips it, so an
         // indented JSON array is still seen to start with "[" (#13).
-        let head = String(body.drop(while: \.isWhitespace).prefix(ContentKind.sampleLimit))
+        let head = ContentKind.leadingSample(of: body)
         let structured: String? = switch kind {
         case .json: jsonTitle(body, head: head)
         case .url: urlTitle(head)

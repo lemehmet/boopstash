@@ -32,9 +32,23 @@ public enum ContentKind: String, CaseIterable, Codable, Sendable {
     static let jsonParseLimit = 1024 * 1024
     static let urlLengthLimit = 4096
 
+    /// The start of a text after its leading whitespace, at most
+    /// `sampleLimit` characters. The skip walks scalars, not characters, and
+    /// stops after `sampleLimit` of them, so a body of megabytes of blank
+    /// lines costs no more than a sample.
+    static func leadingSample(of text: String) -> String {
+        let scalars = text.unicodeScalars
+        var start = scalars.startIndex
+        var skipped = 0
+        while start < scalars.endIndex, skipped < sampleLimit, scalars[start].properties.isWhitespace {
+            scalars.formIndex(after: &start)
+            skipped += 1
+        }
+        return String(String(String.UnicodeScalarView(scalars[start...])).prefix(sampleLimit))
+    }
+
     public static func detect(_ text: String) -> ContentKind {
-        let sample = String(text.drop(while: { $0.isWhitespace }).prefix(sampleLimit))
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let sample = leadingSample(of: text).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !sample.isEmpty else { return .plain }
         let truncated = text.utf8.count > sampleLimit
         let lines = sample.split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
