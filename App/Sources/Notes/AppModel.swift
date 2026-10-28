@@ -18,6 +18,7 @@ final class AppModel {
     @ObservationIgnored private var observation: Task<Void, Never>?
     @ObservationIgnored private var pendingSaves: [UUID: Task<Void, Never>] = [:]
     @ObservationIgnored private var drafts: [UUID: Note] = [:]
+    @ObservationIgnored private var dayObserver: NSObjectProtocol?
 
     /// Edits are saved after typing pauses for this long, and immediately
     /// when the selection changes or the app quits.
@@ -26,6 +27,15 @@ final class AppModel {
     init(store: NoteStore) {
         self.store = store
         observe()
+        // The store re-evaluates "last N days" on every fetch, but with no
+        // edits nothing fetches; at midnight, start over so "Today" is today.
+        dayObserver = NotificationCenter.default.addObserver(forName: .NSCalendarDayChanged, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.observe() }
+        }
+    }
+
+    isolated deinit {
+        if let dayObserver { NotificationCenter.default.removeObserver(dayObserver) }
     }
 
     static func live() throws -> AppModel {
