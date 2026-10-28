@@ -1,0 +1,39 @@
+import Foundation
+
+/// What the note list shows: an optional text filter, where it looks, and an
+/// optional age limit. Results are always newest-edited first.
+public struct NoteQuery: Hashable, Sendable {
+    public enum Scope: String, CaseIterable, Sendable {
+        case everywhere
+        case title
+        case content
+    }
+
+    public var text: String
+    public var scope: Scope
+    /// Notes edited within the last `days` calendar days, counting today as
+    /// the first: 1 is "today", 7 is "today and the six days before". Nil is
+    /// no limit.
+    public var days: Int?
+    public var limit: Int
+
+    public init(text: String = "", scope: Scope = .everywhere, days: Int? = nil, limit: Int = 500) {
+        self.text = text
+        self.scope = scope
+        self.days = days
+        self.limit = limit
+    }
+
+    /// The earliest `updatedAt` the age limit admits, or nil without one.
+    public func cutoff(now: Date, calendar: Calendar = .current) -> Date? {
+        guard let days, days > 0 else { return nil }
+        let today = calendar.startOfDay(for: now)
+        return calendar.date(byAdding: .day, value: -(days - 1), to: today)
+    }
+
+    /// The filter split into terms. Every term must match (AND), anywhere
+    /// inside a word: "ginx" finds "nginx.conf".
+    public var terms: [String] {
+        text.split(whereSeparator: \.isWhitespace).map(String.init)
+    }
+}

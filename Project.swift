@@ -3,13 +3,17 @@ import ProjectDescription
 // Boopstash — persistent scratch buffers for macOS, with an iOS companion.
 //
 // Layout:
-//   - `BoopstashCore`  pure Foundation, macOS + iOS. Everything that can be
+//   - `BoopstashCore`  Foundation plus GRDB, macOS + iOS. Everything that can be
 //                      logic without a device framework lives here, with unit
 //                      tests: the note model, search queries, title rules,
 //                      keymap presets, paste conversion, script-API semantics.
 //   - `Boopstash`      the macOS app. Thin `Live*` adapters are the only code
 //                      that imports AppKit, CloudKit, Vision or JavaScriptCore.
 //   - The iOS app target arrives with sync in milestone 5.
+//   - Swift packages are integrated through Xcode's native package support
+//     (`packages:` below), not Tuist's generated targets: the spike found
+//     Tuist's resource-bundle targets keep a package's old deployment target,
+//     which current Xcode refuses (ADR 0006).
 //
 // Conventions (see docs/adr/):
 //   - Deployment floor macOS 26 / iOS 26 (ADR 0001).
@@ -41,6 +45,10 @@ let project = Project(
         defaultKnownRegions: ["en"],
         developmentRegion: "en"
     ),
+    packages: [
+        // SQLite toolkit for the store and its FTS5 index (ADR 0002).
+        .remote(url: "https://github.com/groue/GRDB.swift", requirement: .exact("7.11.1")),
+    ],
     settings: .settings(
         base: baseSettings,
         configurations: [
@@ -56,7 +64,8 @@ let project = Project(
             bundleId: "\(appBundleId).core",
             deploymentTargets: coreDeployment,
             infoPlist: .default,
-            sources: ["Core/Sources/**"]
+            sources: ["Core/Sources/**"],
+            dependencies: [.package(product: "GRDB")]
         ),
         // Tests run on macOS: no simulator to boot, and Core is pure Foundation
         // so the platform does not change what is being tested. CI separately
