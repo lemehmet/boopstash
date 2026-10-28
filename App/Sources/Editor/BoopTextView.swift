@@ -80,7 +80,9 @@ final class BoopTextView: NSTextView {
 
     override func validateUserInterfaceItem(_ item: any NSValidatedUserInterfaceItem) -> Bool {
         if let action = item.action, Self.refusedToggles.contains(action) { return false }
-        if item.action == #selector(pasteAsMarkdown(_:)) { return false } // converter lands with ADR 0003's Core function
+        if item.action == #selector(pasteAsMarkdown(_:)) {
+            return isEditable && NSPasteboard.general.availableType(from: [.html, .rtf, .string]) != nil
+        }
         return super.validateUserInterfaceItem(item)
     }
 
@@ -113,8 +115,28 @@ final class BoopTextView: NSTextView {
         insertText(text, replacementRange: selectedRange())
     }
 
+    /// ⌥⇧⌘V: the pasteboard's rich text as markdown source (ADR 0003).
+    /// HTML goes straight to Core's converter. RTF-only sources (TextEdit,
+    /// some mail) go through AppKit's HTML export first, which only writes
+    /// and never fetches; that export styles with CSS classes, so emphasis
+    /// from RTF may not survive. Without either, this is a plain paste.
     @objc func pasteAsMarkdown(_ sender: Any?) {
-        NSSound.beep()
+        let pasteboard = NSPasteboard.general
+        guard let html = Self.html(from: pasteboard) else {
+            pasteAsPlainText(sender)
+            return
+        }
+        insertText(HTMLToMarkdown.convert(html), replacementRange: selectedRange())
+    }
+
+    private static func html(from pasteboard: NSPasteboard) -> String? {
+        if let html = pasteboard.string(forType: .html) { return html }
+        guard let rtf = pasteboard.data(forType: .rtf),
+              let text = NSAttributedString(rtf: rtf, documentAttributes: nil),
+              let data = try? text.data(from: NSRange(location: 0, length: text.length),
+                                        documentAttributes: [.documentType: NSAttributedString.DocumentType.html])
+        else { return nil }
+        return String(data: data, encoding: .utf8)
     }
 
     // MARK: - Key handling
