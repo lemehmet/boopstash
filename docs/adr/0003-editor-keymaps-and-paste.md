@@ -1,7 +1,7 @@
 # ADR 0003 — Editor behaviour: keymap presets, no substitutions, plain paste
 
-- **Status:** Accepted (2026-10-28); the text engine is chosen by the spike in
-  milestone 1 and recorded in a follow-up ADR.
+- **Status:** Accepted (2026-10-28); the text engine is chosen in
+  [ADR 0006](0006-editor-engine-textkit2-nstextview.md).
 - **Deciders:** boopstash maintainers
 
 ## Context
@@ -28,12 +28,16 @@ be a rich-text or full markdown editor.
   **VS Code (default)**, **JetBrains**, **Emacs**. User overrides live in a
   `keybindings.json` in the same spirit as VS Code's.
 - **A "Linux habits" toggle** layers over any preset: Home/End stay on the
-  line, Ctrl+←/→ move by word. Swapping Ctrl and Cmd is out of scope; that
-  belongs in a system-wide remapper.
+  line, Ctrl+←/→ move by word. Ctrl+←/→ are Mission Control's by default and
+  reach no app until changed in System Settings (ADR 0006); Help says so.
+  Swapping Ctrl and Cmd is out of scope; that belongs in a system-wide
+  remapper.
 - **No vi mode.** Dropped: modal editing is a different editor, not a preset.
-- **Tab / Shift-Tab indent and unindent** the selected lines, or the current
-  line when nothing is selected. Indent width is a preference (default four
-  spaces, or a tab).
+- **Tab / Shift-Tab, as in VS Code:** Tab with a selection spanning lines
+  indents every line it touches; otherwise it inserts the indent unit at the
+  caret. Shift-Tab unindents the touched lines, or the current line. Each is
+  one undo step. Indent width is a preference (default four spaces, or a
+  tab).
 - **Paste:**
   - **⌘V always pastes plain text.** The body is markdown source, so there is no
     target style to match. An image on the pasteboard becomes an attachment.

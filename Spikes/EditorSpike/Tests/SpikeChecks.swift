@@ -44,6 +44,9 @@ struct SpikeChecks {
 
         func type(_ text: String) {
             for character in text { key(String(character)) }
+            // AppKit runs text checking (smart quotes, dashes, replacements)
+            // after the event, on the next turns of the run loop.
+            RunLoop.current.run(until: Date().addingTimeInterval(0.5))
         }
 
         var caretLine: String {
@@ -76,21 +79,30 @@ struct SpikeChecks {
 
     // MARK: 3. No substitutions
 
-    @Test func typedQuotesAndDashesStayExactlyAsTyped() {
-        let typed = "He said \"hi\" -- it's 'fine'"
+    /// What AppKit may rewrite is the view's `enabledTextCheckingTypes`. The
+    /// control proves the mask is where the switches land (a stock view with
+    /// smart quotes on carries the bits); the spike must carry none of them,
+    /// and typed text must come back exactly. Synthesized key events do not
+    /// reach AppKit's text checking the way a real keyboard does (verified:
+    /// a stock view keeps straight quotes when typed this way, even after an
+    /// explicit `checkText`), so substitution while really typing is checked
+    /// by hand in the spike app.
+    @Test func noSubstitutionIsEnabled() {
+        let forbidden = NSTextCheckingResult.CheckingType([
+            .quote, .dash, .replacement, .correction, .link, .spelling, .grammar,
+        ]).rawValue
 
         let control = Self.stock("")
-        control.type(typed)
-        let substituted = control.view.string
+        #expect(control.view.enabledTextCheckingTypes & NSTextCheckingResult.CheckingType([.quote, .dash]).rawValue != 0,
+                "the stock view should carry the bits it was given")
         control.close()
-        // If the stock view did not substitute, typing through sendEvent never
-        // reached the substitution machinery and the spike check below would
-        // pass for the wrong reason.
-        #expect(substituted != typed, "control did not substitute: \(substituted)")
 
+        let typed = "He said \"hi\" -- it's 'fine' (c) teh"
         let host = Self.spike("")
+        #expect(host.view.enabledTextCheckingTypes & forbidden == 0,
+                "enabled: \(host.view.enabledTextCheckingTypes)")
         host.type(typed)
-        #expect(host.view.string == typed)
+        #expect(host.view.string == typed, "got \(host.view.string.debugDescription)")
         host.close()
     }
 
@@ -200,9 +212,9 @@ struct SpikeChecks {
         // hidden, not removed.
         let after = ns.range(of: "## After the fold")
         view.setSelectedRange(NSRange(location: heading.location, length: NSMaxRange(after) - heading.location))
-        let board = NSPasteboard(name: .init("spike-\(UUID().uuidString)"))
-        board.clearContents()
-        #expect(view.writeSelection(to: board, type: .string))
+        let board = NSPasteboard.withUniqueName()
+        defer { board.releaseGlobally() }
+        #expect(view.writeSelection(to: board, types: view.writablePasteboardTypes))
         #expect(board.string(forType: .string)?.contains("Arrow keys should jump over them.") == true)
 
         view.toggleFoldAtCaret()
