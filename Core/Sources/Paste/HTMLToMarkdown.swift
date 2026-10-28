@@ -344,15 +344,16 @@ struct Writer {
         return "![\(Self.escapedLabel(alt))](\(Self.destination(src)))"
     }
 
-    /// A link destination that cannot end early: whitespace, parentheses,
-    /// angle brackets and backslashes (which would escape a closing
-    /// parenthesis) are percent-encoded, which every URL reader accepts
+    /// A link destination that cannot end early: spaces and every ASCII
+    /// control (which CommonMark does not allow in one), parentheses, angle
+    /// brackets and backslashes (which would escape a closing parenthesis)
+    /// are percent-encoded, which every URL reader accepts
     /// (#23). Other characters are left as the page wrote them.
     static func destination(_ url: String) -> String {
         var out = ""
         for scalar in url.unicodeScalars {
             switch scalar {
-            case " ", "\t", "\n", "\r", "(", ")", "<", ">", "\\":
+            case "(", ")", "<", ">", "\\", "\u{7F}", "\u{00}"..."\u{20}":
                 out += String(format: "%%%02X", scalar.value)
             default:
                 out.unicodeScalars.append(scalar)

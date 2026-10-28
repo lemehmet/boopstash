@@ -13,19 +13,23 @@ final class AppModel {
     }
     /// A one-line message for the window, such as why a capture was refused.
     var banner: String?
-    /// The editor with keyboard focus, if any; editor-only menu commands
-    /// are disabled otherwise (#25). Every window's editor reports to this
-    /// one model, so only the editor holding focus can give it up: another
-    /// editor closing in the background leaves it alone.
-    private(set) var focusedEditor: UUID?
-    var editorHasFocus: Bool { focusedEditor != nil }
+    /// Whether the key window's focus is a note editor; editor-only menu
+    /// commands are disabled otherwise (#25). It is worked out from the key
+    /// window rather than kept from editor reports: each window keeps its
+    /// own first responder, so an editor in a window that is no longer key
+    /// still holds focus there.
+    private(set) var editorHasFocus = false
+    /// The key window's first responder; replaceable for tests.
+    @ObservationIgnored var keyResponder: () -> NSResponder? = { NSApp.keyWindow?.firstResponder }
 
-    func editor(_ editor: UUID, hasFocus focused: Bool) {
-        if focused {
-            focusedEditor = editor
-        } else if focusedEditor == editor {
-            focusedEditor = nil
-        }
+    func refreshEditorFocus() {
+        editorHasFocus = keyResponder() is BoopTextView
+    }
+
+    /// An editor gained or lost focus, or went away. The window's first
+    /// responder settles only after the change, so look on the next turn.
+    func editorFocusMayHaveChanged() {
+        DispatchQueue.main.async { [weak self] in self?.refreshEditorFocus() }
     }
 
     @ObservationIgnored private let sources = SourceAppTracker()
@@ -33,6 +37,7 @@ final class AppModel {
     @ObservationIgnored private var pendingSaves: [UUID: Task<Void, Never>] = [:]
     @ObservationIgnored private var drafts: [UUID: Note] = [:]
     @ObservationIgnored private var dayObserver: NSObjectProtocol?
+    @ObservationIgnored private var keyObservers: [NSObjectProtocol] = []
     /// Requests in flight, so leaving and re-entering a note does not ask
     /// twice. What was titled is persisted on the note (`modelTitledHash`).
     @ObservationIgnored private var modelTitleRequests: Set<UUID> = []
@@ -56,10 +61,18 @@ final class AppModel {
         dayObserver = NotificationCenter.default.addObserver(forName: .NSCalendarDayChanged, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.observe() }
         }
+        // Another window becoming key (another note window, Settings) moves
+        // focus without any editor resigning.
+        keyObservers = [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification].map { name in
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.refreshEditorFocus() }
+            }
+        }
     }
 
     isolated deinit {
         if let dayObserver { NotificationCenter.default.removeObserver(dayObserver) }
+        keyObservers.forEach(NotificationCenter.default.removeObserver)
     }
 
     static func live() throws -> AppModel {

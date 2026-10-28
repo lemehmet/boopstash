@@ -28,6 +28,9 @@ import Testing
         #expect(md(#"<img src="https://x.test/a b).png" alt="pic">"#) == "![pic](https://x.test/a%20b%29.png)")
         #expect(md(#"<a href="https://x.test/a<b>c">x</a>"#) == "[x](https://x.test/a%3Cb%3Ec)")
         #expect(md(#"<a href="https://x.test/a\">x</a>"#) == "[x](https://x.test/a%5C)", "a trailing backslash would escape the )")
+        #expect(md(#"<a href="https://x.test/a&#11;b&#12;c">x</a>"#) == "[x](https://x.test/a%0Bb%0Cc)")
+        #expect(md(#"<a href="https://x.test/a&#1;b&#127;c">x</a>"#) == "[x](https://x.test/a%01b%7Fc)")
+        #expect(md(#"<a href="https://x.test/caf&#233;">x</a>"#) == "[x](https://x.test/café)", "non-ASCII is left as written")
     }
 
     @Test func labelsEscapeTheirBrackets() {
