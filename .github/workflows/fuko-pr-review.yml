@@ -25,9 +25,14 @@ concurrency:
 
 jobs:
   review:
-    # Skip drafts, skip-review/* branches, and never run fork-PR head code with
-    # this repo's secrets.
-    if: ${{ github.event.pull_request.draft == false && !startsWith(github.event.pull_request.head.ref, 'skip-review/') && github.event.pull_request.head.repo.full_name == github.repository }}
+    # Skip drafts, skip-review/* branches, PRs labelled review-capped, and
+    # never run fork-PR head code with this repo's secrets.
+    #
+    # review-capped: a PR gets at most three review rounds. Comments from the
+    # third become follow-up issues instead of more fix commits, and the label
+    # stops further rounds, including the ones a rebase of a stacked PR would
+    # otherwise start.
+    if: ${{ github.event.pull_request.draft == false && !startsWith(github.event.pull_request.head.ref, 'skip-review/') && !contains(github.event.pull_request.labels.*.name, 'review-capped') && github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-latest
     # Lockstep with job_budget_minutes in .fuko.toml (1 seat * 2100 s + setup).
     timeout-minutes: 60

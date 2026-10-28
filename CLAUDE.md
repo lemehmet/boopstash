@@ -6,3 +6,4 @@
 - Minimum deployment target is macOS 26 / iOS 26. No availability checks for older OS versions.
 - Plan and milestones: `docs/plan/milestones.md`.
 - This repository is public. Never commit secrets or signing material (certificates, `.p8`/`.p12`, provisioning profiles, API keys, deploy keys, `.env` files), absolute local paths, or personal data such as real notes, clipboard contents or screenshots. Secrets reach CI only through GitHub Actions secrets; test fixtures are synthetic.
+- PR review: at most 3 fuko review rounds per PR. Comments raised in round 3 become follow-up GitHub issues (not more fix commits), and the PR gets the `review-capped` label so rebases do not start a fourth round.
