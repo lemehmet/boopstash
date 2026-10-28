@@ -21,6 +21,8 @@ public struct Note: Codable, Hashable, Identifiable, Sendable {
     /// `contentHash` of the body the on-device model last titled, so an
     /// unchanged note is not sent to the model again, across launches too.
     public var modelTitledHash: String?
+    /// The highlighting override (`SyntaxChoice.stored`); nil detects.
+    public var syntaxOverride: String?
 
     public init(
         id: UUID = UUID(),
@@ -48,6 +50,11 @@ extension Note {
     /// since we last looked". Stable across launches, unlike `hashValue`.
     public static func contentHash(_ body: String) -> String {
         SHA256.hash(data: Data(body.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+
+    public var syntaxChoice: SyntaxChoice {
+        get { SyntaxChoice(stored: syntaxOverride) }
+        set { syntaxOverride = newValue.stored }
     }
 
     /// Whether the current title is the model's title for the current body.
