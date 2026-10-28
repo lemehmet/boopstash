@@ -44,13 +44,19 @@ removed.
 
 - **The Mac editor is a TextKit 2 `NSTextView` subclass we own.** No editor
   framework dependency.
-- **Highlighting: SwiftTreeSitter with per-language grammar packages,** painted
-  as TextKit 2 rendering attributes on the viewport only, so storage, undo and
-  change notifications are never touched by colouring. Neon (ChimeHQ, BSD) is
-  the reference for incremental, viewport-driven highlighting; whether to
-  depend on it or write the small piece we need is decided when highlighting
-  lands. Its `main` currently tracks SwiftTreeSitter's `main` branch, which we
-  would not pin to.
+- **Highlighting: SwiftTreeSitter with per-language grammar packages,**
+  painted as TextKit 2 rendering attributes on the viewport only, so storage,
+  undo and change notifications are never touched by colouring. Built in
+  milestone 2 without Neon (its `main` tracks SwiftTreeSitter's `main`):
+  `SyntaxEngine` in Core is an actor holding the tree, applying each edit
+  incrementally (`InputEdit` in UTF-16LE bytes) and querying only the
+  requested range; the app's `SyntaxPainter` feeds it edits through one
+  ordered queue and paints only when the engine has caught up with the text
+  on screen. 20 languages, chosen by `SyntaxLanguage.detect`; a wrong
+  grammar is worse than none, so prose and logs stay uncoloured. A note's
+  language menu (`SyntaxChoice`, stored on the note) forces a language or
+  plain text where detection guesses wrong. App size is not a constraint
+  here (maintainer, 2026-10-28): the grammars add about 30 MB.
 - **Folding: content-manager enumeration,** with fold ranges from tree-sitter
   for code and from headings for markdown.
 

@@ -80,6 +80,11 @@ public final class NoteStore: Sendable {
                 t.add(column: "modelTitledHash", .text)
             }
         }
+        migrator.registerMigration("v3-syntax-override") { db in
+            try db.alter(table: "note") { t in
+                t.add(column: "syntaxOverride", .text)
+            }
+        }
         return migrator
     }
 

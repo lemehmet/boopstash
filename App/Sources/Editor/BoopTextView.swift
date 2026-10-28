@@ -9,6 +9,7 @@ final class BoopTextView: NSTextView {
     var indentUnit = "    "
     /// Shows a one-line message in the window (the app's banner).
     var showMessage: ((String) -> Void)?
+    let syntax = SyntaxPainter()
 
     /// Always `init(usingTextLayoutManager: true)`: the frame-based
     /// initializers can build a TextKit 1 view (ADR 0006).
@@ -32,8 +33,15 @@ final class BoopTextView: NSTextView {
         view.isIncrementalSearchingEnabled = true
         view.disableSubstitutions()
         scroll.documentView = view
+        view.syntax.attach(to: view)
         assert(view.textLayoutManager != nil, "the editor fell back to TextKit 1")
         return (scroll, view)
+    }
+
+    /// Replaces the whole text with another note's, and highlights it.
+    func load(_ text: String, syntax choice: SyntaxChoice = .automatic) {
+        syntax.replacingDocument { string = text }
+        syntax.load(text, choice: choice)
     }
 
     // MARK: - Substitutions

@@ -9,6 +9,7 @@ struct EditorView: NSViewRepresentable {
     let noteID: UUID
     let initialText: String
     let keymap: Keymap
+    var syntax: SyntaxChoice = .automatic
     var showMessage: (String) -> Void = { _ in }
     let onChange: (String) -> Void
 
@@ -27,11 +28,13 @@ struct EditorView: NSViewRepresentable {
         context.coordinator.onChange = onChange
         if context.coordinator.noteID != noteID {
             context.coordinator.noteID = noteID
-            view.string = initialText
+            view.load(initialText, syntax: syntax)
             view.setSelectedRange(NSRange(location: 0, length: 0))
             view.undoManager?.removeAllActions()
             view.scrollToBeginningOfDocument(nil)
             DispatchQueue.main.async { view.window?.makeFirstResponder(view) }
+        } else {
+            view.syntax.setChoice(syntax)
         }
     }
 
