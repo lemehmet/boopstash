@@ -6,6 +6,11 @@ breaking changes may land in a minor release.
 
 ## Unreleased
 
+- Settings ▸ Editor: the editor's font and size, and a theme for light and
+  dark appearance from Solarized, GitHub, One, Gruvbox, Dracula and Nord, or
+  the system's colours. A theme sets the background, text, selection and
+  highlighting together. Settings are now in General, Editor and Keyboard tabs.
+
 - The app reports its real version (0.1.0 called itself 1.0 in About
   Boopstash and Finder).
 

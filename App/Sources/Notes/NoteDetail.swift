@@ -5,6 +5,7 @@ struct NoteDetail: View {
     @Bindable var model: AppModel
     let note: Note
     let keymap: Keymap
+    let appearance: EditorAppearance
     @State private var title = ""
     @State private var syntax: SyntaxChoice = .automatic
 
@@ -17,7 +18,7 @@ struct NoteDetail: View {
                 .padding(.top, 12)
                 .padding(.bottom, 4)
             Divider()
-            EditorView(noteID: note.id, initialText: note.body, keymap: keymap, syntax: syntax, showMessage: { model.banner = $0 }) { text in
+            EditorView(noteID: note.id, initialText: note.body, keymap: keymap, syntax: syntax, appearance: appearance, showMessage: { model.banner = $0 }) { text in
                 model.updateBody(note.id, to: text)
             }
         }
