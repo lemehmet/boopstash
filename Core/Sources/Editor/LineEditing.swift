@@ -32,39 +32,77 @@ public enum LineEditing {
         public var caretShift: Int
     }
 
+    /// A block of whole lines split into its text and its final terminator
+    /// (empty for the document's unterminated last line).
+    struct Block {
+        let content: String
+        let terminator: String
+
+        init(_ ns: NSString, _ range: NSRange) {
+            var contentsEnd = 0
+            ns.getLineStart(nil, end: nil, contentsEnd: &contentsEnd,
+                            for: NSRange(location: max(NSMaxRange(range) - 1, range.location), length: 0))
+            let end = max(min(contentsEnd, NSMaxRange(range)), range.location)
+            content = ns.substring(with: NSRange(location: range.location, length: end - range.location))
+            terminator = ns.substring(with: NSRange(location: end, length: NSMaxRange(range) - end))
+        }
+    }
+
     /// Swaps the block of whole lines `lines` with the line above or below.
-    /// Nil at the top or bottom of the text. The last line has no newline, so
-    /// when it takes part the newline moves to keep every line terminated
-    /// except the new last one.
+    /// Nil at the top or bottom of the text. The two contents trade places
+    /// and the terminators stay where they were, so CRLF, CR and Unicode
+    /// separators survive (#22) and the last line stays unterminated.
     public static func swap(_ text: String, lines: NSRange, up: Bool) -> Edit? {
         let ns = text as NSString
-        var block = ns.substring(with: lines)
+        let first: NSRange
+        let second: NSRange
         if up {
             guard lines.location > 0 else { return nil }
-            let previous = ns.lineRange(for: NSRange(location: lines.location - 1, length: 0))
-            var above = ns.substring(with: previous)
-            if !block.hasSuffix("\n") {
-                block += "\n"
-                above.removeLast()
-            }
-            return Edit(
-                range: NSRange(location: previous.location, length: previous.length + lines.length),
-                replacement: block + above,
-                caretShift: -previous.length
-            )
+            first = ns.lineRange(for: NSRange(location: lines.location - 1, length: 0))
+            second = lines
         } else {
             guard NSMaxRange(lines) < ns.length else { return nil }
-            let next = ns.lineRange(for: NSRange(location: NSMaxRange(lines), length: 0))
-            var below = ns.substring(with: next)
-            if !below.hasSuffix("\n") {
-                below += "\n"
-                block.removeLast()
-            }
-            return Edit(
-                range: NSRange(location: lines.location, length: lines.length + next.length),
-                replacement: below + block,
-                caretShift: (below as NSString).length
-            )
+            first = lines
+            second = ns.lineRange(for: NSRange(location: NSMaxRange(lines), length: 0))
         }
+        let a = Block(ns, first)
+        let b = Block(ns, second)
+        let replacement = b.content + a.terminator + a.content + b.terminator
+        let range = NSRange(location: first.location, length: first.length + second.length)
+        // How far the selected block's content moves: up, to where the line
+        // above began; down, past the line below's content and the
+        // terminator left in between.
+        let shift = up
+            ? -first.length
+            : (b.content as NSString).length + (a.terminator as NSString).length
+        return Edit(range: range, replacement: replacement, caretShift: shift)
+    }
+
+    /// Duplicates the block of whole lines `lines` above or below itself.
+    /// A block that is the unterminated last line borrows the terminator of
+    /// the line before it (LF in a one-line document), so the copy is a line
+    /// of the same kind.
+    public static func duplicate(_ text: String, lines: NSRange, above: Bool) -> Edit {
+        let ns = text as NSString
+        let block = Block(ns, lines)
+        var terminator = block.terminator
+        if terminator.isEmpty {
+            terminator = lines.location > 0
+                ? Block(ns, ns.lineRange(for: NSRange(location: lines.location - 1, length: 0))).terminator
+                : "\n"
+            if terminator.isEmpty { terminator = "\n" }
+        }
+        if above || !block.terminator.isEmpty {
+            // Insert a full line, content and terminator, at the block's start
+            // (above) or end (below, after the block's own terminator).
+            let copy = block.content + terminator
+            let at = above ? lines.location : NSMaxRange(lines)
+            return Edit(range: NSRange(location: at, length: 0), replacement: copy,
+                        caretShift: above ? 0 : (copy as NSString).length)
+        }
+        // Below an unterminated last line: terminate it, then the copy.
+        let copy = terminator + block.content
+        return Edit(range: NSRange(location: NSMaxRange(lines), length: 0), replacement: copy,
+                    caretShift: (copy as NSString).length)
     }
 }

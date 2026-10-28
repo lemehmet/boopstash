@@ -296,17 +296,10 @@ final class BoopTextView: NSTextView {
     }
 
     private func duplicateLines(above: Bool) {
-        let lines = selectedLines
-        let block = (string as NSString).substring(with: lines)
-        let copy = block.hasSuffix("\n") ? block : "\n" + block
+        let edit = LineEditing.duplicate(string, lines: selectedLines, above: above)
         let selection = selectedRange()
-        if above {
-            replace(NSRange(location: lines.location, length: 0), with: block.hasSuffix("\n") ? block : block + "\n")
-            setSelectedRange(selection)
-        } else {
-            replace(NSRange(location: NSMaxRange(lines), length: 0), with: copy)
-            setSelectedRange(NSRange(location: selection.location + (copy as NSString).length, length: selection.length))
-        }
+        replace(edit.range, with: edit.replacement)
+        setSelectedRange(NSRange(location: selection.location + edit.caretShift, length: selection.length))
     }
 
     private func swapLines(up: Bool) {
