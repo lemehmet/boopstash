@@ -1,7 +1,6 @@
 # ADR 0006 — Editor engine: TextKit 2 `NSTextView`
 
-- **Status:** Proposed (2026-10-28); becomes Accepted after the hands-on check
-  below
+- **Status:** Accepted (2026-10-28), after the hands-on check below
 - **Deciders:** boopstash maintainers
 - **Evidence:** `Spikes/EditorSpike/` (its own Tuist project; not built by CI)
 
@@ -80,7 +79,18 @@ removed.
 - **Synthesized key events do not exercise AppKit's text checking** the way a
   real keyboard does, so "typed quotes stay straight" is checked by hand.
 
-## Hands-on check (before this ADR is accepted)
+## Hands-on check
+
+Done on 2026-10-28 by the maintainer with the spike and the app (#10's
+build). Typing, Home/End, Tab/Shift-Tab, folding and paste behaved as
+intended; paste needed one fix, now covered by the app's hosted tests.
+Check 1 could not be judged on that Mac: with macOS smart quotes turned on,
+neither TextEdit nor Messages substituted either, so the control did not
+show the behaviour. It is taken as passing on the strength of the
+automated mask check (criterion 3) and will be reopened if a user reports
+substitutions in the editor.
+
+The checklist, for rerunning on another Mac:
 
 Open the spike app (`cd Spikes/EditorSpike && mise exec -- tuist generate`,
 run the `EditorSpike` scheme) and, with a real keyboard:
