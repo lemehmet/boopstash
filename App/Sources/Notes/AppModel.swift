@@ -185,8 +185,12 @@ final class AppModel {
         }
     }
 
+    /// Reads only the draft or the store, never the observed list: a note
+    /// deleted or re-saved since the request must not be written back.
     private func applyModelTitle(_ title: String, to id: UUID, body: String) {
-        guard var current = note(id: id), !current.titleIsUserSet, current.body == body else { return }
+        guard var current = drafts[id] ?? (try? store.note(id: id)),
+              !current.titleIsUserSet, current.body == body
+        else { return }
         current.title = title
         current.modelTitledHash = Note.contentHash(body)
         if drafts[id] != nil {
