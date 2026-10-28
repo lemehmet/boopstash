@@ -21,8 +21,15 @@ tap() { # tap <name> [version]: a tap repository, with a cask when a version is 
 }
 
 expect() { # expect <skip|write> <tap dir> <version> <label>
-  local outcome
-  if "$here/tap-is-newer.sh" "$2" "$3" >/dev/null; then outcome=skip; else outcome=write; fi
+  # 0 is skip and 1 is write; anything else is the script failing, which
+  # must never pass for a write (the bug #34 fixed exited 128).
+  local status=0 outcome
+  "$here/tap-is-newer.sh" "$2" "$3" >/dev/null 2>&1 || status=$?
+  case "$status" in
+    0) outcome=skip ;;
+    1) outcome=write ;;
+    *) outcome="crash (exit $status)" ;;
+  esac
   if [ "$outcome" = "$1" ]; then echo "ok   $4"; else echo "FAIL $4: expected $1, got $outcome"; failures=$((failures + 1)); fi
 }
 
