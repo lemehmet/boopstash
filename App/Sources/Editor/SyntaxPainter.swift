@@ -18,7 +18,7 @@ final class SyntaxPainter {
     private var engine: SyntaxEngine?
 
     private enum Operation {
-        case reset(SyntaxLanguage?, String, version: Int)
+        case reset(SyntaxChoice, String, version: Int)
         case edit(TextChange, String, version: Int)
     }
     private let operations: AsyncStream<Operation>.Continuation
@@ -91,7 +91,7 @@ final class SyntaxPainter {
         detection?.cancel()
         self.choice = choice
         shownVersion += 1
-        operations.yield(.reset(choice.resolve(for: text), text, version: shownVersion))
+        operations.yield(.reset(choice, text, version: shownVersion))
     }
 
     /// Format ▸ Language for the open note.
@@ -124,17 +124,19 @@ final class SyntaxPainter {
         detection = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(700))
             guard !Task.isCancelled, let self, let text = self.view?.string else { return }
-            let detected = SyntaxLanguage.detect(text)
-            if detected != self.language {
-                self.shownVersion += 1
-                self.operations.yield(.reset(detected, text, version: self.shownVersion))
-            }
+            // Detection reads up to 64 KB with regular expressions: off the
+            // main thread, like parsing.
+            let detected = await Task.detached(priority: .userInitiated) { SyntaxLanguage.detect(text) }.value
+            guard !Task.isCancelled, self.choice == .automatic, detected != self.language else { return }
+            self.shownVersion += 1
+            self.operations.yield(.reset(.automatic, text, version: self.shownVersion))
         }
     }
 
     private func handle(_ operation: Operation) async {
         switch operation {
-        case .reset(let language, let text, let version):
+        case .reset(let choice, let text, let version):
+            let language = await Task.detached(priority: .userInitiated) { choice.resolve(for: text) }.value
             if language != self.language || engine == nil {
                 self.language = language
                 engine = language.flatMap { try? SyntaxEngine(language: $0) }

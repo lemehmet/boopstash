@@ -32,8 +32,8 @@ Each milestone ends in something that runs. Decisions behind them are in
   (VS Code default, JetBrains, Emacs) with the Linux-habits toggle and
   `keybindings.json` overrides.
 - Paste: plain ⌘V; Paste as Markdown (⌥⇧⌘V).
-- Highlighting for 17 common languages (incremental tree-sitter, off the main
-  thread). Native JSON / XML / plist formatting moved to M4 with the other
+- Highlighting for 20 common languages (incremental tree-sitter, off the main
+  thread), with a per-note language menu. Native JSON / XML / plist formatting moved to M4 with the other
   formatters.
 - Export as a folder of `.md` files plus attachments.
 - Help: how to turn on Spotlight's clipboard history.
