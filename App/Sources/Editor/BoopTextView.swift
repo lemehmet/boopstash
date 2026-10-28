@@ -53,9 +53,58 @@ final class BoopTextView: NSTextView {
         return (scroll, view)
     }
 
+    // MARK: - Appearance
+
+    /// The font and themes from Settings ▸ Editor.
+    var editorAppearance = EditorAppearance() {
+        didSet { if editorAppearance != oldValue { applyAppearance() } }
+    }
+
+    /// The theme for the appearance macOS is in now; nil is the system's.
+    var activeTheme: Theme? {
+        editorAppearance.theme(dark: effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua)
+    }
+
+    func applyAppearance() {
+        let font = EditorSettings.font(for: editorAppearance)
+        let theme = activeTheme
+        let text = theme.map { NSColor($0.foreground) } ?? .textColor
+        self.font = font
+        if let storage = textStorage, storage.length > 0 {
+            storage.beginEditing()
+            storage.addAttributes([.font: font, .foregroundColor: text], range: NSRange(location: 0, length: storage.length))
+            storage.endEditing()
+        }
+        typingAttributes = [.font: font, .foregroundColor: text]
+        textColor = text
+        if let theme {
+            drawsBackground = true
+            backgroundColor = NSColor(theme.background)
+            insertionPointColor = NSColor(theme.caret)
+            selectedTextAttributes = [.backgroundColor: NSColor(theme.selection)]
+        } else {
+            drawsBackground = false
+            backgroundColor = .textBackgroundColor
+            insertionPointColor = .textInsertionPointColor
+            selectedTextAttributes = [.backgroundColor: NSColor.selectedTextBackgroundColor]
+        }
+        enclosingScrollView?.drawsBackground = theme != nil
+        enclosingScrollView?.backgroundColor = backgroundColor
+        syntax.theme = theme
+        SyntaxPainter.markForRedisplay(self)
+    }
+
+    /// Light and dark themes switch with the system appearance.
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyAppearance()
+    }
+
     /// Replaces the whole text with another note's, and highlights it.
     func load(_ text: String, syntax choice: SyntaxChoice = .automatic) {
         syntax.replacingDocument { string = text }
+        // The new text arrives in the default font and colour.
+        applyAppearance()
         syntax.load(text, choice: choice)
     }
 
@@ -311,17 +360,10 @@ final class BoopTextView: NSTextView {
     }
 
     private func duplicateLines(above: Bool) {
-        let lines = selectedLines
-        let block = (string as NSString).substring(with: lines)
-        let copy = block.hasSuffix("\n") ? block : "\n" + block
+        let edit = LineEditing.duplicate(string, lines: selectedLines, above: above)
         let selection = selectedRange()
-        if above {
-            replace(NSRange(location: lines.location, length: 0), with: block.hasSuffix("\n") ? block : block + "\n")
-            setSelectedRange(selection)
-        } else {
-            replace(NSRange(location: NSMaxRange(lines), length: 0), with: copy)
-            setSelectedRange(NSRange(location: selection.location + (copy as NSString).length, length: selection.length))
-        }
+        replace(edit.range, with: edit.replacement)
+        setSelectedRange(NSRange(location: selection.location + edit.caretShift, length: selection.length))
     }
 
     private func swapLines(up: Bool) {

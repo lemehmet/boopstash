@@ -117,6 +117,16 @@ import Testing
         #expect(title(#"{"\u0061": 1, "caf\u00e9": 2}"#) == "JSON {a, café}")
     }
 
+    @Test func largeJSONWithLeadingWhitespaceKeepsItsShape() {
+        let array = "\n\n  [" + Array(repeating: #"{"id": 1}"#, count: 120_000).joined(separator: ",") + "]"
+        #expect(array.utf8.count > ContentKind.jsonParseLimit)
+        #expect(title(array) == "JSON array")
+        let object = "\n {" + #""first": 1, "second": ""# + String(repeating: "x", count: ContentKind.jsonParseLimit) + #"", "third": 3}"#
+        // Only the 64 KB head is read, so the key after the long string is
+        // not seen.
+        #expect(title(object) == "JSON {first, second, …}")
+    }
+
     @Test func jsonArraysGiveTheirLength() {
         #expect(title("[1, 2, 3]") == "JSON array of 3")
     }
@@ -155,6 +165,23 @@ import Testing
         let huge = String(repeating: "\n", count: 5_000_000) + "finally a line"
         let elapsed = ContinuousClock().measure { _ = RuleTitler.title(for: huge, kind: .plain) }
         #expect(elapsed < .milliseconds(500), "took \(elapsed)")
+    }
+
+    @Test func detectingAHugeBlankPrefixIsBounded() {
+        let huge = String(repeating: "\n", count: 5_000_000) + "{\"a\": 1}"
+        let elapsed = ContinuousClock().measure { _ = ContentKind.detect(huge) }
+        #expect(elapsed < .milliseconds(500), "took \(elapsed)")
+    }
+
+    @Test func leadingSampleSkipsWhitespaceWithinItsLimit() {
+        #expect(ContentKind.leadingSample(of: " \t\r\n[1]") == "[1]")
+        #expect(ContentKind.leadingSample(of: "") == "")
+        #expect(ContentKind.leadingSample(of: "\u{3000}\u{A0}é") == "é", "Unicode spaces are whitespace too")
+        let blank = String(repeating: " ", count: ContentKind.sampleLimit + 10) + "x"
+        #expect(ContentKind.leadingSample(of: blank) == String(repeating: " ", count: 10) + "x",
+                "the skip stops after sampleLimit scalars")
+        #expect(ContentKind.leadingSample(of: String(repeating: "y", count: ContentKind.sampleLimit * 2)).count
+                == ContentKind.sampleLimit)
     }
 
     @Test func stackTracesNameTheFailure() {

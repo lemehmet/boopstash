@@ -10,6 +10,7 @@ struct EditorView: NSViewRepresentable {
     let initialText: String
     let keymap: Keymap
     var syntax: SyntaxChoice = .automatic
+    var appearance = EditorAppearance()
     var showMessage: (String) -> Void = { _ in }
     /// Called when this editor gains or loses focus, or goes away.
     var onFocusChange: () -> Void = {}
@@ -26,6 +27,7 @@ struct EditorView: NSViewRepresentable {
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         guard let view = scroll.documentView as? BoopTextView else { return }
         view.keymap = keymap
+        view.editorAppearance = appearance
         view.showMessage = showMessage
         view.onFocusChange = { _ in onFocusChange() }
         context.coordinator.onFocusChange = onFocusChange
