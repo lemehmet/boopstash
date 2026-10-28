@@ -33,7 +33,7 @@ behaviour, distribution, formatting. A change that contradicts one needs a new
 ADR, not a quiet exception.
 
 **Logic lives in `BoopstashCore`, with tests.** Core imports Foundation and
-nothing that needs a device or a window. Only thin `Live*` adapters in the app
+GRDB, and nothing that needs a device or a window. Only thin `Live*` adapters in the app
 import AppKit, CloudKit, Vision or JavaScriptCore. If a change adds a decision
 to an adapter, expect to be asked to move it into Core.
 

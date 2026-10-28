@@ -40,3 +40,7 @@ fastlane/test_output/
 
 # fuko skills scratch space (.claude/project.toml [paths]).
 .agent-scratch/
+
+# Spike build output.
+Spikes/*/.build/
+Spikes/*/Tuist/.build/

@@ -16,7 +16,9 @@ Each milestone ends in something that runs. Decisions behind them are in
 ## M1 — Editor spike
 
 - The same test bench on three engines (ADR 0003 criteria).
-- Outcome recorded as ADR 0006. The spike code is thrown away.
+- Outcome recorded as ADR 0006: TextKit 2 `NSTextView`. STTextView excluded on
+  licence, CodeEditSourceEditor on forced quote pairing. The spike stays in
+  `Spikes/EditorSpike/` as evidence, outside CI.
 
 ## M2 — Mac MVP
 
