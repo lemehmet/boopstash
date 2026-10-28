@@ -15,5 +15,19 @@ current="$( { git -C "$tap" show HEAD:Casks/boopstash.rb 2>/dev/null || true; } 
 
 [ -n "$current" ] || exit 1
 [ "$current" != "$version" ] || exit 1
-[ "$(printf '%s\n%s\n' "$current" "$version" | sort -V | tail -1)" = "$current" ] || exit 1
+
+# Semver precedence: compare MAJOR.MINOR.PATCH first; when equal, a release
+# outranks its prereleases (1.0.0 > 1.0.0-rc1), which `sort -V` alone gets
+# backwards. Two prereleases of one version compare with `sort -V`.
+core_current="${current%%-*}"
+core_version="${version%%-*}"
+if [ "$core_current" != "$core_version" ]; then
+  [ "$(printf '%s\n%s\n' "$core_current" "$core_version" | sort -V | tail -1)" = "$core_current" ] || exit 1
+elif [ "$current" = "$core_current" ]; then
+  :  # the tap has the release; the one being released is its prerelease
+elif [ "$version" = "$core_version" ]; then
+  exit 1  # the tap has a prerelease of the release being published
+else
+  [ "$(printf '%s\n%s\n' "$current" "$version" | sort -V | tail -1)" = "$current" ] || exit 1
+fi
 echo "$current"

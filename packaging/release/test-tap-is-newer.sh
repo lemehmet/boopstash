@@ -31,5 +31,10 @@ expect write "$(tap older 0.1.0)" 0.2.0 "newer release"
 expect write "$(tap same 0.1.0)" 0.1.0 "rerun of the same release"
 expect skip "$(tap newer 0.2.0)" 0.1.0 "older release does not downgrade"
 expect skip "$(tap tens 0.10.0)" 0.9.0 "0.10.0 is newer than 0.9.0"
+expect write "$(tap rc 1.0.0-rc1)" 1.0.0 "a release replaces its prerelease"
+expect skip "$(tap final 1.0.0)" 1.0.0-rc2 "a prerelease does not replace its release"
+expect write "$(tap rc1 1.0.0-rc1)" 1.0.0-rc2 "a later prerelease replaces an earlier one"
+expect skip "$(tap next 1.1.0-rc1)" 1.0.0 "a prerelease of a newer version is kept"
+expect write "$(tap old 0.9.0)" 1.0.0-rc1 "a prerelease of a newer version replaces an older release"
 
 [ "$failures" -eq 0 ] || { echo "$failures failure(s)"; exit 1; }
