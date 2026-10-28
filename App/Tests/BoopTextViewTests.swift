@@ -191,6 +191,52 @@ struct BoopTextViewTests {
         host.close()
     }
 
+    /// The clearing path redraws too (#32): switching a coloured note to
+    /// Plain Text must not leave the old colours on screen.
+    @Test func switchingToPlainTextMarksTheTextForRedisplay() async throws {
+        let host = Host()
+        let text = "let a = 1\nlet b = \"two\"\n"
+        // Inside the string literal, which Swift highlighting colours.
+        let literal = (text as NSString).range(of: "\"two\"").location + 1
+        host.view.load(text, syntax: .language(.swift))
+        for _ in 0..<100 where Self.renderingColor(in: host.view, at: literal) == nil {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(Self.renderingColor(in: host.view, at: literal) != nil, "the literal must be coloured before switching")
+        host.window.display()
+        var dirty: [Bool] = []
+        await withCheckedContinuation { continuation in
+            host.view.syntax.didPaint = {
+                func all(_ v: NSView) -> [NSView] { [v] + v.subviews.flatMap(all) }
+                dirty = all(host.view).filter { !$0.isHidden }.map { $0.needsDisplay || $0.layer?.needsDisplay() == true }
+                host.view.syntax.didPaint = nil
+                continuation.resume()
+            }
+            host.view.syntax.setChoice(.plain)
+        }
+        #expect(dirty.count > 1)
+        #expect(dirty.allSatisfy { $0 }, "\(dirty.filter { !$0 }.count) of \(dirty.count) views were not marked")
+        #expect(Self.renderingColor(in: host.view, at: literal) == nil)
+        host.close()
+    }
+
+    /// Plain text has nothing to clear: typing and scrolling in it must not
+    /// redraw the whole text view on every change.
+    @Test func plainTextEditsDoNotRedraw() async throws {
+        let host = Host()
+        host.view.load("Buy milk.\n", syntax: .plain)
+        try await Task.sleep(for: .milliseconds(200))
+        var redraws = 0
+        host.view.syntax.didPaint = { redraws += 1 }
+        for character in "and call the plumber " {
+            host.view.insertText(String(character), replacementRange: host.view.selectedRange())
+        }
+        host.view.scroll(NSPoint(x: 0, y: 20))
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(redraws == 0)
+        host.close()
+    }
+
     static func renderingColor(in view: NSTextView, at offset: Int) -> NSColor? {
         guard let layout = view.textLayoutManager, let content = layout.textContentManager,
               let location = content.location(content.documentRange.location, offsetBy: offset) else { return nil }
