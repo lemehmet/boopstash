@@ -43,6 +43,18 @@ import Testing
         #expect(try store.note(id: note.id) == note)
     }
 
+    @Test func subMillisecondDatesRoundTrip() throws {
+        let precise = Date(timeIntervalSinceReferenceDate: 783_000_000.123_456_7)
+        var note = Note(title: "t", body: "b", createdAt: precise)
+        note.updatedAt = precise.addingTimeInterval(0.000_9)
+        try store.save(note)
+        #expect(try store.note(id: note.id) == note)
+        // And with whatever the clock says right now.
+        let now = Note(title: "n", body: "b", createdAt: Date())
+        try store.save(now)
+        #expect(try store.note(id: now.id) == now)
+    }
+
     @Test func listIsNewestEditedFirst() throws {
         try add("a", title: "old", edited: Self.daysAgo(3))
         try add("b", title: "new", edited: Self.daysAgo(0))
