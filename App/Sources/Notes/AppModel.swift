@@ -102,12 +102,11 @@ final class AppModel {
 
     // MARK: Editing
 
+    /// Called on every keystroke, so it only records the text; the title
+    /// is regenerated once typing pauses, when the draft is saved.
     func updateBody(_ id: UUID, to body: String) {
         guard var note = note(id: id), note.body != body else { return }
         note.body = body
-        if !note.titleIsUserSet {
-            note.title = RuleTitler.title(for: body, kind: ContentKind.detect(body))
-        }
         scheduleSave(note)
     }
 
@@ -132,13 +131,21 @@ final class AppModel {
         }
     }
 
+    /// Saves a note's pending edits. The draft is dropped only once the
+    /// write succeeds: on a failed write (disk full, say) it stays, so the
+    /// next edit, selection change or quit tries again.
     func flush(_ id: UUID) {
         pendingSaves[id]?.cancel()
         pendingSaves[id] = nil
-        guard let draft = drafts.removeValue(forKey: id) else { return }
+        guard var draft = drafts[id] else { return }
+        if !draft.titleIsUserSet {
+            draft.title = RuleTitler.title(for: draft.body, kind: ContentKind.detect(draft.body))
+        }
         do {
             try store.save(draft)
+            drafts[id] = nil
         } catch {
+            drafts[id] = draft
             banner = "Could not save: \(error.localizedDescription)"
         }
     }

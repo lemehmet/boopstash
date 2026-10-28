@@ -143,8 +143,8 @@ final class BoopTextView: NSTextView {
         case .duplicateLineUp: duplicateLines(above: true)
         case .swapLineUp: swapLines(up: true)
         case .swapLineDown: swapLines(up: false)
-        case .indentLines: insertTab(nil)
-        case .unindentLines: insertBacktab(nil)
+        case .indentLines: indentLines()
+        case .unindentLines: unindentLines()
         case .pasteAsMarkdown: pasteAsMarkdown(nil)
         case .fold, .unfold, .toggleComment:
             // Folding is deferred (ADR 0003); comments need the note's
@@ -161,17 +161,27 @@ final class BoopTextView: NSTextView {
     }
 
     /// Tab with a selection spanning lines indents every line it touches;
-    /// otherwise it inserts the indent unit at the caret. One undo step.
+    /// otherwise it inserts the indent unit at the caret, as in VS Code.
     override func insertTab(_ sender: Any?) {
         let selection = selectedRange()
         guard (string as NSString).substring(with: selection).contains("\n") else {
             insertText(indentUnit, replacementRange: selection)
             return
         }
-        rewriteLines(in: selectedLines) { indentUnit + $0 }
+        indentLines()
     }
 
     override func insertBacktab(_ sender: Any?) {
+        unindentLines()
+    }
+
+    /// The explicit commands (⌘] / ⌘[) always work on whole lines, so they
+    /// never replace selected text.
+    private func indentLines() {
+        rewriteLines(in: selectedLines) { indentUnit + $0 }
+    }
+
+    private func unindentLines() {
         let width = indentUnit.count
         rewriteLines(in: selectedLines) { line in
             if line.hasPrefix("\t") { return String(line.dropFirst()) }
@@ -208,8 +218,9 @@ final class BoopTextView: NSTextView {
 
     private func swapLines(up: Bool) {
         guard let edit = LineEditing.swap(string, lines: selectedLines, up: up) else { return }
-        replace(edit.range, with: edit.replacement)
+        // Taken before the replacement, which collapses the selection.
         let selection = selectedRange()
+        replace(edit.range, with: edit.replacement)
         setSelectedRange(NSRange(location: selection.location + edit.caretShift, length: selection.length))
     }
 

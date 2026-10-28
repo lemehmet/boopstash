@@ -8,7 +8,8 @@ struct BoopstashApp: App {
     @AppStorage("linuxHabits") private var linuxHabits = false
 
     private var keymap: Keymap {
-        Keymap(preset: preset, linuxHabits: linuxHabits, overrides: KeybindingsFile.load())
+        let file = KeybindingsFile.load()
+        return Keymap(preset: preset, linuxHabits: linuxHabits, overrides: file.overrides, fileProblems: file.problems)
     }
 
     var body: some Scene {

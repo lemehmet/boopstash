@@ -225,6 +225,11 @@ public struct Keymap: Sendable {
     public struct OverridesFile: Equatable, Sendable {
         public var overrides: [Override]
         public var problems: [String]
+
+        public init(overrides: [Override], problems: [String]) {
+            self.overrides = overrides
+            self.problems = problems
+        }
     }
 
     /// Reads `keybindings.json`. VS Code's files may carry comments and

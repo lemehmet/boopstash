@@ -20,7 +20,8 @@ struct SettingsView: View {
                 LabeledContent("Custom bindings") {
                     Button("Show keybindings.json") { KeybindingsFile.reveal() }
                 }
-                let problems = Keymap(overrides: KeybindingsFile.load()).problems
+                let file = KeybindingsFile.load()
+                let problems = Keymap(overrides: file.overrides, fileProblems: file.problems).problems
                 if !problems.isEmpty {
                     Text(problems.joined(separator: "\n"))
                         .font(.caption)
@@ -47,9 +48,17 @@ enum KeybindingsFile {
             .appendingPathComponent("Boopstash/keybindings.json")
     }
 
-    static func load() -> [Keymap.Override] {
-        guard let url, let data = try? Data(contentsOf: url) else { return [] }
-        return (try? Keymap.overrides(fromJSON: data)) ?? []
+    /// A missing file is no overrides; a file that cannot be read or is not
+    /// a JSON array is reported, so a typo never silently resets bindings.
+    static func load() -> Keymap.OverridesFile {
+        guard let url, FileManager.default.fileExists(atPath: url.path) else {
+            return .init(overrides: [], problems: [])
+        }
+        do {
+            return try Keymap.overrides(fromJSON: Data(contentsOf: url))
+        } catch {
+            return .init(overrides: [], problems: ["keybindings.json could not be read: \(error.localizedDescription)"])
+        }
     }
 
     @MainActor
