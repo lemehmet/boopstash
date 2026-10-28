@@ -80,7 +80,9 @@ final class BoopTextView: NSTextView {
 
     override func validateUserInterfaceItem(_ item: any NSValidatedUserInterfaceItem) -> Bool {
         if let action = item.action, Self.refusedToggles.contains(action) { return false }
-        if item.action == #selector(pasteAsMarkdown(_:)) { return false } // converter lands with ADR 0003's Core function
+        if item.action == #selector(pasteAsMarkdown(_:)) {
+            return isEditable && NSPasteboard.general.availableType(from: [.html, .rtf, .string]) != nil
+        }
         return super.validateUserInterfaceItem(item)
     }
 
@@ -113,8 +115,49 @@ final class BoopTextView: NSTextView {
         insertText(text, replacementRange: selectedRange())
     }
 
+    /// ⌥⇧⌘V: the pasteboard's rich text as markdown source (ADR 0003).
+    /// HTML goes straight to Core's converter. RTF-only sources (TextEdit,
+    /// some mail) go through AppKit's HTML export first, which only writes
+    /// and never fetches; that export styles with CSS classes, so emphasis
+    /// from RTF may not survive. Without either, this is a plain paste.
     @objc func pasteAsMarkdown(_ sender: Any?) {
-        NSSound.beep()
+        let pasteboard = NSPasteboard.general
+        // What is pasted into a note is stored, so the capture rule applies:
+        // password-manager and transient items are refused (ADR 0001).
+        switch CapturePolicy.decide(types: pasteboard.types?.map(\.rawValue) ?? []) {
+        case .accept:
+            break
+        case .refuseConcealed:
+            NSSound.beep()
+            showMessage?("Not pasted: the clipboard holds a password manager item.")
+            return
+        case .refuseTransient:
+            NSSound.beep()
+            showMessage?("Not pasted: the app that copied this marked it as not to be kept.")
+            return
+        }
+        let markdown = Self.html(from: pasteboard).map(HTMLToMarkdown.convert) ?? ""
+        guard !markdown.isEmpty else {
+            // Nothing representable (an image without alt text, say): paste
+            // the plain text if there is any rather than delete the selection.
+            if pasteboard.string(forType: .string)?.isEmpty == false {
+                pasteAsPlainText(sender)
+            } else {
+                NSSound.beep()
+            }
+            return
+        }
+        insertText(markdown, replacementRange: selectedRange())
+    }
+
+    private static func html(from pasteboard: NSPasteboard) -> String? {
+        if let html = pasteboard.string(forType: .html) { return html }
+        guard let rtf = pasteboard.data(forType: .rtf),
+              let text = NSAttributedString(rtf: rtf, documentAttributes: nil),
+              let data = try? text.data(from: NSRange(location: 0, length: text.length),
+                                        documentAttributes: [.documentType: NSAttributedString.DocumentType.html])
+        else { return nil }
+        return String(data: data, encoding: .utf8)
     }
 
     // MARK: - Key handling
