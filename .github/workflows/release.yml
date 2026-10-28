@@ -16,6 +16,12 @@ on:
 permissions:
   contents: read
 
+# Named explicitly: GitHub's default when no shell is given is `bash -e`
+# without pipefail, so `xcodebuild … | tail` would hide a failed build.
+defaults:
+  run:
+    shell: bash
+
 jobs:
   build:
     name: Build, sign, notarize
@@ -253,6 +259,13 @@ jobs:
           VERSION: ${{ needs.build.outputs.version }}
         run: |
           cd tap
+          # A rerun of an older release must not take the tap backwards.
+          current="$(git show HEAD:Casks/boopstash.rb 2>/dev/null | sed -n 's/^  version "\(.*\)"$/\1/p')"
+          if [ -n "$current" ] && [ "$current" != "$VERSION" ] && \
+             [ "$(printf '%s\n%s\n' "$current" "$VERSION" | sort -V | tail -1)" = "$current" ]; then
+            echo "::notice::the tap carries $current, newer than $VERSION; leaving it"
+            exit 0
+          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add Casks/boopstash.rb
