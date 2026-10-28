@@ -13,13 +13,17 @@ enum DropCapture {
     static func handle(_ providers: [NSItemProvider], model: AppModel) -> Bool {
         let usable = providers.filter { provider in acceptedTypes.contains { provider.hasItemConformingToTypeIdentifier($0.identifier) } }
         guard !usable.isEmpty else { return false }
+        // Where the drop came from is decided now, at the drop: by the time a
+        // slow item has loaded, another app may be in front (#31), and every
+        // item of one drop shares one source.
+        let source = model.dropSource()
         Task {
-            for provider in usable { await capture(provider, model: model) }
+            for provider in usable { await capture(provider, model: model, source: source) }
         }
         return true
     }
 
-    private static func capture(_ provider: NSItemProvider, model: AppModel) async {
+    private static func capture(_ provider: NSItemProvider, model: AppModel, source: (bundleID: String?, name: String?)?) async {
         switch CapturePolicy.decide(types: provider.registeredTypeIdentifiers) {
         case .accept: break
         case .refuseConcealed:
@@ -49,13 +53,17 @@ enum DropCapture {
             // A file dropped from Finder can be read for this drop only;
             // the sandbox grants nothing beyond it. The size is checked again
             // after reading, in case the file grew.
-            guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else {
+            // Never more than the limit plus one byte, so a file that grew
+            // since the size check, or one with no size (a pipe), cannot be
+            // read without bound (#30). The extra byte means "too large".
+            guard let data = readPrefix(of: url, limit: TextFileImport.sizeLimit + 1) else {
                 model.banner = "Could not read \(url.lastPathComponent)."
                 return
             }
             switch TextFileImport.text(from: data, type: type) {
             case .success(let text):
-                model.save(text, origin: .drop, title: TextFileImport.title(forFileNamed: url.lastPathComponent))
+                model.save(text, origin: .drop, title: TextFileImport.title(forFileNamed: url.lastPathComponent),
+                           sourceBundleID: source?.bundleID, sourceAppName: source?.name)
             case .failure(.notText):
                 model.banner = "\(url.lastPathComponent) is not a text file."
             case .failure(.tooLarge(let bytes)):
@@ -74,8 +82,15 @@ enum DropCapture {
                 model.banner = "The dropped text is empty."
                 return
             }
-            model.save(text, origin: .drop)
+            model.save(text, origin: .drop, sourceBundleID: source?.bundleID, sourceAppName: source?.name)
         }
+    }
+
+    /// Up to `limit` bytes from the start of the file.
+    static func readPrefix(of url: URL, limit: Int) -> Data? {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+        return try? handle.read(upToCount: limit) ?? Data()
     }
 
     private static func load<T: Transferable & Sendable>(_ type: T.Type, from provider: NSItemProvider) async -> T? {

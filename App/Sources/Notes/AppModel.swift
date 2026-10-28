@@ -139,7 +139,9 @@ final class AppModel {
     func save(_ text: String, origin: CaptureOrigin, title: String? = nil, sourceBundleID: String? = nil, sourceAppName: String? = nil) -> String? {
         var sourceBundleID = sourceBundleID
         var sourceAppName = sourceAppName
-        if origin == .drop, sourceBundleID == nil {
+        // A drop passes the source it saw when it happened (#31); this is
+        // only a fallback for a caller that did not.
+        if origin == .drop, sourceBundleID == nil, sourceAppName == nil {
             let source = dropSource()
             sourceBundleID = source?.bundleID
             sourceAppName = source?.name
