@@ -19,6 +19,10 @@ import UniformTypeIdentifiers
         #expect(TextFileImport.text(from: Data([0xEF, 0xBB, 0xBF]) + Data("bom".utf8), type: .plainText) == .success("bom"))
         let utf16 = "héllo".data(using: .utf16)! // carries a BOM
         #expect(TextFileImport.text(from: utf16, type: .plainText) == .success("héllo"))
+        let utf32le = Data([0xFF, 0xFE, 0x00, 0x00, 0x41, 0x00, 0x00, 0x00])
+        #expect(TextFileImport.text(from: utf32le, type: .plainText) == .success("A"))
+        let utf32be = Data([0x00, 0x00, 0xFE, 0xFF, 0x00, 0x00, 0x00, 0x42])
+        #expect(TextFileImport.text(from: utf32be, type: .plainText) == .success("B"))
         let latin1 = "naïve".data(using: .isoLatin1)!
         #expect(TextFileImport.text(from: latin1, type: .plainText) == .success("naïve"))
     }

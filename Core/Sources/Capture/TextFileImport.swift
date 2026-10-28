@@ -30,6 +30,10 @@ public enum TextFileImport {
     public static func text(from data: Data, type: UTType?) -> Result<String, Refusal> {
         if let type, !accepts(type) { return .failure(.notText) }
         guard data.count <= sizeLimit else { return .failure(.tooLarge(bytes: data.count)) }
+        // UTF-32's BOMs start with UTF-16's (FF FE 00 00), so check them first.
+        if data.starts(with: [0xFF, 0xFE, 0x00, 0x00]) || data.starts(with: [0x00, 0x00, 0xFE, 0xFF]) {
+            return String(data: data, encoding: .utf32).map(Result.success) ?? .failure(.unreadable)
+        }
         if data.starts(with: [0xFF, 0xFE]) || data.starts(with: [0xFE, 0xFF]) {
             return String(data: data, encoding: .utf16).map(Result.success) ?? .failure(.unreadable)
         }

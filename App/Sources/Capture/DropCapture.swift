@@ -30,7 +30,10 @@ enum DropCapture {
             return
         }
         if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
-            guard let url = await load(URL.self, from: provider) else { return }
+            guard let url = await load(URL.self, from: provider) else {
+                model.banner = "Could not read the dropped file."
+                return
+            }
             let type = (try? url.resourceValues(forKeys: [.contentTypeKey]))?.contentType
             // A file dropped from Finder can be read for this drop only;
             // the sandbox grants nothing beyond it.
@@ -48,7 +51,17 @@ enum DropCapture {
             case .failure(.unreadable):
                 model.banner = "Could not read \(url.lastPathComponent) as text."
             }
-        } else if let text = await load(String.self, from: provider), !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        } else {
+            // The drop was accepted, so every way it can come to nothing is
+            // reported rather than silent.
+            guard let text = await load(String.self, from: provider) else {
+                model.banner = "Could not read the dropped text."
+                return
+            }
+            guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                model.banner = "The dropped text is empty."
+                return
+            }
             model.save(text, origin: .drop)
         }
     }

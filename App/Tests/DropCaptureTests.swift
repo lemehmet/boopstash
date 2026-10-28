@@ -34,6 +34,7 @@ struct DropCaptureTests {
         let provider = NSItemProvider(object: "dropped words" as NSString)
         let notes = try await notes(after: { DropCapture.handle([provider], model: model) }, expecting: 1)
         #expect(notes.map(\.body) == ["dropped words"])
+        #expect(notes.first?.sourceAppName != nil, "drops record where they came from")
     }
 
     @Test func droppedTextFileIsTitledByItsName() async throws {
@@ -67,5 +68,21 @@ struct DropCaptureTests {
         try await Task.sleep(for: .milliseconds(300))
         #expect(try model.store.notes(matching: NoteQuery()).isEmpty)
         #expect(model.banner?.contains("password manager") == true)
+    }
+
+    @Test func emptyAndUnreadableDropsAreReported() async throws {
+        _ = DropCapture.handle([NSItemProvider(object: "   \n" as NSString)], model: model)
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(model.banner == "The dropped text is empty.")
+
+        let failing = NSItemProvider()
+        failing.registerDataRepresentation(forTypeIdentifier: UTType.utf8PlainText.identifier, visibility: .all) { completion in
+            completion(nil, CocoaError(.fileReadUnknown))
+            return nil
+        }
+        _ = DropCapture.handle([failing], model: model)
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(model.banner == "Could not read the dropped text.")
+        #expect(try model.store.notes(matching: NoteQuery()).isEmpty)
     }
 }
