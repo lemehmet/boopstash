@@ -35,6 +35,9 @@ import Testing
         #expect(!file.name.contains("\u{FFFD}"), "no split characters")
     }
 
+    /// Pins behaviour that comes from String equality being canonical
+    /// equivalence, not from the key: a key that broke it (raw scalars,
+    /// for instance) would fail here.
     @Test func canonicallyEquivalentTitlesCollideLikeAPFS() {
         let files = NoteExport.files(for: [note("caf\u{E9}"), note("cafe\u{301}")], timeZone: Self.utc)
         #expect(Set(files.map(\.name)).count == 2)

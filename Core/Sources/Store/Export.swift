@@ -15,11 +15,10 @@ public enum NoteExport {
     /// one name there).
     public static func files(for notes: [Note], timeZone: TimeZone = .current) -> [File] {
         var used: Set<String> = []
-        // Canonical decomposition first: APFS compares names regardless of
-        // normalization, so "é" and "e\u{301}" are one file there (#17).
-        func key(_ name: String) -> String {
-            name.decomposedStringWithCanonicalMapping.folding(options: [.caseInsensitive], locale: nil)
-        }
+        // APFS also ignores normalization ("é" and "e\u{301}" are one file
+        // there). Swift String equality is canonical equivalence already,
+        // so the set below treats them as one name without more work (#17).
+        func key(_ name: String) -> String { name.folding(options: [.caseInsensitive], locale: nil) }
         return notes.sorted { $0.createdAt < $1.createdAt }.map { note in
             let base = "\(day(note.createdAt, timeZone: timeZone)) \(safeName(note.title.isEmpty ? "Untitled" : note.title))"
             var name = base + ".md"
