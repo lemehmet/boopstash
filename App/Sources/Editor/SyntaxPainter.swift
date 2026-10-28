@@ -183,6 +183,7 @@ final class SyntaxPainter {
             guard range.length > 0, let textRange = Self.textRange(range, in: content) else { continue }
             layout.addRenderingAttribute(.foregroundColor, value: color, for: textRange)
         }
+        view.needsDisplay = true
     }
 
     static func visibleRange(of view: NSTextView, in content: NSTextContentManager) -> NSRange? {

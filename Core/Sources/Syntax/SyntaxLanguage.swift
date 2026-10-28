@@ -48,6 +48,7 @@ public enum SyntaxLanguage: String, CaseIterable, Codable, Sendable {
         case .url, .stackTrace, .log: return nil
         case .code, .plain:
             let sample = String(body.prefix(16 * 1024))
+            if isJSONLines(sample) { return .json }
             if isTOML(sample) { return .toml }
             let best = scores(sample).max { $0.value < $1.value }
             guard let best, best.value >= (kind == .plain ? plainThreshold : threshold) else { return nil }
@@ -136,6 +137,18 @@ public enum SyntaxLanguage: String, CaseIterable, Codable, Sendable {
             scores[.typescript] = ts + (scores[.javascript] ?? 0)
         }
         return scores
+    }
+
+    /// One JSON value per line (logs, agent output, `jq -c`). Tree-sitter's
+    /// JSON grammar accepts a sequence of values, so it highlights these.
+    static func isJSONLines(_ sample: String) -> Bool {
+        let lines = sample.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }.prefix(50)
+        guard lines.count >= 2 else { return false }
+        // The last line of a sample may be cut short.
+        return lines.dropLast().allSatisfy { line in
+            guard let first = line.first, first == "{" || first == "[" else { return false }
+            return (try? JSONSerialization.jsonObject(with: Data(line.utf8))) != nil
+        }
     }
 
     static func isTOML(_ sample: String) -> Bool {

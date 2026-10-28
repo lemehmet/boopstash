@@ -5,6 +5,7 @@ import Testing
 @Suite struct SyntaxLanguageTests {
     @Test(arguments: [
         (#"{"a": 1}"#, SyntaxLanguage?.some(.json)),
+        ("{\"level\": \"info\", \"msg\": \"start\"}\n{\"level\": \"warn\", \"msg\": \"slow\"}\n{\"level\": \"error\"}", .json),
         ("name: x\nversion: 1\nitems:\n  - a", .yaml),
         ("[package]\nname = \"boop\"\nversion = \"0.1.0\"", .toml),
         ("# Title\n\nSome [link](x) and\n- [ ] task", .markdown),
@@ -87,6 +88,16 @@ import Testing
         let (_, highlights) = await engine.highlights(in: NSRange(location: 0, length: (text as NSString).length))
         #expect(!highlights.isEmpty, "\(language) produced no highlights")
         #expect(highlights.allSatisfy { NSMaxRange($0.range) <= (text as NSString).length })
+    }
+
+    @Test func jsonLinesHighlightEveryLine() async throws {
+        let engine = try SyntaxEngine(language: .json)
+        let text = "{\"a\": \"one\"}\n{\"b\": \"two\"}\n"
+        _ = await engine.reset(text)
+        let ns = text as NSString
+        let strings = await engine.highlights(in: NSRange(location: 0, length: ns.length)).highlights
+            .filter { $0.name.hasPrefix("string") }.map { ns.substring(with: $0.range) }
+        #expect(strings.contains("\"one\"") && strings.contains("\"two\""), "got \(strings)")
     }
 
     @Test func stringsAndNumbersInJSON() async throws {

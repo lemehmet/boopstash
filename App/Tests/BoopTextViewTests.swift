@@ -121,6 +121,51 @@ struct BoopTextViewTests {
         host.close()
     }
 
+    /// What the user sees: render the view and look for strongly coloured
+    /// pixels. Rendering attributes that are set but never drawn pass the
+    /// attribute check above and fail this one.
+    @Test func highlightIsActuallyDrawn() async throws {
+        let host = Host()
+        let text = "[\n" + Array(repeating: #"  {"name": "boop", "count": 42, "ok": true}"#, count: 5).joined(separator: ",\n") + "\n]\n"
+        host.view.load(text)
+        var colouredPixels = 0
+        for _ in 0..<100 where colouredPixels == 0 {
+            try await Task.sleep(for: .milliseconds(20))
+            host.view.displayIfNeeded()
+            colouredPixels = Self.colouredPixels(in: host.view)
+        }
+        #expect(colouredPixels > 0, "nothing coloured was drawn")
+        host.close()
+    }
+
+    /// The control: colour written into storage must be seen by the pixel
+    /// check, or `highlightIsActuallyDrawn` proves nothing.
+    @Test func pixelCheckSeesStorageColour() {
+        let host = Host()
+        host.view.string = String(repeating: "coloured text here\n", count: 5)
+        host.view.textStorage?.addAttribute(.foregroundColor, value: NSColor.systemRed, range: NSRange(location: 0, length: 40))
+        host.view.displayIfNeeded()
+        let pixels = Self.colouredPixels(in: host.view)
+        #expect(pixels > 0)
+        host.close()
+    }
+
+    static func colouredPixels(in view: NSView) -> Int {
+        let bounds = view.visibleRect
+        guard let rep = view.bitmapImageRepForCachingDisplay(in: bounds) else { return 0 }
+        view.cacheDisplay(in: bounds, to: rep)
+        var count = 0
+        for y in stride(from: 0, to: rep.pixelsHigh, by: 2) {
+            for x in stride(from: 0, to: rep.pixelsWide, by: 2) {
+                guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+                let maxC = max(c.redComponent, c.greenComponent, c.blueComponent)
+                let minC = min(c.redComponent, c.greenComponent, c.blueComponent)
+                if maxC - minC > 0.35 { count += 1 } // saturated: not black, white or grey
+            }
+        }
+        return count
+    }
+
     static func renderingColor(in view: NSTextView, at offset: Int) -> NSColor? {
         guard let layout = view.textLayoutManager, let content = layout.textContentManager,
               let location = content.location(content.documentRange.location, offsetBy: offset) else { return nil }
