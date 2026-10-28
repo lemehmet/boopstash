@@ -94,6 +94,12 @@ import Testing
         #expect(md("<p>snake_case and a*b and #hash</p>") == "snake_case and a*b and #hash")
     }
 
+    @Test func hardBreaksStayOutsideEmphasis() {
+        #expect(md("<p><b>bold<br></b>next</p>") == "**bold**\\\nnext")
+        #expect(md("<p>a<b><br>bold</b></p>") == "a\\\n**bold**")
+        #expect(md("<p><b><br></b>x</p>") == "\\\nx")
+    }
+
     @Test func codeBlocksKeepConsecutiveBlankLines() {
         #expect(md("<pre>a\n\n\nb</pre>") == "```\na\n\n\nb\n```")
     }

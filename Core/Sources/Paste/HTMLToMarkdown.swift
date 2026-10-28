@@ -283,11 +283,24 @@ struct Writer {
 
     /// Markers hug the text; surrounding spaces stay outside, or "** x **"
     /// would not render as emphasis.
+    /// Spaces and hard breaks (`\` + newline) at either end move outside
+    /// the markers: emphasis cannot span a line break, and "** x **" would
+    /// not render at all.
     func wrap(_ text: String, _ marker: String) -> String {
-        let core = text.trimmingCharacters(in: .whitespaces)
+        var core = Substring(text)
+        var leading = ""
+        var trailing = ""
+        while true {
+            if core.hasPrefix(" ") { leading += " "; core = core.dropFirst() }
+            else if core.hasPrefix("\\\n") { leading += "\\\n"; core = core.dropFirst(2) }
+            else { break }
+        }
+        while true {
+            if core.hasSuffix(" ") { trailing = " " + trailing; core = core.dropLast() }
+            else if core.hasSuffix("\\\n") { trailing = "\\\n" + trailing; core = core.dropLast(2) }
+            else { break }
+        }
         guard !core.isEmpty else { return text }
-        let leading = text.prefix(while: { $0 == " " })
-        let trailing = String(text.reversed().prefix(while: { $0 == " " }))
         return leading + marker + core + marker + trailing
     }
 

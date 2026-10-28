@@ -124,8 +124,16 @@ final class BoopTextView: NSTextView {
         let pasteboard = NSPasteboard.general
         // What is pasted into a note is stored, so the capture rule applies:
         // password-manager and transient items are refused (ADR 0001).
-        guard CapturePolicy.decide(types: pasteboard.types?.map(\.rawValue) ?? []) == .accept else {
+        switch CapturePolicy.decide(types: pasteboard.types?.map(\.rawValue) ?? []) {
+        case .accept:
+            break
+        case .refuseConcealed:
             NSSound.beep()
+            showMessage?("Not pasted: the clipboard holds a password manager item.")
+            return
+        case .refuseTransient:
+            NSSound.beep()
+            showMessage?("Not pasted: the app that copied this marked it as not to be kept.")
             return
         }
         let markdown = Self.html(from: pasteboard).map(HTMLToMarkdown.convert) ?? ""
