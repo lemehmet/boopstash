@@ -4,9 +4,19 @@ import SwiftUI
 struct SettingsView: View {
     @Binding var preset: KeymapPreset
     @Binding var linuxHabits: Bool
+    @AppStorage(AppModel.modelTitlesKey) private var modelTitles = true
 
     var body: some View {
         Form {
+            Section("Titles") {
+                Toggle("Name notes with Apple Intelligence", isOn: $modelTitles)
+                    .disabled(!LiveModelTitler.isAvailable)
+                Text(LiveModelTitler.isAvailable
+                     ? "Uses the on-device model only; note text never leaves this Mac. Notes you name yourself are never renamed."
+                     : "Apple Intelligence is not available on this Mac, so titles come from each note's first meaningful line.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             Section("Keyboard") {
                 Picker("Key bindings", selection: $preset) {
                     ForEach(KeymapPreset.allCases, id: \.self) { Text($0.displayName).tag($0) }

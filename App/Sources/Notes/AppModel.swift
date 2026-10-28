@@ -19,6 +19,16 @@ final class AppModel {
     @ObservationIgnored private var pendingSaves: [UUID: Task<Void, Never>] = [:]
     @ObservationIgnored private var drafts: [UUID: Note] = [:]
     @ObservationIgnored private var dayObserver: NSObjectProtocol?
+    /// Requests in flight, so leaving and re-entering a note does not ask
+    /// twice. What was titled is persisted on the note (`modelTitledHash`).
+    @ObservationIgnored private var modelTitleRequests: Set<UUID> = []
+
+    /// Settings ▸ "Name notes with Apple Intelligence"; on by default where
+    /// the on-device model is available.
+    static let modelTitlesKey = "modelTitles"
+    private var usesModelTitles: Bool {
+        UserDefaults.standard.object(forKey: Self.modelTitlesKey) as? Bool ?? true
+    }
 
     /// Edits are saved after typing pauses for this long, and immediately
     /// when the selection changes or the app quits.
@@ -80,6 +90,7 @@ final class AppModel {
             var note = Note(body: text, createdAt: Date(), sourceBundleID: source?.bundleID, sourceAppName: source?.name)
             note.title = RuleTitler.title(for: text, kind: ContentKind.detect(text))
             insert(note)
+            requestModelTitle(for: note)
         case .refused(.refuseConcealed):
             banner = "Not saved: the clipboard holds a password manager item."
         case .refused:
@@ -142,7 +153,8 @@ final class AppModel {
         pendingSaves[id]?.cancel()
         pendingSaves[id] = nil
         guard var draft = drafts[id] else { return }
-        if !draft.titleIsUserSet {
+        // A model title for this exact text beats the rule-based one.
+        if !draft.titleIsUserSet, !draft.hasCurrentModelTitle {
             draft.title = RuleTitler.title(for: draft.body, kind: ContentKind.detect(draft.body))
         }
         do {
@@ -151,6 +163,41 @@ final class AppModel {
         } catch {
             drafts[id] = draft
             banner = "Could not save: \(error.localizedDescription)"
+        }
+    }
+
+    // MARK: Model titles
+
+    /// Asks the on-device model for a better title. The rule-based one is
+    /// already showing; this replaces it only if, when the answer arrives,
+    /// the user has not named the note and its text is what was titled.
+    func requestModelTitle(for note: Note) {
+        guard usesModelTitles, LiveModelTitler.isAvailable, !note.titleIsUserSet,
+              !note.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !note.hasCurrentModelTitle, !modelTitleRequests.contains(note.id)
+        else { return }
+        modelTitleRequests.insert(note.id)
+        let body = note.body
+        Task { [weak self] in
+            let title = await LiveModelTitler().title(for: body, kind: ContentKind.detect(body))
+            self?.modelTitleRequests.remove(note.id)
+            self?.applyModelTitle(title, to: note.id, body: body)
+        }
+    }
+
+    /// Reads only the draft or the store, never the observed list: a note
+    /// deleted or re-saved since the request must not be written back.
+    private func applyModelTitle(_ title: String, to id: UUID, body: String) {
+        guard var current = drafts[id] ?? (try? store.note(id: id)),
+              !current.titleIsUserSet, current.body == body
+        else { return }
+        current.title = title
+        current.modelTitledHash = Note.contentHash(body)
+        if drafts[id] != nil {
+            drafts[id] = current
+        } else {
+            // Not an edit: keep updatedAt so the note does not jump to the top.
+            do { try store.save(current) } catch { banner = "Could not save: \(error.localizedDescription)" }
         }
     }
 
@@ -170,6 +217,7 @@ final class AppModel {
         pendingSaves[id]?.cancel()
         pendingSaves[id] = nil
         drafts[id] = nil
+        modelTitleRequests.remove(id)
         if selection == id { selection = nil }
     }
 }

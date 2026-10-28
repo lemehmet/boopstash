@@ -39,7 +39,9 @@ Three facts shaped the baseline:
   service, no update checks, no font or script CDNs. The only remote endpoint
   is the user's own iCloud (CloudKit) container, and sync can be turned off.
 - **AI is local only.** Foundation Models, NaturalLanguage and Vision, all
-  on-device. No server-side model, no "private cloud" fallback.
+  on-device. No server-side model, no "private cloud" fallback. Concretely,
+  code names `SystemLanguageModel` and never `PrivateCloudComputeLanguageModel`,
+  which the macOS 27 SDK adds and which sends prompts to Apple's servers.
 - **The markdown preview loads nothing remote.** Remote images and other
   resources are blocked by default, because fetching one tells its server the
   viewer's IP address and when the note was opened.

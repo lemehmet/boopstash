@@ -81,7 +81,9 @@ struct MainWindow: View {
             }
         }
         .onChange(of: model.selection) { old, _ in
-            if let old { model.flush(old) }
+            guard let old else { return }
+            model.flush(old)
+            if let note = model.note(id: old) { model.requestModelTitle(for: note) }
         }
         .safeAreaInset(edge: .bottom) {
             if let banner = model.banner {
