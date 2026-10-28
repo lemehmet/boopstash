@@ -29,6 +29,12 @@ struct BoopstashApp: App {
                 Button("New Note from Clipboard") { delegate.model?.captureClipboard() }
                     .keyboardShortcut("n", modifiers: [.command, .option])
             }
+            CommandGroup(after: .saveItem) {
+                Button("Export All Notes…") {
+                    if let model = delegate.model { ExportPanel.run(model: model) }
+                }
+                .keyboardShortcut("e", modifiers: [.command, .shift])
+            }
             CommandGroup(after: .pasteboard) {
                 Button("Paste as Markdown") {
                     NSApp.sendAction(#selector(BoopTextView.pasteAsMarkdown(_:)), to: nil, from: nil)

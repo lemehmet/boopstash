@@ -201,8 +201,12 @@ final class AppModel {
         }
     }
 
-    func flushAll() {
+    /// Saves every pending draft; false if any write failed (the failed
+    /// drafts are kept, see `flush`).
+    @discardableResult
+    func flushAll() -> Bool {
         for id in Array(drafts.keys) { flush(id) }
+        return drafts.isEmpty
     }
 
     /// The draft and selection go only once the row is gone, so a failed
