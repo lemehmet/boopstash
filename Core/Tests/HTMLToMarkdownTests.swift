@@ -22,6 +22,23 @@ import Testing
         #expect(md(##"<a href="#section">jump</a>"##) == "jump")
     }
 
+    @Test func destinationsCannotEndEarly() {
+        #expect(md(#"<a href="https://x.test/a)b">x</a>"#) == "[x](https://x.test/a%29b)")
+        #expect(md(#"<a href="https://x.test/wiki/Foo_(bar)">Foo</a>"#) == "[Foo](https://x.test/wiki/Foo_%28bar%29)")
+        #expect(md(#"<img src="https://x.test/a b).png" alt="pic">"#) == "![pic](https://x.test/a%20b%29.png)")
+        #expect(md(#"<a href="https://x.test/a<b>c">x</a>"#) == "[x](https://x.test/a%3Cb%3Ec)")
+    }
+
+    @Test func labelsEscapeTheirBrackets() {
+        #expect(md(#"<a href="https://x.test">see [1] here</a>"#) == #"[see \[1\] here](https://x.test)"#)
+        #expect(md(#"<img src="https://x.test/i.png" alt="a]b">"#) == #"![a\]b](https://x.test/i.png)"#)
+    }
+
+    @Test func linkEdgeWhitespaceStaysInTheSentence() {
+        #expect(md(#"<p>a<a href="https://x.test"> b</a>c</p>"#) == "a [b](https://x.test)c")
+        #expect(md(#"<p>see<a href="https://x.test">docs </a>now</p>"#) == "see[docs](https://x.test) now")
+    }
+
     @Test func imagesAreReferencesNeverData() {
         #expect(md(#"<img src="https://x.y/i.png" alt="chart">"#) == "![chart](https://x.y/i.png)")
         #expect(md(#"<img src="data:image/png;base64,AAAA" alt="inline">"#) == "inline")
@@ -110,7 +127,7 @@ import Testing
     }
 
     @Test func quotedGreaterThanStaysInTheAttribute() {
-        #expect(md(#"<a href="https://e.test/?q=a>b">link</a>"#) == "[link](https://e.test/?q=a>b)")
+        #expect(md(#"<a href="https://e.test/?q=a>b">link</a>"#) == "[link](https://e.test/?q=a%3Eb)")
         #expect(md(#"<img alt='x > y' src="https://e.test/i.png">"#) == "![x > y](https://e.test/i.png)")
     }
 

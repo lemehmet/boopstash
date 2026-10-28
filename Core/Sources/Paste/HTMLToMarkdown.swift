@@ -314,17 +314,49 @@ struct Writer {
 
     func link(_ node: HTMLNode, text: String) -> String {
         let href = (node.attributes["href"] ?? "").trimmingCharacters(in: .whitespaces)
-        let label = text.trimmingCharacters(in: .whitespaces)
         guard !href.isEmpty, !href.lowercased().hasPrefix("javascript:"), !href.hasPrefix("#") else { return text }
-        if label.isEmpty { return "<\(href)>" }
-        if label == href || "mailto:" + label == href { return "<\(href)>" }
-        return "[\(label)](\(href.replacingOccurrences(of: " ", with: "%20")))"
+        // Spaces at the anchor's edges belong to the sentence around it, so
+        // they stay outside the link rather than vanish (#24).
+        let leading = String(text.prefix(while: \.isWhitespace))
+        let trailing = String(text.reversed().prefix(while: \.isWhitespace).reversed())
+        let label = text.trimmingCharacters(in: .whitespaces)
+        let destination = Self.destination(href)
+        let link: String
+        if label.isEmpty || label == href || "mailto:" + label == href {
+            link = "<\(destination)>"
+        } else {
+            link = "[\(Self.escapedLabel(label))](\(destination))"
+        }
+        return leading + link + trailing
     }
 
     func image(_ node: HTMLNode) -> String {
         let alt = node.attributes["alt"] ?? ""
         let src = node.attributes["src"] ?? ""
         guard !src.isEmpty, !src.lowercased().hasPrefix("data:") else { return alt }
-        return "![\(alt)](\(src.replacingOccurrences(of: " ", with: "%20")))"
+        return "![\(Self.escapedLabel(alt))](\(Self.destination(src)))"
+    }
+
+    /// A link destination that cannot end early: whitespace, parentheses and
+    /// angle brackets are percent-encoded, which every URL reader accepts
+    /// (#23). Other characters are left as the page wrote them.
+    static func destination(_ url: String) -> String {
+        var out = ""
+        for scalar in url.unicodeScalars {
+            switch scalar {
+            case " ", "\t", "\n", "\r", "(", ")", "<", ">":
+                out += String(format: "%%%02X", scalar.value)
+            default:
+                out.unicodeScalars.append(scalar)
+            }
+        }
+        return out
+    }
+
+    /// Link text with brackets escaped, so a `]` cannot close the label.
+    static func escapedLabel(_ text: String) -> String {
+        text.replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "[", with: "\\[")
+            .replacingOccurrences(of: "]", with: "\\]")
     }
 }

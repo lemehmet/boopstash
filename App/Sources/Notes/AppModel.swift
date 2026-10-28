@@ -13,6 +13,9 @@ final class AppModel {
     }
     /// A one-line message for the window, such as why a capture was refused.
     var banner: String?
+    /// Whether a note editor has keyboard focus; editor-only menu commands
+    /// are disabled otherwise (#25).
+    var editorHasFocus = false
 
     @ObservationIgnored private let sources = SourceAppTracker()
     @ObservationIgnored private var observation: Task<Void, Never>?
