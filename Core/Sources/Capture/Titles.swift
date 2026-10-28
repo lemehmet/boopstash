@@ -22,7 +22,9 @@ public struct RuleTitler: Titler {
     public static func title(for body: String, kind: ContentKind) -> String {
         // Titles come from the start of a note (and, for Python, the end);
         // never scan a whole multi-megabyte body on every edit.
-        let head = String(body.prefix(ContentKind.sampleLimit))
+        // Leading whitespace is skipped, as detection skips it, so an
+        // indented JSON array is still seen to start with "[" (#13).
+        let head = String(body.drop(while: \.isWhitespace).prefix(ContentKind.sampleLimit))
         let structured: String? = switch kind {
         case .json: jsonTitle(body, head: head)
         case .url: urlTitle(head)

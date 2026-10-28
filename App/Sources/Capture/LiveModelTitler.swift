@@ -14,14 +14,20 @@ struct LiveModelTitler: Titler {
     }
 
     func title(for body: String, kind: ContentKind) async -> String {
-        let fallback = RuleTitler.title(for: body, kind: kind)
-        guard Self.isAvailable else { return fallback }
+        await modelTitle(for: body, kind: kind) ?? RuleTitler.title(for: body, kind: kind)
+    }
+
+    /// The model's own title, or nil when it is unavailable, throws or says
+    /// nothing usable. Callers that remember what the model titled must use
+    /// this, so a failure is never recorded as a model title (#15).
+    func modelTitle(for body: String, kind: ContentKind) async -> String? {
+        guard Self.isAvailable else { return nil }
         let session = LanguageModelSession(model: SystemLanguageModel.default, instructions: ModelTitle.instructions)
         do {
             let response = try await session.respond(to: ModelTitle.prompt(for: body, kind: kind))
-            return ModelTitle.clean(response.content) ?? fallback
+            return ModelTitle.clean(response.content)
         } catch {
-            return fallback
+            return nil
         }
     }
 }

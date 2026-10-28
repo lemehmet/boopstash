@@ -117,6 +117,16 @@ import Testing
         #expect(title(#"{"\u0061": 1, "caf\u00e9": 2}"#) == "JSON {a, café}")
     }
 
+    @Test func largeJSONWithLeadingWhitespaceKeepsItsShape() {
+        let array = "\n\n  [" + Array(repeating: #"{"id": 1}"#, count: 120_000).joined(separator: ",") + "]"
+        #expect(array.utf8.count > ContentKind.jsonParseLimit)
+        #expect(title(array) == "JSON array")
+        let object = "\n {" + #""first": 1, "second": ""# + String(repeating: "x", count: ContentKind.jsonParseLimit) + #"", "third": 3}"#
+        // Only the 64 KB head is read, so the key after the long string is
+        // not seen.
+        #expect(title(object) == "JSON {first, second, …}")
+    }
+
     @Test func jsonArraysGiveTheirLength() {
         #expect(title("[1, 2, 3]") == "JSON array of 3")
     }

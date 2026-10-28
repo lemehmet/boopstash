@@ -27,7 +27,17 @@ final class AppModel {
     /// the on-device model is available.
     static let modelTitlesKey = "modelTitles"
     private var usesModelTitles: Bool {
-        UserDefaults.standard.object(forKey: Self.modelTitlesKey) as? Bool ?? true
+        modelTitlesEnabled() && modelTitlesAvailable()
+    }
+
+    /// The setting, the model's availability and the model itself, behind
+    /// closures so tests can stand in for Apple Intelligence.
+    @ObservationIgnored var modelTitlesEnabled: () -> Bool = {
+        UserDefaults.standard.object(forKey: AppModel.modelTitlesKey) as? Bool ?? true
+    }
+    @ObservationIgnored var modelTitlesAvailable: () -> Bool = { LiveModelTitler.isAvailable }
+    @ObservationIgnored var modelTitler: @MainActor (String, ContentKind) async -> String? = { body, kind in
+        await LiveModelTitler().modelTitle(for: body, kind: kind)
     }
 
     /// Edits are saved after typing pauses for this long, and immediately
@@ -252,23 +262,29 @@ final class AppModel {
     /// already showing; this replaces it only if, when the answer arrives,
     /// the user has not named the note and its text is what was titled.
     func requestModelTitle(for note: Note) {
-        guard usesModelTitles, LiveModelTitler.isAvailable, !note.titleIsUserSet,
+        guard usesModelTitles, !note.titleIsUserSet,
               !note.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               !note.hasCurrentModelTitle, !modelTitleRequests.contains(note.id)
         else { return }
         modelTitleRequests.insert(note.id)
         let body = note.body
         Task { [weak self] in
-            let title = await LiveModelTitler().title(for: body, kind: ContentKind.detect(body))
-            self?.modelTitleRequests.remove(note.id)
-            self?.applyModelTitle(title, to: note.id, body: body)
+            guard let self else { return }
+            let title = await self.modelTitler(body, ContentKind.detect(body))
+            self.modelTitleRequests.remove(note.id)
+            // No reply means no model title: the rule title stays and the
+            // text is not marked as titled, so it is asked again later (#15).
+            if let title { self.applyModelTitle(title, to: note.id, body: body) }
         }
     }
 
     /// Reads only the draft or the store, never the observed list: a note
     /// deleted or re-saved since the request must not be written back.
     private func applyModelTitle(_ title: String, to id: UUID, body: String) {
-        guard var current = drafts[id] ?? (try? store.note(id: id)),
+        // Turning the setting off also discards replies already on their way
+        // (#16).
+        guard usesModelTitles,
+              var current = drafts[id] ?? (try? store.note(id: id)),
               !current.titleIsUserSet, current.body == body
         else { return }
         current.title = title
