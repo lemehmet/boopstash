@@ -220,6 +220,13 @@ final class SpikeTextView: NSTextView {
 
     /// Fold ranges are character offsets, so any edit can invalidate them.
     /// The spike clears them; the app will remap them through the edit.
+    /// Inserts an image chip at the caret through the normal editing path,
+    /// so it is undoable and clears folds like any other edit; writing to
+    /// the text storage directly would skip didChangeText.
+    func insertChip() {
+        insertText(Attachments.chip(), replacementRange: selectedRange())
+    }
+
     override func didChangeText() {
         super.didChangeText()
         if !folds.folded.isEmpty {

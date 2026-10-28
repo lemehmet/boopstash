@@ -337,6 +337,15 @@ struct SpikeChecks {
         view.setSelectedRange(NSRange(location: 0, length: 0))
         view.insertText("inserted above\n", replacementRange: view.selectedRange())
         #expect(view.folds.folded.isEmpty, "a fold's offsets are stale after an edit above it")
+        // Inserting an image chip is an edit too.
+        view.setSelectedRange(NSRange(location: NSMaxRange((view.string as NSString).range(of: "## Folding")), length: 0))
+        view.toggleFoldAtCaret()
+        #expect(!view.folds.folded.isEmpty)
+        let before = view.string.utf16.count
+        view.setSelectedRange(NSRange(location: 0, length: 0))
+        view.insertChip()
+        #expect(view.string.utf16.count == before + 1, "the chip is one attachment character")
+        #expect(view.folds.folded.isEmpty, "a chip inserted above a fold clears it")
         host.close()
     }
 }
