@@ -124,22 +124,25 @@ final class AppModel {
         return message
     }
 
+    /// Where a drop came from: a drag usually starts in the app that is in
+    /// front (Finder, a browser); failing that, the last one that was.
+    /// Replaceable so tests do not depend on what else is running.
+    @ObservationIgnored lazy var dropSource: () -> (bundleID: String?, name: String?)? = { [sources] in
+        if let front = NSWorkspace.shared.frontmostApplication, front.bundleIdentifier != Bundle.main.bundleIdentifier {
+            return (front.bundleIdentifier, front.localizedName)
+        }
+        return sources.lastOtherApp
+    }
+
     /// Stores a captured text as a new note. Returns why it failed, or nil.
     @discardableResult
     func save(_ text: String, origin: CaptureOrigin, title: String? = nil, sourceBundleID: String? = nil, sourceAppName: String? = nil) -> String? {
         var sourceBundleID = sourceBundleID
         var sourceAppName = sourceAppName
         if origin == .drop, sourceBundleID == nil {
-            // A drag usually starts in the app that is in front (Finder,
-            // a browser); failing that, the last one that was.
-            let front = NSWorkspace.shared.frontmostApplication
-            if let front, front.bundleIdentifier != Bundle.main.bundleIdentifier {
-                sourceBundleID = front.bundleIdentifier
-                sourceAppName = front.localizedName
-            } else {
-                sourceBundleID = sources.lastOtherApp?.bundleID
-                sourceAppName = sources.lastOtherApp?.name
-            }
+            let source = dropSource()
+            sourceBundleID = source?.bundleID
+            sourceAppName = source?.name
         }
         var note = Note(body: text, createdAt: Date(), sourceBundleID: sourceBundleID, sourceAppName: sourceAppName)
         if let title {

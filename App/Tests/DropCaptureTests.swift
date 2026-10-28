@@ -11,6 +11,18 @@ struct DropCaptureTests {
 
     init() throws {
         model = AppModel(store: try .inMemory())
+        model.dropSource = { ("com.example.source", "Example Source") }
+    }
+
+    /// Drops finish on their own schedule; wait for `condition` instead of
+    /// a fixed delay, failing after `timeout`.
+    func eventually(timeout: Duration = .seconds(5), _ condition: () throws -> Bool) async throws -> Bool {
+        let deadline = ContinuousClock.now + timeout
+        while ContinuousClock.now < deadline {
+            if try condition() { return true }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        return try condition()
     }
 
     /// Drops load asynchronously; wait for the store to reflect them.
@@ -34,7 +46,8 @@ struct DropCaptureTests {
         let provider = NSItemProvider(object: "dropped words" as NSString)
         let notes = try await notes(after: { DropCapture.handle([provider], model: model) }, expecting: 1)
         #expect(notes.map(\.body) == ["dropped words"])
-        #expect(notes.first?.sourceAppName != nil, "drops record where they came from")
+        #expect(notes.first?.sourceAppName == "Example Source", "drops record where they came from")
+        #expect(notes.first?.sourceBundleID == "com.example.source")
     }
 
     @Test func droppedTextFileIsTitledByItsName() async throws {
@@ -53,9 +66,8 @@ struct DropCaptureTests {
         defer { try? FileManager.default.removeItem(at: url) }
         let provider = try #require(NSItemProvider(contentsOf: url))
         _ = DropCapture.handle([provider], model: model)
-        try await Task.sleep(for: .milliseconds(300))
+        #expect(try await eventually { model.banner?.contains("not a text file") == true })
         #expect(try model.store.notes(matching: NoteQuery()).isEmpty)
-        #expect(model.banner?.contains("not a text file") == true)
     }
 
     @Test func passwordManagerDragsAreRefused() async throws {
@@ -65,15 +77,13 @@ struct DropCaptureTests {
             return nil
         }
         _ = DropCapture.handle([provider], model: model)
-        try await Task.sleep(for: .milliseconds(300))
+        #expect(try await eventually { model.banner?.contains("password manager") == true })
         #expect(try model.store.notes(matching: NoteQuery()).isEmpty)
-        #expect(model.banner?.contains("password manager") == true)
     }
 
     @Test func emptyAndUnreadableDropsAreReported() async throws {
         _ = DropCapture.handle([NSItemProvider(object: "   \n" as NSString)], model: model)
-        try await Task.sleep(for: .milliseconds(300))
-        #expect(model.banner == "The dropped text is empty.")
+        #expect(try await eventually { model.banner == "The dropped text is empty." })
 
         let failing = NSItemProvider()
         failing.registerDataRepresentation(forTypeIdentifier: UTType.utf8PlainText.identifier, visibility: .all) { completion in
@@ -81,8 +91,16 @@ struct DropCaptureTests {
             return nil
         }
         _ = DropCapture.handle([failing], model: model)
-        try await Task.sleep(for: .milliseconds(300))
-        #expect(model.banner == "Could not read the dropped text.")
+        #expect(try await eventually { model.banner == "Could not read the dropped text." })
+        #expect(try model.store.notes(matching: NoteQuery()).isEmpty)
+    }
+
+    @Test func oversizedFilesAreRefusedBeforeReading() async throws {
+        let url = try file("huge.log", Data(repeating: 0x61, count: TextFileImport.sizeLimit + 1))
+        defer { try? FileManager.default.removeItem(at: url) }
+        let provider = try #require(NSItemProvider(contentsOf: url))
+        _ = DropCapture.handle([provider], model: model)
+        #expect(try await eventually { model.banner?.contains("the limit is 5 MB") == true })
         #expect(try model.store.notes(matching: NoteQuery()).isEmpty)
     }
 }

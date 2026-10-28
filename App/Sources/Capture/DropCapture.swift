@@ -34,9 +34,21 @@ enum DropCapture {
                 model.banner = "Could not read the dropped file."
                 return
             }
-            let type = (try? url.resourceValues(forKeys: [.contentTypeKey]))?.contentType
+            let values = try? url.resourceValues(forKeys: [.contentTypeKey, .fileSizeKey])
+            let type = values?.contentType
+            // Refuse what the file system already rules out before reading a
+            // byte: a known binary type, or more than the limit.
+            if let type, !TextFileImport.accepts(type) {
+                model.banner = "\(url.lastPathComponent) is not a text file."
+                return
+            }
+            if let size = values?.fileSize, size > TextFileImport.sizeLimit {
+                model.banner = "\(url.lastPathComponent) is \(ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file)); the limit is 5 MB."
+                return
+            }
             // A file dropped from Finder can be read for this drop only;
-            // the sandbox grants nothing beyond it.
+            // the sandbox grants nothing beyond it. The size is checked again
+            // after reading, in case the file grew.
             guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else {
                 model.banner = "Could not read \(url.lastPathComponent)."
                 return
