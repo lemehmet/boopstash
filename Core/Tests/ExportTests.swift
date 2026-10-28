@@ -35,6 +35,15 @@ import Testing
         #expect(!file.name.contains("\u{FFFD}"), "no split characters")
     }
 
+    /// Pins behaviour that comes from String equality being canonical
+    /// equivalence, not from the key: a key that broke it (raw scalars,
+    /// for instance) would fail here.
+    @Test func canonicallyEquivalentTitlesCollideLikeAPFS() {
+        let files = NoteExport.files(for: [note("caf\u{E9}"), note("cafe\u{301}")], timeZone: Self.utc)
+        #expect(Set(files.map(\.name)).count == 2)
+        #expect(files[1].name.hasSuffix(" 2.md"), "got \(files.map(\.name))")
+    }
+
     @Test func finalSigmaCollidesLikeAPFS() {
         let files = NoteExport.files(for: [note("οσ"), note("ος")], timeZone: Self.utc)
         #expect(Set(files.map(\.name)).count == 2)
@@ -45,7 +54,10 @@ import Testing
         #expect(NoteExport.quoted("a\nb") == #""a\nb""#)
         #expect(NoteExport.quoted("tab\there") == #""tab\there""#)
         #expect(NoteExport.quoted("nul\u{0}x\u{1}") == #""nul\0x\x01""#)
-        #expect(NoteExport.quoted("sep\u{2028}") == #""sep\u2028""#)
+        #expect(NoteExport.quoted("sep\u{2028}\u{2029}\u{85}") == #""sep\L\P\N""#)
+        #expect(NoteExport.quoted("non\u{FFFE}\u{FFFF}\u{FEFF}") == #""non\uFFFE\uFFFF\uFEFF""#)
+        #expect(NoteExport.quoted("del\u{7F}c1\u{9F}") == #""del\x7Fc1\x9F""#)
+        #expect(NoteExport.quoted("astral 𝄞 \u{1FFFE}") == #""astral 𝄞 \#u{1FFFE}""#, "astral scalars are printable in YAML")
         #expect(NoteExport.quoted("café 🙂") == #""café 🙂""#)
     }
 
