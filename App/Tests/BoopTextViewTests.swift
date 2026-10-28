@@ -191,6 +191,31 @@ struct BoopTextViewTests {
         host.close()
     }
 
+    /// The clearing path redraws too (#32): switching a coloured note to
+    /// Plain Text must not leave the old colours on screen.
+    @Test func switchingToPlainTextMarksTheTextForRedisplay() async throws {
+        let host = Host()
+        host.view.load("let a = 1\nlet b = \"two\"\n", syntax: .language(.swift))
+        for _ in 0..<100 where Self.renderingColor(in: host.view, at: 13) == nil {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        host.window.display()
+        var dirty: [Bool] = []
+        await withCheckedContinuation { continuation in
+            host.view.syntax.didPaint = {
+                func all(_ v: NSView) -> [NSView] { [v] + v.subviews.flatMap(all) }
+                dirty = all(host.view).filter { !$0.isHidden }.map { $0.needsDisplay || $0.layer?.needsDisplay() == true }
+                host.view.syntax.didPaint = nil
+                continuation.resume()
+            }
+            host.view.syntax.setChoice(.plain)
+        }
+        #expect(dirty.count > 1)
+        #expect(dirty.allSatisfy { $0 }, "\(dirty.filter { !$0 }.count) of \(dirty.count) views were not marked")
+        #expect(Self.renderingColor(in: host.view, at: 13) == nil)
+        host.close()
+    }
+
     static func renderingColor(in view: NSTextView, at offset: Int) -> NSColor? {
         guard let layout = view.textLayoutManager, let content = layout.textContentManager,
               let location = content.location(content.documentRange.location, offsetBy: offset) else { return nil }

@@ -171,7 +171,11 @@ final class SyntaxPainter {
         guard let view, let layout = view.textLayoutManager, let content = layout.textContentManager else { return }
         let length = (view.string as NSString).length
         guard let engine else {
+            // Clearing is a paint too: without the redraw, Plain Text left the
+            // previous colours on screen (#32).
             layout.removeRenderingAttribute(.foregroundColor, for: layout.documentRange)
+            Self.markForRedisplay(view)
+            didPaint?()
             return
         }
         guard appliedVersion == shownVersion else { return } // a newer edit will paint
