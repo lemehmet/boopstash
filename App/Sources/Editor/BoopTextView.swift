@@ -122,11 +122,24 @@ final class BoopTextView: NSTextView {
     /// from RTF may not survive. Without either, this is a plain paste.
     @objc func pasteAsMarkdown(_ sender: Any?) {
         let pasteboard = NSPasteboard.general
-        guard let html = Self.html(from: pasteboard) else {
-            pasteAsPlainText(sender)
+        // What is pasted into a note is stored, so the capture rule applies:
+        // password-manager and transient items are refused (ADR 0001).
+        guard CapturePolicy.decide(types: pasteboard.types?.map(\.rawValue) ?? []) == .accept else {
+            NSSound.beep()
             return
         }
-        insertText(HTMLToMarkdown.convert(html), replacementRange: selectedRange())
+        let markdown = Self.html(from: pasteboard).map(HTMLToMarkdown.convert) ?? ""
+        guard !markdown.isEmpty else {
+            // Nothing representable (an image without alt text, say): paste
+            // the plain text if there is any rather than delete the selection.
+            if pasteboard.string(forType: .string)?.isEmpty == false {
+                pasteAsPlainText(sender)
+            } else {
+                NSSound.beep()
+            }
+            return
+        }
+        insertText(markdown, replacementRange: selectedRange())
     }
 
     private static func html(from pasteboard: NSPasteboard) -> String? {

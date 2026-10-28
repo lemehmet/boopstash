@@ -37,11 +37,19 @@ enum HTMLTokenizer {
                 i = rest.firstIndex(of: ">").map { html.index(after: $0) } ?? html.endIndex
                 continue
             }
-            guard let close = rest.firstIndex(of: ">") else { text.append(c); i = html.index(after: i); continue }
-            let inner = html[html.index(after: i)..<close]
-            guard let first = inner.first, first.isLetter || first == "/" else {
-                text.append(c); i = html.index(after: i); continue
+            let afterBracket = html.index(after: i)
+            guard afterBracket < html.endIndex, html[afterBracket].isLetter || html[afterBracket] == "/" else {
+                text.append(c); i = afterBracket; continue
             }
+            guard let close = tagEnd(in: html, from: afterBracket) else {
+                // No tag ever closes from here, and none will from any later
+                // "<" either: the rest is text. Stopping here keeps
+                // tokenizing linear on input like 100,000 "<a".
+                text += html[i...]
+                break
+            }
+            let inner = html[afterBracket..<close]
+            let first = inner.first!
             flushText()
             i = html.index(after: close)
             if first == "/" {
@@ -64,6 +72,25 @@ enum HTMLTokenizer {
         }
         flushText()
         return tokens
+    }
+
+    /// The ">" that ends a tag, skipping any inside quoted attribute values
+    /// (`<a href="?q=a>b">`).
+    static func tagEnd(in html: String, from start: String.Index) -> String.Index? {
+        var quote: Character?
+        var i = start
+        while i < html.endIndex {
+            let c = html[i]
+            if let open = quote {
+                if c == open { quote = nil }
+            } else if c == "\"" || c == "'" {
+                quote = c
+            } else if c == ">" {
+                return i
+            }
+            i = html.index(after: i)
+        }
+        return nil
     }
 
     static func parseTag(_ inner: String) -> (String, [String: String], Bool) {

@@ -12,10 +12,10 @@ import Foundation
 public enum HTMLToMarkdown {
     public static func convert(_ html: String) -> String {
         let root = TreeBuilder.build(HTMLTokenizer.tokens(html))
+        // Blocks are trimmed and never empty, so joining them is the only
+        // place blank lines come from; code blocks keep theirs untouched.
         let blocks = Writer().blocks(root.children)
-        var markdown = blocks.joined(separator: "\n\n")
-        markdown = markdown.replacingOccurrences(of: #"\n{3,}"#, with: "\n\n", options: .regularExpression)
-        return markdown.trimmingCharacters(in: .whitespacesAndNewlines)
+        return blocks.joined(separator: "\n\n").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 
@@ -49,6 +49,10 @@ enum TreeBuilder {
         "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "li", "blockquote", "pre", "table", "hr", "dl", "figure",
     ]
 
+    /// Deeper elements are flattened into their ancestor at this depth: the
+    /// writer recurses once per level, and no real document nests this far.
+    static let maxDepth = 128
+
     static func build(_ tokens: [HTMLToken]) -> HTMLNode {
         let root = HTMLNode(name: "#root")
         var stack = [root]
@@ -71,6 +75,7 @@ enum TreeBuilder {
                 case "td", "th": close("td", stoppingAt: ["tr"]); close("th", stoppingAt: ["tr"])
                 default: break
                 }
+                guard stack.count < maxDepth else { continue }
                 let node = HTMLNode(name: name, attributes: attributes)
                 stack.last!.children.append(node)
                 if !selfClosing && !voidElements.contains(name) { stack.append(node) }
@@ -146,7 +151,9 @@ struct Writer {
 
     func list(_ node: HTMLNode, items: [HTMLNode]? = nil) -> String {
         let items = items ?? node.children.filter { $0.name == "li" }
-        let start = Int(node.attributes["start"] ?? "") ?? 1
+        // CommonMark list numbers have at most nine digits; anything else
+        // (including a start that would overflow) restarts at 1.
+        let start = Int(node.attributes["start"] ?? "").flatMap { (0...1_000_000_000 - items.count).contains($0) ? $0 : nil } ?? 1
         var lines: [String] = []
         for (index, item) in items.enumerated() {
             let marker = node.name == "ol" ? "\(start + index). " : "- "
@@ -210,7 +217,10 @@ struct Writer {
         collect(node)
         let cells = rows.map { row in
             row.children.filter { $0.name == "td" || $0.name == "th" }.map { cell in
-                inline(cell.children)
+                // A cell is one line: its paragraphs, list items and breaks
+                // are joined with spaces rather than run together.
+                blocks(cell.children).joined(separator: " ")
+                    .replacingOccurrences(of: "\\\n", with: " ")
                     .replacingOccurrences(of: "\n", with: " ")
                     .replacingOccurrences(of: "|", with: "\\|")
                     .trimmingCharacters(in: .whitespaces)

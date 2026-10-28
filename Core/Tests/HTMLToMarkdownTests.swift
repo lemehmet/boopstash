@@ -94,6 +94,36 @@ import Testing
         #expect(md("<p>snake_case and a*b and #hash</p>") == "snake_case and a*b and #hash")
     }
 
+    @Test func codeBlocksKeepConsecutiveBlankLines() {
+        #expect(md("<pre>a\n\n\nb</pre>") == "```\na\n\n\nb\n```")
+    }
+
+    @Test func hugeOrderedListStartsDoNotOverflow() {
+        #expect(md(#"<ol start="9223372036854775807"><li>a<li>b</ol>"#) == "1. a\n2. b")
+        #expect(md(#"<ol start="999999998"><li>a<li>b</ol>"#) == "999999998. a\n999999999. b")
+    }
+
+    @Test func quotedGreaterThanStaysInTheAttribute() {
+        #expect(md(#"<a href="https://e.test/?q=a>b">link</a>"#) == "[link](https://e.test/?q=a>b)")
+        #expect(md(#"<img alt='x > y' src="https://e.test/i.png">"#) == "![x > y](https://e.test/i.png)")
+    }
+
+    @Test func tableCellBlocksAreSeparated() {
+        #expect(md("<table><tr><th>h</th></tr><tr><td><p>one</p><p>two</p></td></tr></table>") == "| h |\n| --- |\n| one two |")
+    }
+
+    @Test func pathologicalInputIsLinear() {
+        for input in [String(repeating: "<", count: 100_000), String(repeating: "<a", count: 50_000)] {
+            let elapsed = ContinuousClock().measure { _ = md(input) }
+            #expect(elapsed < .seconds(1), "took \(elapsed)")
+        }
+    }
+
+    @Test func deepNestingDoesNotOverflowTheStack() {
+        let html = String(repeating: "<span>", count: 50_000) + "deep" + String(repeating: "</span>", count: 50_000)
+        #expect(md(html) == "deep")
+    }
+
     @Test func malformedInputDoesNotCrash() {
         for html in ["<", "<p", "</div>", "<a href=", "<<<>>>", "<p>unterminated", "&#99999999;", "<pre><code>", "<table><td>x"] {
             _ = md(html)
