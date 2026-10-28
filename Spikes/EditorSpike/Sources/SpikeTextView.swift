@@ -218,6 +218,15 @@ final class SpikeTextView: NSTextView {
         refreshLayout()
     }
 
+    /// Loads a different document. Fold ranges are character offsets into
+    /// the old text, so they go with it.
+    func replaceDocument(_ text: String) {
+        folds.removeAll()
+        string = text
+        setSelectedRange(NSRange(location: 0, length: 0))
+        refreshLayout()
+    }
+
     func refreshLayout() {
         guard let layout = textLayoutManager else { return }
         layout.invalidateLayout(for: layout.documentRange)
@@ -237,6 +246,10 @@ final class FoldController: NSObject, NSTextContentStorageDelegate {
         } else {
             folded.append(range)
         }
+    }
+
+    func removeAll() {
+        folded.removeAll()
     }
 
     func isHidden(_ location: Int) -> Bool {

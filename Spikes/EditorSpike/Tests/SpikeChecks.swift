@@ -255,11 +255,13 @@ struct SpikeChecks {
 
     // MARK: 5. Highlighting a 1 MB file
 
-    @Test func highlightingOneMegabyteOfJSON() throws {
+    @Test func highlightingOneMegabyteOfJSON() async throws {
         let json = Samples.largeJSON()
         let host = Self.spike(json)
         let highlighter = try JSONHighlighter()
 
+        // Worst case for one edit if parsing were synchronous: the reason the
+        // app must not do it on the main thread.
         let parse = ContinuousClock().measure { highlighter.parse(json) }
         #expect(!highlighter.highlights.isEmpty)
 
@@ -268,20 +270,48 @@ struct SpikeChecks {
             host.view.textLayoutManager?.textViewportLayoutController.layoutViewport()
         }
 
-        // A keystroke in the middle of the document: insert, lay out the
-        // viewport. No re-parse here; that is measured above as the worst case.
+        // The edit path the spike app runs: insert, lay out the viewport, and
+        // schedule the re-highlight. All of that is main-thread time; the
+        // parse itself is not.
         let middle = (json as NSString).length / 2
         host.view.setSelectedRange(NSRange(location: middle, length: 0))
         host.view.scrollRangeToVisible(host.view.selectedRange())
-        let keystroke = ContinuousClock().measure {
-            host.view.insertText("x", replacementRange: host.view.selectedRange())
-            host.view.textLayoutManager?.textViewportLayoutController.layoutViewport()
+        let clock = ContinuousClock()
+        let editStart = clock.now
+        var mainThreadKeystroke = Duration.zero
+        let rehighlighted: Duration = await withCheckedContinuation { continuation in
+            mainThreadKeystroke = clock.measure {
+                host.view.insertText("x", replacementRange: host.view.selectedRange())
+                host.view.textLayoutManager?.textViewportLayoutController.layoutViewport()
+                highlighter.schedule(host.view.string, debounce: .zero) {
+                    highlighter.paint(host.view, visible: NSRange(location: middle - 4_000, length: 8_000))
+                    continuation.resume(returning: clock.now - editStart)
+                }
+            }
         }
 
-        print("SPIKE-BENCH bytes=\(json.utf8.count) highlights=\(highlighter.highlights.count) parse=\(parse) paint=\(paint) keystroke=\(keystroke)")
+        print("SPIKE-BENCH bytes=\(json.utf8.count) highlights=\(highlighter.highlights.count) syncParse=\(parse) paint=\(paint) mainThreadKeystroke=\(mainThreadKeystroke) editToRehighlighted=\(rehighlighted)")
         #expect(host.view.textLayoutManager != nil)
         // Generous bounds: this is a smoke alarm, not a benchmark.
-        #expect(keystroke < .milliseconds(50))
+        #expect(mainThreadKeystroke < .milliseconds(50))
+        #expect(highlighter.highlights.count > 0)
+        host.close()
+    }
+
+    @Test func replacingTheDocumentClearsFolds() {
+        let host = Self.spike(Samples.markdown)
+        let view = host.view as! SpikeTextView
+        let heading = (view.string as NSString).range(of: "## Folding")
+        view.setSelectedRange(NSRange(location: NSMaxRange(heading), length: 0))
+        view.toggleFoldAtCaret()
+        #expect(!view.folds.folded.isEmpty)
+
+        let json = "[\n  {\"a\": 1},\n  {\"b\": 2},\n  {\"c\": 3}\n]\n"
+        view.replaceDocument(json)
+        host.layout()
+        #expect(view.folds.folded.isEmpty)
+        // Every paragraph of the new document is laid out: none inherited a fold.
+        #expect(Self.fragmentCount(view) == json.split(separator: "\n", omittingEmptySubsequences: false).count - 1)
         host.close()
     }
 }
