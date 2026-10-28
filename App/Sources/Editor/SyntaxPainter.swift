@@ -39,6 +39,14 @@ final class SyntaxPainter {
     private var repaintRequested = false
     private var detection: Task<Void, Never>?
 
+    /// The palette in use; nil is the system colours. Changing it repaints.
+    var theme: Theme? {
+        didSet {
+            guard theme != oldValue else { return }
+            schedulePaint()
+        }
+    }
+
     /// Called after each paint; tests use it to observe the view between the
     /// paint and the next display.
     var didPaint: (() -> Void)?
@@ -195,7 +203,7 @@ final class SyntaxPainter {
 
         layout.removeRenderingAttribute(.foregroundColor, for: layout.documentRange)
         for highlight in highlights {
-            guard let color = SyntaxTheme.color(for: highlight.name) else { continue }
+            guard let color = SyntaxTheme.color(for: highlight.name, theme: theme) else { continue }
             let range = NSIntersectionRange(highlight.range, window)
             guard range.length > 0, let textRange = Self.textRange(range, in: content) else { continue }
             layout.addRenderingAttribute(.foregroundColor, value: color, for: textRange)
@@ -230,33 +238,37 @@ final class SyntaxPainter {
     }
 }
 
-/// Capture names to colours. System colours adapt to light and dark mode;
-/// anything unlisted keeps the text colour.
+/// Capture names to colours: the active theme's, or, for the "System"
+/// theme, semantic system colours that follow the appearance by themselves.
 enum SyntaxTheme {
-    static func color(for capture: String) -> NSColor? {
-        let parts = capture.split(separator: ".")
-        switch parts.first {
-        case "comment": return .secondaryLabelColor
-        case "string":
-            return parts.contains("escape") || parts.contains("regex") ? .systemOrange : .systemRed
-        case "character", "escape": return .systemOrange
-        case "number", "float", "boolean", "constant": return .systemPurple
-        case "keyword", "conditional", "repeat", "include", "exception", "storageclass", "preproc", "define":
-            return .systemPink
-        case "function", "method", "constructor": return .systemTeal
-        case "type", "namespace", "module": return .systemCyan
-        case "property", "field", "attribute", "label", "tag": return .systemBlue
-        case "variable": return parts.contains("builtin") ? .systemOrange : nil
-        case "text", "markup":
-            if parts.contains("title") || parts.contains("heading") { return .systemBlue }
-            if parts.contains("literal") || parts.contains("raw") { return .systemRed }
-            if parts.contains("uri") || parts.contains("link") { return .linkColor }
-            return nil
-        case "diff":
-            if parts.contains("plus") { return .systemGreen }
-            if parts.contains("minus") { return .systemRed }
-            return .systemBlue
-        default: return nil
+    static func color(for capture: String, theme: Theme? = nil) -> NSColor? {
+        guard let role = HighlightRole.role(for: capture) else { return nil }
+        if let theme { return NSColor(theme.color(for: role)) }
+        return systemColor(for: role)
+    }
+
+    static func systemColor(for role: HighlightRole) -> NSColor {
+        switch role {
+        case .comment: .secondaryLabelColor
+        case .string: .systemRed
+        case .escape: .systemOrange
+        case .number: .systemPurple
+        case .keyword: .systemPink
+        case .function: .systemTeal
+        case .type: .systemCyan
+        case .property: .systemBlue
+        case .builtin: .systemOrange
+        case .heading: .systemBlue
+        case .link: .linkColor
+        case .added: .systemGreen
+        case .removed: .systemRed
+        case .changed: .systemBlue
         }
+    }
+}
+
+extension NSColor {
+    convenience init(_ color: ThemeColor) {
+        self.init(srgbRed: color.red, green: color.green, blue: color.blue, alpha: 1)
     }
 }

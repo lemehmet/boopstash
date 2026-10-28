@@ -6,6 +6,14 @@ struct BoopstashApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @AppStorage("keymapPreset") private var preset: KeymapPreset = .vsCode
     @AppStorage("linuxHabits") private var linuxHabits = false
+    @AppStorage(EditorSettings.fontFamilyKey) private var fontFamily = ""
+    @AppStorage(EditorSettings.fontSizeKey) private var fontSize = 13.0
+    @AppStorage(EditorSettings.lightThemeKey) private var lightTheme = Theme.systemID
+    @AppStorage(EditorSettings.darkThemeKey) private var darkTheme = Theme.systemID
+
+    private var appearance: EditorAppearance {
+        EditorAppearance(fontFamily: fontFamily, fontSize: fontSize, lightThemeID: lightTheme, darkThemeID: darkTheme)
+    }
 
     private var keymap: Keymap {
         let file = KeybindingsFile.load()
@@ -15,7 +23,7 @@ struct BoopstashApp: App {
     var body: some Scene {
         WindowGroup {
             if let model = delegate.model {
-                MainWindow(model: model, keymap: keymap)
+                MainWindow(model: model, keymap: keymap, appearance: appearance)
                     .frame(minWidth: 720, minHeight: 420)
             } else {
                 ContentUnavailableView("Boopstash could not open its notes", systemImage: "exclamationmark.triangle",
@@ -107,6 +115,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 struct MainWindow: View {
     @Bindable var model: AppModel
     let keymap: Keymap
+    let appearance: EditorAppearance
 
     var body: some View {
         NavigationSplitView {
@@ -114,7 +123,7 @@ struct MainWindow: View {
                 .navigationSplitViewColumnWidth(min: 220, ideal: 280)
         } detail: {
             if let id = model.selection, let note = model.note(id: id) {
-                NoteDetail(model: model, note: note, keymap: keymap)
+                NoteDetail(model: model, note: note, keymap: keymap, appearance: appearance)
                     .id(id)
             } else {
                 ContentUnavailableView("No note selected", systemImage: "note.text")
