@@ -67,6 +67,12 @@ public enum SyntaxLanguage: String, CaseIterable, Codable, Sendable {
             (#"^\s*import (Foundation|SwiftUI|UIKit|AppKit|Combine|Observation)\b"#, 6),
             (#"\b(guard|if) let \w+"#, 3), (#"\bfunc \w+\("#, 2), (#"->\s*[\w\[\]?<>, ]+\s*\{"#, 2),
             (#"@(MainActor|Observable|State|Binding|Published|objc)\b"#, 4), (#"\b(let|var) \w+\s*:\s*\w+"#, 1),
+            // Any capitalised module (Python's are lowercase, Java's dotted).
+            (#"^\s*import [A-Z]\w*\s*$"#, 3),
+            // Initialiser calls without `new`, labelled arguments, and
+            // implicit member expressions (`project: .tuist()`).
+            (#"^\s*(let|var) \w+ = [A-Z]\w*\("#, 2), (#"^\s+[a-z]\w*: [^:]+,?\s*$"#, 1),
+            (#"[:(,]\s*\.[a-z]\w*(\(|\b)"#, 1.5),
         ],
         .python: [
             (#"^\s*def \w+\(.*\)\s*(->.*)?:\s*$"#, 4), (#"^\s*(from \S+ )?import \w[\w.]*(\s+as \w+)?\s*$"#, 2),

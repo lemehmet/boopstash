@@ -166,6 +166,31 @@ struct BoopTextViewTests {
         return count
     }
 
+    /// A paint must leave every view that draws text needing display, or
+    /// the window keeps showing the previous colours until something else
+    /// relays out (the hands-on bug behind this test).
+    @Test func paintingMarksTheTextForRedisplay() async throws {
+        let host = Host()
+        host.view.load("let a = 1\nlet b = \"two\"\n", syntax: .plain)
+        try await Task.sleep(for: .milliseconds(200))
+        host.window.display()
+        var dirty: [Bool] = []
+        await withCheckedContinuation { continuation in
+            host.view.syntax.didPaint = {
+                func all(_ v: NSView) -> [NSView] { [v] + v.subviews.flatMap(all) }
+                // These views are layer-backed: the mark lands on the layer,
+                // and NSView's getter does not report it.
+                dirty = all(host.view).filter { !$0.isHidden }.map { $0.needsDisplay || $0.layer?.needsDisplay() == true }
+                host.view.syntax.didPaint = nil
+                continuation.resume()
+            }
+            host.view.syntax.setChoice(.language(.swift))
+        }
+        #expect(dirty.count > 1, "expected the text view's paragraph subviews")
+        #expect(dirty.allSatisfy { $0 }, "\(dirty.filter { !$0 }.count) of \(dirty.count) views were not marked")
+        host.close()
+    }
+
     static func renderingColor(in view: NSTextView, at offset: Int) -> NSColor? {
         guard let layout = view.textLayoutManager, let content = layout.textContentManager,
               let location = content.location(content.documentRange.location, offsetBy: offset) else { return nil }

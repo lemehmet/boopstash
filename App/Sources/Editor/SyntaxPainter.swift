@@ -36,6 +36,10 @@ final class SyntaxPainter {
     private var repaintRequested = false
     private var detection: Task<Void, Never>?
 
+    /// Called after each paint; tests use it to observe the view between the
+    /// paint and the next display.
+    var didPaint: (() -> Void)?
+
     /// Characters painted beyond the visible range, so a short scroll shows
     /// colour before the next paint lands.
     static let margin = 4_000
@@ -183,7 +187,19 @@ final class SyntaxPainter {
             guard range.length > 0, let textRange = Self.textRange(range, in: content) else { continue }
             layout.addRenderingAttribute(.foregroundColor, value: color, for: textRange)
         }
+        Self.markForRedisplay(view)
+        didPaint?()
+    }
+
+    /// TextKit 2 draws each paragraph in its own subview and does not
+    /// redraw them when rendering attributes change, nor when the text view
+    /// itself is marked; they kept the old colours until something else
+    /// relaid them out (seen hands-on: a language change showed only after
+    /// switching notes). Marking every descendant redraws them, and a redraw
+    /// uses the current rendering attributes.
+    static func markForRedisplay(_ view: NSView) {
         view.needsDisplay = true
+        view.subviews.forEach(markForRedisplay)
     }
 
     static func visibleRange(of view: NSTextView, in content: NSTextContentManager) -> NSRange? {

@@ -50,6 +50,33 @@ import Testing
         #expect(try store.note(id: note.id)?.syntaxChoice == .language(.ruby))
     }
 
+    /// Real files from this repository, which the first telltales missed
+    /// (hands-on: Tuist.swift showed as Plain Text).
+    @Test func manifestStyleSwiftIsSwift() {
+        let tuist = """
+        import ProjectDescription
+
+        // Tuist project configuration.
+        //
+        // Generated locally and in CI, with no Tuist server.
+        let tuist = Tuist(
+            fullHandle: nil,
+            project: .tuist()
+        )
+        """
+        #expect(SyntaxLanguage.detect(tuist) == .swift, "scores: \(SyntaxLanguage.scores(tuist).filter { $0.value > 0 })")
+        let package = """
+        // swift-tools-version: 6.0
+        import PackageDescription
+
+        let package = Package(
+            name: "BoopstashDependencies",
+            dependencies: []
+        )
+        """
+        #expect(SyntaxLanguage.detect(package) == .swift, "scores: \(SyntaxLanguage.scores(package).filter { $0.value > 0 })")
+    }
+
     @Test func shellCommandsInPlainTextNeedStrongEvidence() {
         #expect(SyntaxLanguage.detect("git status") == nil)
         #expect(SyntaxLanguage.detect("$ git status\n$ git push\n$ docker ps\n$ kubectl get pods") == .bash)
