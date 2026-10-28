@@ -6,6 +6,8 @@ breaking changes may land in a minor release.
 
 ## Unreleased
 
+- Releases: a signed, notarized universal app on GitHub and through Homebrew
+  (`brew install --cask lemehmet/boopstash/boopstash`).
 - A Mac app to stash buffers in: a list of notes, newest edit first, with a
   filter that matches anywhere inside words, a title/content scope and an
   edited-within choice (today, 7 or 30 days).

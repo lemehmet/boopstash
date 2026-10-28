@@ -29,6 +29,14 @@ but an un-notarized app still meets Gatekeeper on first launch.
   `packaging/homebrew/boopstash.rb` into the tap's `Casks/` and pushes it with a
   deploy key that can write to that repository only. A `workflow_dispatch` run
   is a dry run that never reaches the tap.
+- **Developer ID signing from repository secrets.** The release workflow
+  imports a `.p12` of the Developer ID Application identity into a throwaway
+  keychain, archives a universal build with the hardened runtime, exports it
+  with Developer ID, checks the signature, architectures and entitlements,
+  notarizes with `notarytool` (App Store Connect API key) and staples. A
+  `.p12` secret was chosen over `fastlane match` for this one identity: the
+  certificate already exists and is exported once, and the release job needs
+  no Ruby toolchain.
 - **Mac App Store and TestFlight through fastlane,** with signing material
   through `fastlane match` on S3 and an App Store Connect API key, as in
   proswatch.

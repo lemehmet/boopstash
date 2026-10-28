@@ -4,9 +4,27 @@ A scratch pad for macOS that remembers. Paste a snippet, an agent's output or a
 screenshot, and find it again next week by what it was about, when you copied
 it, or where it came from. An iOS companion syncs through your own iCloud.
 
-> **Status: pre-alpha.** Nothing to install yet. The plan is in
+> **Status: pre-alpha.** The plan is in
 > [`docs/plan/milestones.md`](docs/plan/milestones.md) and the decisions behind
 > it are in [`docs/adr/`](docs/adr/).
+
+## Install
+
+With [Homebrew](https://brew.sh):
+
+```sh
+brew install --cask lemehmet/boopstash/boopstash
+```
+
+Naming the cask in full trusts it for Homebrew's third-party tap check. The
+app is signed with Developer ID and notarized by Apple, so it opens without a
+Gatekeeper prompt. Or download the `.zip` from
+[releases](https://github.com/lemehmet/boopstash/releases); each ships a
+SHA-256 checksum:
+
+```sh
+shasum -a 256 -c Boopstash-0.1.0.zip.sha256
+```
 
 ## What it is for
 
