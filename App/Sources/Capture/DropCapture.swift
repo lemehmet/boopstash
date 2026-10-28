@@ -90,7 +90,18 @@ enum DropCapture {
     static func readPrefix(of url: URL, limit: Int) -> Data? {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
         defer { try? handle.close() }
-        return try? handle.read(upToCount: limit) ?? Data()
+        return try? readPrefix(limit: limit) { try handle.read(upToCount: $0) }
+    }
+
+    /// Reads until `limit` bytes or the end. One read can return less than
+    /// asked before the end (a pipe hands over what it has), so a single
+    /// call could save the start of a file as all of it.
+    static func readPrefix(limit: Int, read: (Int) throws -> Data?) rethrows -> Data {
+        var data = Data()
+        while data.count < limit, let chunk = try read(limit - data.count), !chunk.isEmpty {
+            data.append(chunk)
+        }
+        return data
     }
 
     private static func load<T: Transferable & Sendable>(_ type: T.Type, from provider: NSItemProvider) async -> T? {
