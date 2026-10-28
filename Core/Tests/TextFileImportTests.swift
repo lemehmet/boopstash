@@ -45,4 +45,22 @@ import UniformTypeIdentifiers
         #expect(TextFileImport.title(forFileNamed: "deploy notes.md") == "deploy notes")
         #expect(TextFileImport.title(forFileNamed: ".env") == ".env")
     }
+
+    /// Short reads are joined until the end or the limit, not taken as the
+    /// whole file.
+    @Test func shortReadsAreJoined() {
+        var chunks = [Data("ab".utf8), Data("cde".utf8), Data("f".utf8)]
+        let whole = TextFileImport.readPrefix(limit: 100) { _ in chunks.isEmpty ? Data() : chunks.removeFirst() }
+        #expect(String(decoding: whole, as: UTF8.self) == "abcdef")
+        var source = Data(repeating: 0x61, count: 50)
+        var asked: [Int] = []
+        let capped = TextFileImport.readPrefix(limit: 20) { count in
+            asked.append(count)
+            let chunk = source.prefix(min(count, 7))
+            source.removeFirst(chunk.count)
+            return Data(chunk)
+        }
+        #expect(capped.count == 20)
+        #expect(asked == [20, 13, 6], "never asks past the limit")
+    }
 }
