@@ -74,4 +74,20 @@ struct BoopTextViewTests {
         #expect(host.view.string == "keep")
         host.close()
     }
+
+    @Test(arguments: ["org.nspasteboard.ConcealedType", "org.nspasteboard.TransientType"])
+    func pasteRefusesSecrets(_ marker: String) {
+        let host = Host("keep")
+        var messages: [String] = []
+        host.view.showMessage = { messages.append($0) }
+        let secret = pasteboard { pasteboard in
+            pasteboard.declareTypes([.string, NSPasteboard.PasteboardType(marker)], owner: nil)
+            pasteboard.setString("hunter2", forType: .string)
+            pasteboard.setData(Data(), forType: NSPasteboard.PasteboardType(marker))
+        }
+        host.view.pastePlainText(from: secret)
+        #expect(host.view.string == "keep")
+        #expect(messages.count == 1)
+        host.close()
+    }
 }

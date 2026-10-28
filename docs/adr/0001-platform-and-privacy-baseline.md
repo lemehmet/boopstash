@@ -52,6 +52,9 @@ Three facts shaped the baseline:
 - **Concealed and transient pasteboard types are never stored.** Items marked
   `org.nspasteboard.ConcealedType` or `org.nspasteboard.TransientType` (password
   managers) are refused even on an explicit capture, with a visible message.
+  That includes an ordinary ⌘V into a note, since the note is saved: decided
+  2026-10-28 (#21) over letting a deliberate paste through, so that no path
+  stores a secret.
 
 ## Consequences
 

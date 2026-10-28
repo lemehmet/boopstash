@@ -103,6 +103,7 @@ final class BoopTextView: NSTextView {
     /// nothing here. Taking the pasteboard as a parameter lets tests use a
     /// private one, which never triggers macOS's paste-privacy prompt.
     func pastePlainText(from pasteboard: NSPasteboard) {
+        guard !refusesSecret(on: pasteboard) else { return }
         guard isEditable, let text = pasteboard.string(forType: .string) else {
             NSSound.beep()
             // macOS's paste privacy can deny every read; say so instead of
@@ -115,6 +116,24 @@ final class BoopTextView: NSTextView {
         insertText(text, replacementRange: selectedRange())
     }
 
+    /// What is pasted into a note is stored, so every paste follows the
+    /// capture rule: password-manager and transient items are refused with a
+    /// beep and a visible reason (ADR 0001, #21). True when refused.
+    func refusesSecret(on pasteboard: NSPasteboard) -> Bool {
+        switch CapturePolicy.decide(types: pasteboard.types?.map(\.rawValue) ?? []) {
+        case .accept:
+            return false
+        case .refuseConcealed:
+            NSSound.beep()
+            showMessage?("Not pasted: the clipboard holds a password manager item.")
+            return true
+        case .refuseTransient:
+            NSSound.beep()
+            showMessage?("Not pasted: the app that copied this marked it as not to be kept.")
+            return true
+        }
+    }
+
     /// ⌥⇧⌘V: the pasteboard's rich text as markdown source (ADR 0003).
     /// HTML goes straight to Core's converter. RTF-only sources (TextEdit,
     /// some mail) go through AppKit's HTML export first, which only writes
@@ -124,18 +143,7 @@ final class BoopTextView: NSTextView {
         let pasteboard = NSPasteboard.general
         // What is pasted into a note is stored, so the capture rule applies:
         // password-manager and transient items are refused (ADR 0001).
-        switch CapturePolicy.decide(types: pasteboard.types?.map(\.rawValue) ?? []) {
-        case .accept:
-            break
-        case .refuseConcealed:
-            NSSound.beep()
-            showMessage?("Not pasted: the clipboard holds a password manager item.")
-            return
-        case .refuseTransient:
-            NSSound.beep()
-            showMessage?("Not pasted: the app that copied this marked it as not to be kept.")
-            return
-        }
+        guard !refusesSecret(on: pasteboard) else { return }
         let markdown = Self.html(from: pasteboard).map(HTMLToMarkdown.convert) ?? ""
         guard !markdown.isEmpty else {
             // Nothing representable (an image without alt text, say): paste
