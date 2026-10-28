@@ -105,6 +105,22 @@ struct BoopTextViewTests {
         host.close()
     }
 
+    @Test func chosenLanguageOverridesDetection() async throws {
+        let host = Host()
+        let text = "name: boop\nversion: 1"
+        host.view.load(text, syntax: .language(.json))
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(host.view.syntax.language == .json)
+        host.view.syntax.setChoice(.plain)
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(host.view.syntax.language == nil)
+        #expect(Self.renderingColor(in: host.view, at: 0) == nil)
+        host.view.syntax.setChoice(.automatic)
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(host.view.syntax.language == .yaml)
+        host.close()
+    }
+
     static func renderingColor(in view: NSTextView, at offset: Int) -> NSColor? {
         guard let layout = view.textLayoutManager, let content = layout.textContentManager,
               let location = content.location(content.documentRange.location, offsetBy: offset) else { return nil }

@@ -39,9 +39,9 @@ final class BoopTextView: NSTextView {
     }
 
     /// Replaces the whole text with another note's, and highlights it.
-    func load(_ text: String) {
+    func load(_ text: String, syntax choice: SyntaxChoice = .automatic) {
         syntax.replacingDocument { string = text }
-        syntax.load(text)
+        syntax.load(text, choice: choice)
     }
 
     // MARK: - Substitutions

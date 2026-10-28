@@ -44,8 +44,9 @@ let baseSettings: SettingsDictionary = [
 // tag: the 0.25-era grammar manifests add scanner.c only if
 // `FileManager.fileExists("src/scanner.c")` is true at manifest evaluation,
 // which SwiftPM runs from another directory, so the scanner is silently left
-// out and linking fails. Swift's grammar publishes its generated parser only
-// on the with-generated-files branch, so it is pinned to a commit there.
+// out and linking fails. Swift's and SQL's grammars publish their generated
+// parsers only on a side branch (with-generated-files, gh-pages), so each is
+// pinned to a commit there.
 // Grammars depend on SwiftTreeSitter under two URLs (ChimeHQ's and
 // tree-sitter's), but only in their test targets, which SwiftPM does not
 // resolve for dependencies.
@@ -64,9 +65,13 @@ let grammars: [(url: String, requirement: Package.Requirement, products: [String
     ("https://github.com/tree-sitter/tree-sitter-go", .exact("0.23.4"), ["TreeSitterGo"]),
     ("https://github.com/tree-sitter/tree-sitter-rust", .exact("0.24.2"), ["TreeSitterRust"]),
     ("https://github.com/tree-sitter/tree-sitter-c", .exact("0.24.2"), ["TreeSitterC"]),
+    ("https://github.com/tree-sitter/tree-sitter-cpp", .exact("0.23.4"), ["TreeSitterCPP"]),
+    ("https://github.com/tree-sitter/tree-sitter-ruby", .exact("0.23.1"), ["TreeSitterRuby"]),
     ("https://github.com/tree-sitter/tree-sitter-java", .exact("0.23.5"), ["TreeSitterJava"]),
     ("https://github.com/alex-pinkus/tree-sitter-swift", .revision("82bb3a533e0801fd2bbaa11dc49676e10bf41948"), ["TreeSitterSwift"]),
     ("https://github.com/the-mikedavis/tree-sitter-diff", .exact("0.2.0"), ["TreeSitterDiff"]),
+    // SQL publishes its generated parser only on gh-pages; pinned to a commit.
+    ("https://github.com/DerekStride/tree-sitter-sql", .revision("e038788e5d4daba82dea35676bf49a216629e141"), ["TreeSitterSql"]),
 ]
 let syntaxPackages: [Package] =
     [.remote(url: "https://github.com/tree-sitter/swift-tree-sitter", requirement: .exact("0.10.0"))]

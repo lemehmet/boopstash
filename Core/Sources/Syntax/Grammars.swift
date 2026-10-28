@@ -2,6 +2,7 @@ import Foundation
 import SwiftTreeSitter
 import TreeSitterBash
 import TreeSitterC
+import TreeSitterCPP
 import TreeSitterCSS
 import TreeSitterDiff
 import TreeSitterGo
@@ -11,7 +12,9 @@ import TreeSitterJavaScript
 import TreeSitterJSON
 import TreeSitterMarkdown
 import TreeSitterPython
+import TreeSitterRuby
 import TreeSitterRust
+import TreeSitterSql
 import TreeSitterSwift
 import TreeSitterTOML
 import TreeSitterTypeScript
@@ -36,6 +39,9 @@ enum Grammars {
         case .go: tree_sitter_go()
         case .rust: tree_sitter_rust()
         case .c: tree_sitter_c()
+        case .cpp: tree_sitter_cpp()
+        case .ruby: tree_sitter_ruby()
+        case .sql: tree_sitter_sql()
         case .java: tree_sitter_java()
         case .swift: tree_sitter_swift()
         case .diff: tree_sitter_diff()
@@ -44,8 +50,8 @@ enum Grammars {
     }
 
     /// The resource bundles holding each language's queries, named
-    /// `<Package>_<Target>.bundle` by SwiftPM. TypeScript's own query only
-    /// adds to JavaScript's, so both are read, JavaScript first.
+    /// `<Package>_<Target>.bundle` by SwiftPM. TypeScript's and C++'s own
+    /// queries only add to JavaScript's and C's, so both are read, base first.
     static func queryBundles(for syntax: SyntaxLanguage) -> [String] {
         switch syntax {
         case .json: ["TreeSitterJSON_TreeSitterJSON"]
@@ -62,6 +68,9 @@ enum Grammars {
         case .go: ["TreeSitterGo_TreeSitterGo"]
         case .rust: ["TreeSitterRust_TreeSitterRust"]
         case .c: ["TreeSitterC_TreeSitterC"]
+        case .cpp: ["TreeSitterC_TreeSitterC", "TreeSitterCPP_TreeSitterCPP"]
+        case .ruby: ["TreeSitterRuby_TreeSitterRuby"]
+        case .sql: ["TreeSitterSql_TreeSitterSql"]
         case .java: ["TreeSitterJava_TreeSitterJava"]
         case .swift: ["TreeSitterSwift_TreeSitterSwift"]
         case .diff: ["TreeSitterDiff_TreeSitterDiff"]

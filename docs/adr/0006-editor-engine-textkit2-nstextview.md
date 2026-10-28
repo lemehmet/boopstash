@@ -52,9 +52,11 @@ removed.
   incrementally (`InputEdit` in UTF-16LE bytes) and querying only the
   requested range; the app's `SyntaxPainter` feeds it edits through one
   ordered queue and paints only when the engine has caught up with the text
-  on screen. 17 languages, chosen by `SyntaxLanguage.detect`; a wrong
-  grammar is worse than none, so prose and logs stay uncoloured. The
-  grammars add about 25 MB to the app.
+  on screen. 20 languages, chosen by `SyntaxLanguage.detect`; a wrong
+  grammar is worse than none, so prose and logs stay uncoloured. A note's
+  language menu (`SyntaxChoice`, stored on the note) forces a language or
+  plain text where detection guesses wrong. App size is not a constraint
+  here (maintainer, 2026-10-28): the grammars add about 30 MB.
 - **Folding: content-manager enumeration,** with fold ranges from tree-sitter
   for code and from headings for markdown.
 

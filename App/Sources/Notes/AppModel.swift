@@ -161,6 +161,19 @@ final class AppModel {
         scheduleSave(note)
     }
 
+    /// The note's highlighting setting. Not an edit: saved at once, and the
+    /// note keeps its place in the list.
+    func setSyntax(_ id: UUID, to choice: SyntaxChoice) {
+        if var draft = drafts[id] {
+            draft.syntaxChoice = choice
+            drafts[id] = draft
+            return
+        }
+        guard var note = try? store.note(id: id), note.syntaxChoice != choice else { return }
+        note.syntaxChoice = choice
+        do { try store.save(note) } catch { banner = "Could not save: \(error.localizedDescription)" }
+    }
+
     /// An empty title hands naming back to the generator.
     func rename(_ id: UUID, to title: String) {
         guard var note = note(id: id) else { return }

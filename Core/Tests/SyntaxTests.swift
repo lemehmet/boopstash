@@ -17,6 +17,9 @@ import Testing
         ("package main\n\nimport \"fmt\"\n\nfunc main() {\n\tx := 1\n\tfmt.Println(x)\n}", .go),
         ("use std::io;\n\nfn main() {\n    let mut x = vec![1];\n    println!(\"{:?}\", x);\n}", .rust),
         ("#include <stdio.h>\n\nint main(void) {\n    printf(\"hi\\n\");\n}", .c),
+        ("#include <iostream>\n#include <vector>\n\nint main() {\n    std::vector<int> v;\n    std::cout << v.size();\n}", .cpp),
+        ("require 'json'\n\nclass User\n  attr_reader :name\n  def greet\n    puts \"hi\"\n  end\nend", .ruby),
+        ("SELECT id, name\nFROM users\nWHERE active = 1;", .sql),
         ("import java.util.List;\n\npublic class A {\n    @Override\n    public String toString() { return \"\"; }\n}", .java),
         ("#!/bin/bash\nset -e\nexport X=1\nif [ -f x ]; then\n  echo hi\nfi", .bash),
         (".button,\n.link {\n  color: red;\n  margin: 0;\n}", .css),
@@ -25,6 +28,25 @@ import Testing
     ])
     func detects(_ text: String, _ expected: SyntaxLanguage?) {
         #expect(SyntaxLanguage.detect(text) == expected, "scores: \(SyntaxLanguage.scores(text).filter { $0.value > 0 })")
+    }
+
+    @Test func choicesStoreAndResolve() {
+        for choice in [SyntaxChoice.automatic, .plain, .language(.rust), .language(.sql)] {
+            #expect(SyntaxChoice(stored: choice.stored) == choice)
+        }
+        #expect(SyntaxChoice(stored: "no-such-language") == .automatic)
+        let json = #"{"a": 1}"#
+        #expect(SyntaxChoice.automatic.resolve(for: json) == .json)
+        #expect(SyntaxChoice.plain.resolve(for: json) == nil)
+        #expect(SyntaxChoice.language(.yaml).resolve(for: json) == .yaml)
+    }
+
+    @Test func choiceSurvivesTheStore() throws {
+        let store = try NoteStore.inMemory()
+        var note = Note(title: "t", body: "x", createdAt: Date())
+        note.syntaxChoice = .language(.ruby)
+        try store.save(note)
+        #expect(try store.note(id: note.id)?.syntaxChoice == .language(.ruby))
     }
 
     @Test func shellCommandsInPlainTextNeedStrongEvidence() {
@@ -49,6 +71,9 @@ import Testing
         .go: "package main\nfunc main() { x := \"s\" }\n",
         .rust: "fn main() { let s = \"x\"; }\n",
         .c: "int main(void) { return 0; }\n",
+        .cpp: "namespace a { class B { public: int x = 0; }; }\n",
+        .ruby: "def f(x)\n  \"s\" + x.to_s\nend\n",
+        .sql: "SELECT id, 'x' FROM users WHERE n = 1;\n",
         .java: "class A { String s = \"x\"; }\n",
         .swift: "func f() -> String { let s = \"x\"; return s }\n",
         .diff: "--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b\n",

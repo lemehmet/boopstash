@@ -4,7 +4,7 @@ import Foundation
 /// text; nil means "plain text, no colouring".
 public enum SyntaxLanguage: String, CaseIterable, Codable, Sendable {
     case json, yaml, toml, xml, markdown, html, css
-    case javascript, typescript, python, bash, go, rust, c, java, swift, diff
+    case javascript, typescript, python, ruby, bash, go, rust, c, cpp, java, swift, sql, diff
 
     public var displayName: String {
         switch self {
@@ -22,6 +22,9 @@ public enum SyntaxLanguage: String, CaseIterable, Codable, Sendable {
         case .go: "Go"
         case .rust: "Rust"
         case .c: "C"
+        case .cpp: "C++"
+        case .ruby: "Ruby"
+        case .sql: "SQL"
         case .java: "Java"
         case .swift: "Swift"
         case .diff: "Diff"
@@ -41,7 +44,8 @@ public enum SyntaxLanguage: String, CaseIterable, Codable, Sendable {
         case .html: return .html
         case .markdown: return .markdown
         case .diff: return .diff
-        case .sql, .url, .stackTrace, .log: return nil
+        case .sql: return .sql
+        case .url, .stackTrace, .log: return nil
         case .code, .plain:
             let sample = String(body.prefix(16 * 1024))
             if isTOML(sample) { return .toml }
@@ -90,6 +94,16 @@ public enum SyntaxLanguage: String, CaseIterable, Codable, Sendable {
             (#"^\s*#include\s*[<"]"#, 5), (#"\bint main\s*\("#, 4), (#"\b(printf|malloc|free|sizeof)\s*\("#, 2),
             (#"^\s*#define \w+"#, 3),
         ],
+        .cpp: [
+            (#"^\s*#include\s*<(iostream|vector|string|map|memory|algorithm|unordered_map|cstdio|cstdlib)>"#, 6),
+            (#"\bstd::\w+"#, 3), (#"^\s*template\s*<"#, 4), (#"^\s*namespace \w+"#, 4), (#"^\s*(public|private|protected):\s*$"#, 4),
+            (#"\bnullptr\b|\bauto \w+\s*="#, 2),
+        ],
+        .ruby: [
+            (#"^\s*def \w+[?!=]?(\(.*\))?\s*$"#, 3), (#"^\s*end\s*$"#, 2), (#"^\s*require(_relative)? ['"]"#, 4),
+            (#"\.each(_with_index)? do \|"#, 4), (#"\bputs\b"#, 2), (#"\battr_(reader|writer|accessor)\b"#, 5),
+            (#"^\s*(module|class) [A-Z]\w*( < [A-Z][\w:]*)?\s*$"#, 2),
+        ],
         .java: [
             (#"\bpublic (static )?(final )?(class|void|interface|enum)\b"#, 4), (#"\bSystem\.(out|err)\."#, 4),
             (#"@Override\b"#, 4), (#"^\s*import java(x)?\."#, 6), (#"\bprivate (static )?(final )?\w+(<.*>)? \w+\s*[;=]"#, 2),
@@ -130,5 +144,39 @@ public enum SyntaxLanguage: String, CaseIterable, Codable, Sendable {
         let tables = lines.filter { $0.range(of: #"^\[\[?[\w.\-" ]+\]\]?$"#, options: .regularExpression) != nil }.count
         let pairs = lines.filter { $0.range(of: #"^[\w.\-"]+\s*=\s*\S"#, options: .regularExpression) != nil }.count
         return tables >= 1 && Double(tables + pairs) / Double(lines.count) >= 0.8
+    }
+}
+
+/// A note's highlighting setting: detect from the text, never colour, or a
+/// language the user chose (Format ▸ Language). Stored on the note as text:
+/// nil for automatic, "plain", or a `SyntaxLanguage` raw value.
+public enum SyntaxChoice: Hashable, Sendable {
+    case automatic
+    case plain
+    case language(SyntaxLanguage)
+
+    public init(stored: String?) {
+        switch stored {
+        case nil: self = .automatic
+        case "plain": self = .plain
+        case let value?: self = SyntaxLanguage(rawValue: value).map(SyntaxChoice.language) ?? .automatic
+        }
+    }
+
+    public var stored: String? {
+        switch self {
+        case .automatic: nil
+        case .plain: "plain"
+        case .language(let language): language.rawValue
+        }
+    }
+
+    /// The language to highlight `body` in under this choice.
+    public func resolve(for body: String) -> SyntaxLanguage? {
+        switch self {
+        case .automatic: SyntaxLanguage.detect(body)
+        case .plain: nil
+        case .language(let language): language
+        }
     }
 }

@@ -13,6 +13,8 @@ import BoopstashCore
 final class SyntaxPainter {
     private weak var view: NSTextView?
     private(set) var language: SyntaxLanguage?
+    /// The note's setting: detect, plain, or a forced language.
+    private(set) var choice: SyntaxChoice = .automatic
     private var engine: SyntaxEngine?
 
     private enum Operation {
@@ -29,6 +31,9 @@ final class SyntaxPainter {
     private var appliedVersion = 0
     private var loading = false
     private var paintPending = false
+    /// A paint was asked for while one was in flight (a scroll, say); run
+    /// one more when it finishes so the newest viewport is coloured.
+    private var repaintRequested = false
     private var detection: Task<Void, Never>?
 
     /// Characters painted beyond the visible range, so a short scroll shows
@@ -76,12 +81,19 @@ final class SyntaxPainter {
         }
     }
 
-    /// A new document: detect its language and parse it from scratch. Call
+    /// A new document: resolve its language and parse it from scratch. Call
     /// after setting the view's text.
-    func load(_ text: String) {
+    func load(_ text: String, choice: SyntaxChoice = .automatic) {
         detection?.cancel()
+        self.choice = choice
         shownVersion += 1
-        operations.yield(.reset(SyntaxLanguage.detect(text), text, version: shownVersion))
+        operations.yield(.reset(choice.resolve(for: text), text, version: shownVersion))
+    }
+
+    /// Format ▸ Language for the open note.
+    func setChoice(_ choice: SyntaxChoice) {
+        guard choice != self.choice, let text = view?.string else { return }
+        load(text, choice: choice)
     }
 
     /// Wraps a programmatic replacement of the whole text, so the storage
@@ -103,6 +115,7 @@ final class SyntaxPainter {
     /// A note's language can change as it is written (an empty note gets
     /// JSON pasted in). Re-detect once typing pauses; reset only on change.
     private func scheduleDetection() {
+        guard choice == .automatic else { return }
         detection?.cancel()
         detection = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(700))
@@ -132,11 +145,19 @@ final class SyntaxPainter {
     }
 
     private func schedulePaint() {
-        guard !paintPending else { return }
+        guard !paintPending else {
+            repaintRequested = true
+            return
+        }
         paintPending = true
         Task { [weak self] in
             await self?.paint()
-            self?.paintPending = false
+            guard let self else { return }
+            self.paintPending = false
+            if self.repaintRequested {
+                self.repaintRequested = false
+                self.schedulePaint()
+            }
         }
     }
 
