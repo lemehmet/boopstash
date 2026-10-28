@@ -5,9 +5,16 @@ struct SettingsView: View {
     @Binding var preset: KeymapPreset
     @Binding var linuxHabits: Bool
     @AppStorage(AppModel.modelTitlesKey) private var modelTitles = true
+    @AppStorage(AppDelegate.hotKeyKey) private var globalShortcut = true
 
     var body: some View {
         Form {
+            Section("Capture") {
+                Toggle("⌃⌥⌘V saves the clipboard from any app", isOn: $globalShortcut)
+                Text("Also in every app's Services menu: select text, then Services ▸ Save to Boopstash.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             Section("Titles") {
                 Toggle("Name notes with Apple Intelligence", isOn: $modelTitles)
                     .disabled(!LiveModelTitler.isAvailable)

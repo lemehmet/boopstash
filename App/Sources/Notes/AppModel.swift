@@ -83,24 +83,58 @@ final class AppModel {
         insert(note)
     }
 
-    func captureClipboard() {
-        switch ClipboardCapture.read() {
+    /// Where a capture came from, which decides how loudly to report it.
+    enum CaptureOrigin {
+        /// File ▸ New Note from Clipboard, with Boopstash in front.
+        case menu
+        /// The global shortcut or a service, with another app in front:
+        /// the window may not be visible, so success is a sound.
+        case hotKey, service
+    }
+
+    func captureClipboard(origin: CaptureOrigin = .menu) {
+        capture(from: .general, origin: origin)
+    }
+
+    /// Returns why nothing was saved, or nil on success.
+    @discardableResult
+    func capture(from pasteboard: NSPasteboard, origin: CaptureOrigin) -> String? {
+        let message: String
+        switch ClipboardCapture.read(from: pasteboard) {
         case .text(let text):
             let source = sources.lastOtherApp
             var note = Note(body: text, createdAt: Date(), sourceBundleID: source?.bundleID, sourceAppName: source?.name)
             note.title = RuleTitler.title(for: text, kind: ContentKind.detect(text))
-            insert(note)
+            // With another app in front the sound is the only feedback, so it
+            // must not say "saved" when the write failed.
+            guard insert(note) else {
+                if origin != .menu { NSSound.beep() }
+                return banner
+            }
             requestModelTitle(for: note)
+            if origin != .menu { NSSound(named: "Pop")?.play() }
+            return nil
         case .refused(.refuseConcealed):
-            banner = "Not saved: the clipboard holds a password manager item."
+            message = "Not saved: the clipboard holds a password manager item."
         case .refused:
-            banner = "Not saved: the app that copied this marked it as not to be kept."
+            message = "Not saved: the app that copied this marked it as not to be kept."
         case .empty:
-            banner = "The clipboard has no text to save."
+            message = origin == .service ? "The selection has no text to save." : "The clipboard has no text to save."
         }
+        banner = message
+        if origin == .hotKey {
+            // A beep alone does not say why. The capture was the user's own
+            // action, so bringing the window forward to show the reason is
+            // fair; the Services menu reports through its error instead.
+            NSSound.beep()
+            NSApp.activate()
+        }
+        return message
     }
 
-    private func insert(_ note: Note) {
+    /// False when the note could not be saved; the banner says why.
+    @discardableResult
+    private func insert(_ note: Note) -> Bool {
         do {
             try store.save(note)
             // A filter that would hide the new note is cleared, so the
@@ -110,8 +144,10 @@ final class AppModel {
                 query.days = nil
             }
             selection = note.id
+            return true
         } catch {
             banner = "Could not save: \(error.localizedDescription)"
+            return false
         }
     }
 

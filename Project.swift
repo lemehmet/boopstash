@@ -90,6 +90,16 @@ let project = Project(
                 "CFBundleDisplayName": "Boopstash",
                 "LSApplicationCategoryType": "public.app-category.developer-tools",
                 "NSHumanReadableCopyright": "Copyright © 2026 boopstash contributors. Apache-2.0.",
+                // Services ▸ Save to Boopstash (ServicesProvider.saveSelection).
+                "NSServices": [
+                    [
+                        "NSMenuItem": ["default": "Save to Boopstash"],
+                        "NSMessage": "saveSelection",
+                        "NSPortName": "Boopstash",
+                        "NSSendTypes": ["public.utf8-plain-text", "NSStringPboardType"],
+                        "NSRequiredContext": [:],
+                    ],
+                ],
             ]),
             sources: ["App/Sources/**"],
             entitlements: .file(path: "App/Boopstash.entitlements"),
