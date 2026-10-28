@@ -27,7 +27,7 @@ struct EditorView: NSViewRepresentable {
         context.coordinator.onChange = onChange
         if context.coordinator.noteID != noteID {
             context.coordinator.noteID = noteID
-            view.string = initialText
+            view.load(initialText)
             view.setSelectedRange(NSRange(location: 0, length: 0))
             view.undoManager?.removeAllActions()
             view.scrollToBeginningOfDocument(nil)

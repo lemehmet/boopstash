@@ -74,4 +74,45 @@ struct BoopTextViewTests {
         #expect(host.view.string == "keep")
         host.close()
     }
+
+    /// End to end: a JSON note gets coloured, off the main thread, without
+    /// any colour entering the text storage.
+    @Test func jsonIsHighlighted() async throws {
+        let host = Host()
+        let text = #"{"name": "boop", "n": 42}"#
+        host.view.load(text)
+        let stringLocation = (text as NSString).range(of: "\"boop\"").location
+        var painted: NSColor?
+        for _ in 0..<100 where painted == nil {
+            try await Task.sleep(for: .milliseconds(20))
+            painted = Self.renderingColor(in: host.view, at: stringLocation)
+        }
+        #expect(host.view.syntax.language == .json)
+        #expect(painted == SyntaxTheme.color(for: "string"), "got \(String(describing: painted))")
+        // Storage keeps the view's own text colour; the highlight lives only
+        // in rendering attributes, so it is never saved or undone.
+        let stored = host.view.textStorage?.attribute(.foregroundColor, at: stringLocation, effectiveRange: nil) as? NSColor
+        #expect(stored != painted)
+        host.close()
+    }
+
+    @Test func plainProseIsNotHighlighted() async throws {
+        let host = Host()
+        host.view.load("Buy milk and call the plumber.")
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(host.view.syntax.language == nil)
+        #expect(Self.renderingColor(in: host.view, at: 4) == nil)
+        host.close()
+    }
+
+    static func renderingColor(in view: NSTextView, at offset: Int) -> NSColor? {
+        guard let layout = view.textLayoutManager, let content = layout.textContentManager,
+              let location = content.location(content.documentRange.location, offsetBy: offset) else { return nil }
+        var found: NSColor?
+        layout.enumerateRenderingAttributes(from: content.documentRange.location, reverse: false) { _, attributes, range in
+            if range.contains(location), let color = attributes[.foregroundColor] as? NSColor { found = color; return false }
+            return true
+        }
+        return found
+    }
 }

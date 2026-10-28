@@ -13,6 +13,9 @@ breaking changes may land in a minor release.
   auto-pairing, ⌘V always pastes plain text, Tab and Shift-Tab indent, and
   key bindings follow VS Code (or JetBrains, or Emacs) with an optional
   Linux-habits layer and a VS Code-style `keybindings.json`.
+- Syntax highlighting for JSON, YAML, TOML, XML, HTML, CSS, Markdown,
+  JavaScript, TypeScript, Python, shell, Go, Rust, C, Java, Swift and diffs,
+  picked from the note's content and kept up as you type.
 - Paste as Markdown (⌥⇧⌘V) turns copied web pages, Slack or Google Docs into
   markdown.
 - Capture from anywhere: File ▸ New Note from Clipboard (⌥⌘N), a global ⌃⌥⌘V,
