@@ -57,6 +57,27 @@ import Testing
         #expect(ContentKind.detect("see https://example.com for details") != .url)
     }
 
+    @Test func largeXMLIsStillXML() {
+        let xml = "<root>" + String(repeating: "<item>x</item>", count: 6_000) + "</root>"
+        #expect(xml.utf8.count > ContentKind.sampleLimit)
+        #expect(ContentKind.detect(xml) == .xml)
+        #expect(ContentKind.detect("<?xml version=\"1.0\"?>\n" + xml) == .xml)
+    }
+
+    @Test func largeJSONIsJSONWithoutAFullParse() {
+        let json = "[" + Array(repeating: #"{"id": 1, "name": "x"}"#, count: 120_000).joined(separator: ",") + "]"
+        #expect(json.utf8.count > ContentKind.jsonParseLimit)
+        let elapsed = ContinuousClock().measure { #expect(ContentKind.detect(json) == .json) }
+        #expect(elapsed < .milliseconds(200), "took \(elapsed)")
+    }
+
+    @Test func whitespaceFreeBuffersAreBounded() {
+        let blob = String(repeating: "a", count: 20_000_000) // e.g. a base64 dump
+        let elapsed = ContinuousClock().measure { _ = ContentKind.detect(blob) }
+        #expect(elapsed < .seconds(1), "took \(elapsed)")
+        #expect(ContentKind.detect("https://example.com/" + String(repeating: "a", count: 5_000)) != .url)
+    }
+
     @Test func detectionReadsOnlyASample() {
         // A huge buffer must not be scanned in full; this would take seconds
         // if every heuristic walked 20 MB.
@@ -92,6 +113,10 @@ import Testing
         #expect(title(#"{"a\"b": 1}"#) == #"JSON {a"b}"#)
     }
 
+    @Test func jsonKeysAreDecoded() {
+        #expect(title(#"{"\u0061": 1, "caf\u00e9": 2}"#) == "JSON {a, café}")
+    }
+
     @Test func jsonArraysGiveTheirLength() {
         #expect(title("[1, 2, 3]") == "JSON array of 3")
     }
@@ -114,7 +139,22 @@ import Testing
         @@ -1 +0,0 @@
         -z
         """
+        #expect(title(diff) == "Diff: A.swift, B.swift")
+    }
+
+    @Test func deletedFilesAreNamedFromTheOldSide() {
+        let diff = "diff --git a/Core/A.swift b/Core/A.swift\ndeleted file mode 100644\n--- a/Core/A.swift\n+++ /dev/null\n@@ -1 +0,0 @@\n-x"
         #expect(title(diff) == "Diff: A.swift")
+    }
+
+    @Test func pythonTracesUseTheLastLineWhateverItSays() {
+        #expect(title("Traceback (most recent call last):\n  File \"x.py\", line 9, in <module>\n    time.sleep(5)\nKeyboardInterrupt\n") == "KeyboardInterrupt")
+    }
+
+    @Test func titlingAHugeNoteIsBounded() {
+        let huge = String(repeating: "\n", count: 5_000_000) + "finally a line"
+        let elapsed = ContinuousClock().measure { _ = RuleTitler.title(for: huge, kind: .plain) }
+        #expect(elapsed < .milliseconds(500), "took \(elapsed)")
     }
 
     @Test func stackTracesNameTheFailure() {

@@ -24,19 +24,25 @@ public enum ContentKind: String, CaseIterable, Codable, Sendable {
         }
     }
 
-    /// Detection reads at most this much; a 50 MB log should not stall a paste.
+    /// Detection reads at most this much; a 50 MB log should not stall a
+    /// paste, and detection runs again on every edit.
     static let sampleLimit = 64 * 1024
+    /// JSON is the one kind confirmed by parsing the whole text, up to this
+    /// size; above it, the sample's shape decides.
+    static let jsonParseLimit = 1024 * 1024
+    static let urlLengthLimit = 4096
 
     public static func detect(_ text: String) -> ContentKind {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return .plain }
-        let sample = String(trimmed.prefix(sampleLimit))
+        let sample = String(text.drop(while: { $0.isWhitespace }).prefix(sampleLimit))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !sample.isEmpty else { return .plain }
+        let truncated = text.utf8.count > sampleLimit
         let lines = sample.split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
 
-        if isURL(trimmed) { return .url }
-        if isJSON(trimmed) { return .json }
+        if !truncated, isURL(sample) { return .url }
+        if isJSON(text, sample: sample) { return .json }
         if isDiff(lines) { return .diff }
-        if let markup = markupKind(sample) { return markup }
+        if let markup = markupKind(sample, truncated: truncated) { return markup }
         if isStackTrace(sample, lines: lines) { return .stackTrace }
         if isLog(lines) { return .log }
         if isSQL(sample) { return .sql }
@@ -47,19 +53,24 @@ public enum ContentKind: String, CaseIterable, Codable, Sendable {
     }
 
     static func isURL(_ text: String) -> Bool {
-        guard !text.contains(where: \.isWhitespace),
+        guard text.utf8.count <= urlLengthLimit, !text.contains(where: \.isWhitespace),
               let url = URL(string: text), let scheme = url.scheme?.lowercased(),
               ["http", "https"].contains(scheme), url.host != nil
         else { return false }
         return true
     }
 
-    static func isJSON(_ text: String) -> Bool {
-        guard let first = text.first, first == "{" || first == "[",
-              text.utf8.count <= 8 * 1024 * 1024,
-              let data = text.data(using: .utf8)
-        else { return false }
-        return (try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])) != nil
+    static func isJSON(_ text: String, sample: String) -> Bool {
+        guard let first = sample.first, first == "{" || first == "[" else { return false }
+        if text.utf8.count <= jsonParseLimit {
+            guard let data = text.trimmingCharacters(in: .whitespacesAndNewlines).data(using: .utf8) else { return false }
+            return (try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])) != nil
+        }
+        // Too big to parse on every edit: an object must open with a key, an
+        // array with a value, and JSON has no other punctuation in between.
+        let next = sample.dropFirst().first { !$0.isWhitespace }
+        guard let next else { return false }
+        return first == "{" ? (next == "\"" || next == "}") : "\"{[]-0123456789tfn".contains(next)
     }
 
     static func isDiff(_ lines: [String]) -> Bool {
@@ -70,15 +81,20 @@ public enum ContentKind: String, CaseIterable, Codable, Sendable {
         return minus && plus && hunk
     }
 
-    static func markupKind(_ sample: String) -> ContentKind? {
+    static func markupKind(_ sample: String, truncated: Bool) -> ContentKind? {
         guard sample.first == "<" else { return nil }
         let lower = sample.prefix(2048).lowercased()
         if lower.hasPrefix("<!doctype html") || lower.contains("<html") || lower.contains("<body") || lower.contains("<div") {
             return .html
         }
+        // A sample of a large document is cut mid-element and can never
+        // parse; an XML declaration or a root element's opening tag is
+        // enough to call it XML.
+        if truncated {
+            return sample.range(of: #"^<(\?xml\s|[A-Za-z_][\w:.-]*[\s>/])"#, options: .regularExpression) != nil ? .xml : nil
+        }
         guard let data = sample.data(using: .utf8) else { return nil }
-        let parser = XMLParser(data: data)
-        return parser.parse() ? .xml : nil
+        return XMLParser(data: data).parse() ? .xml : nil
     }
 
     static let traceMarkers = [

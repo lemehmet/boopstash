@@ -20,15 +20,18 @@ public struct RuleTitler: Titler {
     }
 
     public static func title(for body: String, kind: ContentKind) -> String {
+        // Titles come from the start of a note (and, for Python, the end);
+        // never scan a whole multi-megabyte body on every edit.
+        let head = String(body.prefix(ContentKind.sampleLimit))
         let structured: String? = switch kind {
-        case .json: jsonTitle(body)
-        case .url: urlTitle(body)
-        case .diff: diffTitle(body)
-        case .stackTrace: traceTitle(body)
+        case .json: jsonTitle(body, head: head)
+        case .url: urlTitle(head)
+        case .diff: diffTitle(head)
+        case .stackTrace: traceTitle(head: head, tail: String(body.suffix(8 * 1024)))
         default: nil
         }
         if let structured { return truncated(structured) }
-        if let line = firstMeaningfulLine(body) { return truncated(line) }
+        if let line = firstMeaningfulLine(head) { return truncated(line) }
         return kind.displayName
     }
 
@@ -63,7 +66,13 @@ public struct RuleTitler: Titler {
 
     // MARK: Structured kinds
 
-    static func jsonTitle(_ body: String) -> String? {
+    static func jsonTitle(_ body: String, head: String) -> String? {
+        guard body.utf8.count <= ContentKind.jsonParseLimit else {
+            // Too big to parse for a title: name the shape from the head.
+            if head.first == "[" { return "JSON array" }
+            let keys = orderedTopLevelKeys(head).prefix(3)
+            return keys.isEmpty ? "JSON object" : "JSON {" + keys.joined(separator: ", ") + ", …}"
+        }
         guard let data = body.data(using: .utf8),
               let value = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
         else { return nil }
@@ -81,7 +90,8 @@ public struct RuleTitler: Titler {
     }
 
     /// Keys at depth one, in source order, found by a small scan that tracks
-    /// nesting and strings.
+    /// nesting and strings. Each key keeps its escapes while scanning and is
+    /// decoded as a JSON string afterwards, so `\u0061` reads as `a`.
     static func orderedTopLevelKeys(_ body: String) -> [String] {
         var keys: [String] = []
         var depth = 0
@@ -92,10 +102,10 @@ public struct RuleTitler: Titler {
         for character in body {
             if inString {
                 if escaped { escaped = false; current.append(character); continue }
-                if character == "\\" { escaped = true; continue }
+                if character == "\\" { escaped = true; current.append(character); continue }
                 if character == "\"" {
                     inString = false
-                    if depth == 1 && expectingKey { keys.append(current); expectingKey = false }
+                    if depth == 1 && expectingKey { keys.append(decodedJSONString(current)); expectingKey = false }
                     continue
                 }
                 current.append(character)
@@ -116,6 +126,13 @@ public struct RuleTitler: Titler {
         return keys
     }
 
+    static func decodedJSONString(_ raw: String) -> String {
+        guard let data = ("\"" + raw + "\"").data(using: .utf8),
+              let decoded = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) as? String
+        else { return raw }
+        return decoded
+    }
+
     static func urlTitle(_ body: String) -> String? {
         guard let url = URL(string: body.trimmingCharacters(in: .whitespacesAndNewlines)), let rawHost = url.host() else { return nil }
         let host = rawHost.hasPrefix("www.") ? String(rawHost.dropFirst(4)) : rawHost
@@ -124,11 +141,24 @@ public struct RuleTitler: Titler {
     }
 
     static func diffTitle(_ body: String) -> String? {
-        let files = body.split(separator: "\n").compactMap { line -> String? in
-            guard line.hasPrefix("+++ ") else { return nil }
+        func path(_ line: Substring) -> String {
             var path = line.dropFirst(4).split(separator: "\t").first.map(String.init) ?? ""
-            if path.hasPrefix("b/") { path.removeFirst(2) }
-            return path == "/dev/null" ? nil : (path as NSString).lastPathComponent
+            if path.hasPrefix("a/") || path.hasPrefix("b/") { path.removeFirst(2) }
+            return path
+        }
+        // Each file is a "--- old" / "+++ new" pair; a deleted file's new side
+        // is /dev/null, so its name comes from the old side.
+        var files: [String] = []
+        var old: String?
+        for line in body.split(separator: "\n") {
+            if line.hasPrefix("--- ") {
+                old = path(line)
+            } else if line.hasPrefix("+++ ") {
+                let new = path(line)
+                let name = new == "/dev/null" ? old : new
+                if let name, name != "/dev/null" { files.append((name as NSString).lastPathComponent) }
+                old = nil
+            }
         }
         guard !files.isEmpty else { return nil }
         let shown = files.prefix(3).joined(separator: ", ")
@@ -136,14 +166,14 @@ public struct RuleTitler: Titler {
     }
 
     /// The line naming the failure, which is rarely the first one.
-    static func traceTitle(_ body: String) -> String? {
-        let lines = body.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }
-        let pattern = #"(Error|Exception|panicked at|Fatal error|Crashed)"#
-        // Python puts the exception last; most others put it first.
-        if lines.first?.hasPrefix("Traceback") == true,
-           let last = lines.last(where: { $0.range(of: pattern, options: .regularExpression) != nil }) {
-            return last
+    static func traceTitle(head: String, tail: String) -> String? {
+        let lines = head.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }
+        // Python puts the exception on the last line, whatever it is called
+        // (KeyboardInterrupt, SystemExit, a custom class).
+        if lines.first?.hasPrefix("Traceback") == true {
+            return tail.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.last { !$0.isEmpty }
         }
+        let pattern = #"(Error|Exception|panicked at|Fatal error|Crashed)"#
         return lines.first { $0.range(of: pattern, options: .regularExpression) != nil }
     }
 }
