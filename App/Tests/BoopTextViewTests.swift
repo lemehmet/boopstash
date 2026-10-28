@@ -220,6 +220,23 @@ struct BoopTextViewTests {
         host.close()
     }
 
+    /// Plain text has nothing to clear: typing and scrolling in it must not
+    /// redraw the whole text view on every change.
+    @Test func plainTextEditsDoNotRedraw() async throws {
+        let host = Host()
+        host.view.load("Buy milk.\n", syntax: .plain)
+        try await Task.sleep(for: .milliseconds(200))
+        var redraws = 0
+        host.view.syntax.didPaint = { redraws += 1 }
+        for character in "and call the plumber " {
+            host.view.insertText(String(character), replacementRange: host.view.selectedRange())
+        }
+        host.view.scroll(NSPoint(x: 0, y: 20))
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(redraws == 0)
+        host.close()
+    }
+
     static func renderingColor(in view: NSTextView, at offset: Int) -> NSColor? {
         guard let layout = view.textLayoutManager, let content = layout.textContentManager,
               let location = content.location(content.documentRange.location, offsetBy: offset) else { return nil }

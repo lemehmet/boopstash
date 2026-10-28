@@ -31,6 +31,9 @@ final class SyntaxPainter {
     private var appliedVersion = 0
     private var loading = false
     private var paintPending = false
+    /// Whether colours are painted now, so Plain Text clears and redraws
+    /// once rather than on every edit.
+    private var hasColours = false
     /// A paint was asked for while one was in flight (a scroll, say); run
     /// one more when it finishes so the newest viewport is coloured.
     private var repaintRequested = false
@@ -172,8 +175,12 @@ final class SyntaxPainter {
         let length = (view.string as NSString).length
         guard let engine else {
             // Clearing is a paint too: without the redraw, Plain Text left the
-            // previous colours on screen (#32).
+            // previous colours on screen (#32). Only when there are colours to
+            // clear, though: edits and scrolls in plain text paint too, and
+            // must not redraw the whole view each time.
+            guard hasColours else { return }
             layout.removeRenderingAttribute(.foregroundColor, for: layout.documentRange)
+            hasColours = false
             Self.markForRedisplay(view)
             didPaint?()
             return
@@ -192,6 +199,7 @@ final class SyntaxPainter {
             let range = NSIntersectionRange(highlight.range, window)
             guard range.length > 0, let textRange = Self.textRange(range, in: content) else { continue }
             layout.addRenderingAttribute(.foregroundColor, value: color, for: textRange)
+            hasColours = true
         }
         Self.markForRedisplay(view)
         didPaint?()
