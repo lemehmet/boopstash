@@ -6,6 +6,9 @@ breaking changes may land in a minor release.
 
 ## Unreleased
 
+- The app reports its real version (0.1.0 called itself 1.0 in About
+  Boopstash and Finder).
+
 ## v0.1.0 — 2026-10-28
 
 The first release: a scratch pad for macOS that keeps what you paste.
