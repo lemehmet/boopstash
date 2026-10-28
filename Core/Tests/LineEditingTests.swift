@@ -70,4 +70,40 @@ import Testing
         let text = "🙂 smile\nplain\n"
         #expect(apply(LineEditing.swap(text, lines: lines(text, containing: "plain"), up: true), to: text) == "plain\n🙂 smile\n")
     }
+
+    // MARK: Terminators other than LF (#22)
+
+    @Test(arguments: ["\r\n", "\r", "\u{2028}", "\u{2029}"])
+    func swapKeepsEveryTerminator(_ t: String) throws {
+        let text = "one\(t)two\(t)three"
+        let up = try #require(LineEditing.swap(text, lines: lines(text, containing: "two"), up: true))
+        #expect(apply(up, to: text) == "two\(t)one\(t)three")
+        let down = try #require(LineEditing.swap(text, lines: lines(text, containing: "two"), up: false))
+        #expect(apply(down, to: text) == "one\(t)three\(t)two", "the last line stays unterminated")
+        #expect(down.caretShift == ("three" + t as NSString).length)
+    }
+
+    @Test func mixedTerminatorsStayInPlace() throws {
+        let text = "a\r\nb\nc"
+        let edit = try #require(LineEditing.swap(text, lines: lines(text, containing: "b"), up: true))
+        #expect(apply(edit, to: text) == "b\r\na\nc")
+    }
+
+    @Test(arguments: ["\n", "\r\n", "\r", "\u{2028}"])
+    func duplicateKeepsTheTerminator(_ t: String) {
+        let text = "one\(t)two\(t)"
+        #expect(apply(LineEditing.duplicate(text, lines: lines(text, containing: "one"), above: false), to: text) == "one\(t)one\(t)two\(t)")
+        #expect(apply(LineEditing.duplicate(text, lines: lines(text, containing: "two"), above: true), to: text) == "one\(t)two\(t)two\(t)")
+        let last = "one\(t)two"
+        #expect(apply(LineEditing.duplicate(last, lines: lines(last, containing: "two"), above: false), to: last) == "one\(t)two\(t)two",
+                "an unterminated last line borrows the line above's terminator")
+    }
+
+    @Test func duplicateMovesTheCaretOntoTheCopyBelow() {
+        let text = "ab\ncd"
+        let edit = LineEditing.duplicate(text, lines: lines(text, containing: "cd"), above: false)
+        #expect(apply(edit, to: text) == "ab\ncd\ncd")
+        #expect(edit.caretShift == 3) // "\ncd"
+        #expect(LineEditing.duplicate("solo", lines: NSRange(location: 0, length: 4), above: false).replacement == "\nsolo")
+    }
 }
