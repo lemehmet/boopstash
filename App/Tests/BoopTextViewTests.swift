@@ -90,4 +90,21 @@ struct BoopTextViewTests {
         #expect(messages.count == 1)
         host.close()
     }
+
+    /// Drag and drop into the editor goes through readSelection, not paste.
+    @Test func droppedSecretsAreRefusedToo() {
+        let host = Host("keep")
+        let secret = pasteboard { pasteboard in
+            pasteboard.declareTypes([.string, NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType")], owner: nil)
+            pasteboard.setString("hunter2", forType: .string)
+        }
+        #expect(!host.view.readSelection(from: secret, type: .string))
+        #expect(!host.view.readSelection(from: secret))
+        #expect(host.view.string == "keep")
+
+        let ordinary = pasteboard { $0.setString(" more", forType: .string) }
+        #expect(host.view.readSelection(from: ordinary, type: .string))
+        #expect(host.view.string == "keep more")
+        host.close()
+    }
 }

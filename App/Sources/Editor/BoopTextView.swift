@@ -116,6 +116,18 @@ final class BoopTextView: NSTextView {
         insertText(text, replacementRange: selectedRange())
     }
 
+    /// Drags into the editor (and Services that insert) arrive here rather
+    /// than through paste, so the same rule is applied before AppKit reads.
+    override func readSelection(from pboard: NSPasteboard, type: NSPasteboard.PasteboardType) -> Bool {
+        guard !refusesSecret(on: pboard) else { return false }
+        return super.readSelection(from: pboard, type: type)
+    }
+
+    override func readSelection(from pboard: NSPasteboard) -> Bool {
+        guard !refusesSecret(on: pboard) else { return false }
+        return super.readSelection(from: pboard)
+    }
+
     /// What is pasted into a note is stored, so every paste follows the
     /// capture rule: password-manager and transient items are refused with a
     /// beep and a visible reason (ADR 0001, #21). True when refused.
