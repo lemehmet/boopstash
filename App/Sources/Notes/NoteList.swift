@@ -3,6 +3,7 @@ import SwiftUI
 
 struct NoteList: View {
     @Bindable var model: AppModel
+    @State private var dropTargeted = false
 
     var body: some View {
         List(model.notes, selection: $model.selection) { note in
@@ -16,10 +17,21 @@ struct NoteList: View {
             if model.notes.isEmpty {
                 if model.query.text.isEmpty && model.query.days == nil {
                     ContentUnavailableView("No notes yet", systemImage: "tray",
-                                           description: Text("⌘N for a new note, ⌥⌘N to save what is on the clipboard."))
+                                           description: Text("⌘N for a new note, ⌥⌘N to save what is on the clipboard, or drop text or a text file here."))
                 } else {
                     ContentUnavailableView.search(text: model.query.text)
                 }
+            }
+        }
+        .onDrop(of: DropCapture.acceptedTypes, isTargeted: $dropTargeted) { providers in
+            DropCapture.handle(providers, model: model)
+        }
+        .overlay {
+            if dropTargeted {
+                RoundedRectangle(cornerRadius: 8)
+                    .strokeBorder(Color.accentColor, lineWidth: 2)
+                    .padding(4)
+                    .allowsHitTesting(false)
             }
         }
         .searchable(text: $model.query.text, placement: .sidebar, prompt: "Filter")
