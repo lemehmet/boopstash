@@ -40,7 +40,12 @@ jobs:
       - run: tuist generate --no-open
 
       - name: Core unit tests
-        run: tuist test BoopstashCore
+        run: tuist test BoopstashCore --no-selective-testing
+
+      # Hosted by the app: the editor's AppKit behaviour (paste, keys) in a
+      # real window. They never touch the general pasteboard.
+      - name: App tests
+        run: tuist test Boopstash --no-selective-testing
 
       # `tuist test` regenerates a test-focused project; generate again so the
       # app scheme exists for the builds below.
