@@ -7,6 +7,8 @@ import BoopstashCore
 final class BoopTextView: NSTextView {
     var keymap = Keymap()
     var indentUnit = "    "
+    /// Shows a one-line message in the window (the app's banner).
+    var showMessage: ((String) -> Void)?
 
     /// Always `init(usingTextLayoutManager: true)`: the frame-based
     /// initializers can build a TextKit 1 view (ADR 0006).
@@ -87,11 +89,28 @@ final class BoopTextView: NSTextView {
     /// ⌘V is always plain text (ADR 0003). The body is markdown source, so
     /// there is no style to match; rich text never enters the store.
     override func paste(_ sender: Any?) {
-        pasteAsPlainText(sender)
+        pastePlainText(from: .general)
     }
 
-    override var readablePasteboardTypes: [NSPasteboard.PasteboardType] {
-        [.string]
+    override func pasteAsPlainText(_ sender: Any?) {
+        pastePlainText(from: .general)
+    }
+
+    /// Reads the text and inserts it ourselves rather than through AppKit's
+    /// paste machinery, whose readable-type negotiation silently pasted
+    /// nothing here. Taking the pasteboard as a parameter lets tests use a
+    /// private one, which never triggers macOS's paste-privacy prompt.
+    func pastePlainText(from pasteboard: NSPasteboard) {
+        guard isEditable, let text = pasteboard.string(forType: .string) else {
+            NSSound.beep()
+            // macOS's paste privacy can deny every read; say so instead of
+            // looking broken.
+            if pasteboard == .general, pasteboard.accessBehavior == .alwaysDeny {
+                showMessage?("macOS is not letting Boopstash read the clipboard. Allow it in System Settings ▸ Privacy & Security ▸ Paste from Other Apps.")
+            }
+            return
+        }
+        insertText(text, replacementRange: selectedRange())
     }
 
     @objc func pasteAsMarkdown(_ sender: Any?) {

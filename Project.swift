@@ -95,5 +95,17 @@ let project = Project(
             entitlements: .file(path: "App/Boopstash.entitlements"),
             dependencies: [.target(name: "BoopstashCore")]
         ),
+        // Hosted by the app: the editor needs a window, a responder chain
+        // and AppKit's pasteboard and key machinery, which Core tests avoid.
+        .target(
+            name: "BoopstashTests",
+            destinations: .macOS,
+            product: .unitTests,
+            bundleId: "\(appBundleId).tests",
+            deploymentTargets: macDeployment,
+            infoPlist: .default,
+            sources: ["App/Tests/**"],
+            dependencies: [.target(name: "Boopstash")]
+        ),
     ]
 )

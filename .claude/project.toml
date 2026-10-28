@@ -40,7 +40,7 @@ observe_only_workflow_names = ["fuko-pr review"]
 # skips tests whose hashes passed before and reports a vacuous pass.
 [toolchain]
 lint_command = ""
-test_command = "mise exec -- tuist generate --no-open && mise exec -- tuist test BoopstashCore --no-selective-testing"
+test_command = "mise exec -- tuist generate --no-open && mise exec -- tuist test BoopstashCore --no-selective-testing && mise exec -- tuist test Boopstash --no-selective-testing"
 web_build_command = ""
 
 [fuko]

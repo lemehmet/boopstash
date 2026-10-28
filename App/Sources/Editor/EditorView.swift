@@ -9,6 +9,7 @@ struct EditorView: NSViewRepresentable {
     let noteID: UUID
     let initialText: String
     let keymap: Keymap
+    var showMessage: (String) -> Void = { _ in }
     let onChange: (String) -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -22,6 +23,7 @@ struct EditorView: NSViewRepresentable {
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         guard let view = scroll.documentView as? BoopTextView else { return }
         view.keymap = keymap
+        view.showMessage = showMessage
         context.coordinator.onChange = onChange
         if context.coordinator.noteID != noteID {
             context.coordinator.noteID = noteID
