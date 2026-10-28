@@ -345,6 +345,8 @@ struct SpikeChecks {
         view.setSelectedRange(NSRange(location: 0, length: 0))
         view.insertChip()
         #expect(view.string.utf16.count == before + 1, "the chip is one attachment character")
+        #expect(view.textStorage?.attribute(.attachment, at: 0, effectiveRange: nil) is NSTextAttachment,
+                "the character carries its attachment, not a bare U+FFFC")
         #expect(view.folds.folded.isEmpty, "a chip inserted above a fold clears it")
         host.close()
     }
