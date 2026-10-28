@@ -103,4 +103,35 @@ struct DropCaptureTests {
         #expect(try await eventually { model.banner?.contains("the limit is 5 MB") == true })
         #expect(try model.store.notes(matching: NoteQuery()).isEmpty)
     }
+
+    /// #31: the source is the one in front when the drop happens, even if
+    /// another app comes forward while the items load.
+    @Test func sourceIsTakenAtTheDrop() async throws {
+        model.dropSource = { ("com.example.atdrop", "At Drop") }
+        let provider = NSItemProvider(object: "late text" as NSString)
+        #expect(DropCapture.handle([provider], model: model))
+        model.dropSource = { ("com.example.later", "Later") }
+        #expect(try await eventually { try model.store.notes(matching: NoteQuery()).count == 1 })
+        #expect(try model.store.notes(matching: NoteQuery()).first?.sourceAppName == "At Drop")
+    }
+
+    /// No app known at the drop stays unknown; it is not looked up again
+    /// once the item has loaded.
+    @Test func anUnknownSourceAtTheDropStaysUnknown() async throws {
+        model.dropSource = { nil }
+        let provider = NSItemProvider(object: "sourceless" as NSString)
+        #expect(DropCapture.handle([provider], model: model))
+        model.dropSource = { ("com.example.later", "Later") }
+        #expect(try await eventually { try model.store.notes(matching: NoteQuery()).count == 1 })
+        let note = try #require(try model.store.notes(matching: NoteQuery()).first)
+        #expect(note.sourceAppName == nil && note.sourceBundleID == nil)
+    }
+
+    /// #30: reading stops one byte past the limit, whatever the file holds.
+    @Test func readingStopsPastTheLimit() throws {
+        let url = try file("big.txt", Data(repeating: 0x61, count: 10_000))
+        defer { try? FileManager.default.removeItem(at: url) }
+        #expect(DropCapture.readPrefix(of: url, limit: 101)?.count == 101)
+        #expect(DropCapture.readPrefix(of: url, limit: 20_000)?.count == 10_000)
+    }
 }

@@ -53,4 +53,16 @@ public enum TextFileImport {
         let stem = (name as NSString).deletingPathExtension
         return stem.isEmpty ? name : stem
     }
+
+    /// Reads until `limit` bytes or the end. One read can return less than
+    /// asked before the end (a pipe hands over what it has), so a single
+    /// call could save the start of a file as all of it. `read` is asked
+    /// for at most the bytes still wanted.
+    public static func readPrefix(limit: Int, read: (Int) throws -> Data?) rethrows -> Data {
+        var data = Data()
+        while data.count < limit, let chunk = try read(limit - data.count), !chunk.isEmpty {
+            data.append(chunk)
+        }
+        return data
+    }
 }

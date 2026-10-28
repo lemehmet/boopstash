@@ -147,13 +147,9 @@ final class AppModel {
     /// Stores a captured text as a new note. Returns why it failed, or nil.
     @discardableResult
     func save(_ text: String, origin: CaptureOrigin, title: String? = nil, sourceBundleID: String? = nil, sourceAppName: String? = nil) -> String? {
-        var sourceBundleID = sourceBundleID
-        var sourceAppName = sourceAppName
-        if origin == .drop, sourceBundleID == nil {
-            let source = dropSource()
-            sourceBundleID = source?.bundleID
-            sourceAppName = source?.name
-        }
+        // A drop's source is the one DropCapture saw when it happened (#31),
+        // nil included: looking it up again now could name whatever app
+        // came forward since.
         var note = Note(body: text, createdAt: Date(), sourceBundleID: sourceBundleID, sourceAppName: sourceAppName)
         if let title {
             note.title = title
