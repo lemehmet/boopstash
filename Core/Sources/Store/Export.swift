@@ -10,11 +10,16 @@ public enum NoteExport {
 
     /// One file per note, named `<date> <title>.md` so a folder listing sorts
     /// by creation and reads like the app's list. Names are unique within
-    /// the export under Unicode case folding, which is how case-insensitive
-    /// APFS compares them ("οσ" and "ος" are one name there).
+    /// the export under Unicode case folding and canonical equivalence, which
+    /// is how APFS compares them ("οσ" and "ος", or "é" and "e\u{301}", are
+    /// one name there).
     public static func files(for notes: [Note], timeZone: TimeZone = .current) -> [File] {
         var used: Set<String> = []
-        func key(_ name: String) -> String { name.folding(options: [.caseInsensitive], locale: nil) }
+        // Canonical decomposition first: APFS compares names regardless of
+        // normalization, so "é" and "e\u{301}" are one file there (#17).
+        func key(_ name: String) -> String {
+            name.decomposedStringWithCanonicalMapping.folding(options: [.caseInsensitive], locale: nil)
+        }
         return notes.sorted { $0.createdAt < $1.createdAt }.map { note in
             let base = "\(day(note.createdAt, timeZone: timeZone)) \(safeName(note.title.isEmpty ? "Untitled" : note.title))"
             var name = base + ".md"
@@ -67,9 +72,10 @@ public enum NoteExport {
         return capped.trimmingCharacters(in: .whitespaces)
     }
 
-    /// A YAML double-quoted scalar: backslash and quote escaped, line breaks
-    /// and every other non-printable scalar written as an escape, so a title
-    /// with a newline or a NUL reads back exactly.
+    /// A YAML double-quoted scalar: backslash and quote escaped, and every
+    /// character outside YAML's printable set escaped (#18), along with the
+    /// line breaks that would otherwise be folded. A title with a newline, a
+    /// NUL or a noncharacter reads back exactly.
     static func quoted(_ value: String) -> String {
         var out = "\""
         for scalar in value.unicodeScalars {
@@ -80,18 +86,34 @@ public enum NoteExport {
             case "\r": out += "\\r"
             case "\t": out += "\\t"
             case "\0": out += "\\0"
+            case "\u{85}": out += "\\N"
+            case "\u{2028}": out += "\\L"
+            case "\u{2029}": out += "\\P"
             default:
-                let v = scalar.value
-                if v < 0x20 || (0x7F...0x9F).contains(v) {
-                    out += String(format: "\\x%02X", v)
-                } else if v == 0x2028 || v == 0x2029 || v == 0xFEFF {
-                    out += String(format: "\\u%04X", v)
-                } else {
+                if isYAMLPrintable(scalar) {
                     out.unicodeScalars.append(scalar)
+                } else if scalar.value <= 0xFF {
+                    out += String(format: "\\x%02X", scalar.value)
+                } else if scalar.value <= 0xFFFF {
+                    out += String(format: "\\u%04X", scalar.value)
+                } else {
+                    out += String(format: "\\U%08X", scalar.value)
                 }
             }
         }
         return out + "\""
+    }
+
+    /// YAML 1.2's printable set: TAB, LF, CR, x20–x7E, NEL, xA0–xD7FF,
+    /// xE000–xFFFD and x10000–x10FFFF. The BOM (xFEFF) is printable but
+    /// confuses readers mid-stream, so it is escaped too.
+    static func isYAMLPrintable(_ scalar: Unicode.Scalar) -> Bool {
+        switch scalar.value {
+        case 0x09, 0x0A, 0x0D, 0x20...0x7E, 0x85: true
+        case 0xFEFF: false
+        case 0xA0...0xD7FF, 0xE000...0xFFFD, 0x10000...0x10FFFF: true
+        default: false
+        }
     }
 
     static func timestamp(_ date: Date) -> String {
