@@ -62,9 +62,32 @@ jobs:
             exit 1
           fi
 
+      # The PR head is what the agentic seat reads and reviews.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+
+      # fuko's configuration, by contrast, comes from the base commit:
+      # .fuko.toml picks the container image and seats that run with the
+      # secrets below, so a PR must not be able to choose them for its own
+      # review. A change to .fuko.toml takes effect from the PR after it
+      # merges. (The workflow file itself still runs from the PR's merge ref,
+      # as every `pull_request` workflow does; write access to this repository
+      # remains the trust boundary, and forks never reach this job.)
+      - name: Read fuko config from the base commit
+        id: base-config
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          REPO: ${{ github.repository }}
+        run: |
+          config="$RUNNER_TEMP/base.fuko.toml"
+          if gh api "repos/$REPO/contents/.fuko.toml?ref=$BASE_SHA" \
+               -H "Accept: application/vnd.github.raw" > "$config" 2>/dev/null; then
+            echo "path=$config" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice title=No .fuko.toml on the base branch::nothing to review with until a .fuko.toml reaches the base branch"
+          fi
 
       - name: Set up uv
         uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
@@ -81,7 +104,9 @@ jobs:
           claude --version
 
       - name: Review
+        if: ${{ steps.base-config.outputs.path != '' }}
         env:
+          FUKO_CONFIG: ${{ steps.base-config.outputs.path }}
           GITHUB_TOKEN: ${{ steps.app-token-basil.outputs.token || github.token }}
           FUKO_GITHUB_TOKEN_BASIL: ${{ steps.app-token-basil.outputs.token }}
           # basil's Kimi Code membership key; the kimi-code preset reads
@@ -94,5 +119,5 @@ jobs:
         run: |
           # Pin MUST equal [fuko].github_ref in .claude/project.toml (v0.7.8).
           uvx --from "git+https://github.com/lemehmet/fuko-pr@d75529b1d7205b11357b3210a87bc195175e8118" \
-            fuko review --pr-url "$PR_URL" 2>&1 | tee "$RUNNER_TEMP/fuko-review.log"
+            fuko review --config "$FUKO_CONFIG" --pr-url "$PR_URL" 2>&1 | tee "$RUNNER_TEMP/fuko-review.log"
           exit "${PIPESTATUS[0]}"
