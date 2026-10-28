@@ -1,6 +1,7 @@
 # ADR 0006 — Editor engine: TextKit 2 `NSTextView`
 
-- **Status:** Accepted (2026-10-28), pending the hands-on check below
+- **Status:** Proposed (2026-10-28); becomes Accepted after the hands-on check
+  below
 - **Deciders:** boopstash maintainers
 - **Evidence:** `Spikes/EditorSpike/` (its own Tuist project; not built by CI)
 
@@ -35,9 +36,9 @@ removed.
 |---|---|---|
 | 1 | Folding | Pass. Hiding paragraphs through `NSTextContentManagerDelegate.textContentManager(_:shouldEnumerate:options:)` removes their layout fragments; ↓ from the heading lands on the line after the fold and ↑ returns; copying across the fold carries the hidden text. |
 | 2 | Key handling | Pass. A chord table in `keyDown` / `performKeyEquivalent` takes Home/End (control: stock view leaves the caret), ⇧⌥↓ duplicate line, and ⌃⌘Space before the main menu's Emoji & Symbols item sees it. |
-| 3 | No substitutions | Pass. No quote, dash, replacement, correction, link, spelling or grammar bit in `enabledTextCheckingTypes`; inline predictions, math completion and Writing Tools off; Edit ▸ Substitutions toggles refused and greyed out. |
+| 3 | No substitutions | Pass as far as automation reaches; real-keyboard typing is the hands-on check. No quote, dash, replacement, correction, link, spelling or grammar bit in `enabledTextCheckingTypes`; inline predictions, math completion and Writing Tools off; Edit ▸ Substitutions toggles refused and greyed out. |
 | 4 | Tab / Shift-Tab | Pass. Multi-line selection indents and unindents, undone in one step; Tab without a multi-line selection inserts the indent unit at the caret. |
-| 5 | 1 MB highlighting | Pass. 1 MB of JSON, 169k highlight ranges. Release build: full tree-sitter parse plus highlight query 247 ms (the worst case; the app parses incrementally, off the main thread), viewport paint 7.5 ms, keystroke plus viewport layout 11.7 ms. |
+| 5 | 1 MB highlighting | Pass. 1 MB of JSON, 169k highlight ranges. Release build: full tree-sitter parse plus highlight query 247 ms (the worst case; the app parses incrementally, off the main thread), viewport paint 7.5 ms, keystroke plus viewport layout 11.7 ms (without re-highlighting). |
 | 6 | Inline image chip | Pass. An `NSTextAttachment` lays out inline at its image's height, and the view stays on TextKit 2. |
 
 ## Decision
@@ -73,14 +74,15 @@ removed.
 - **Synthesized key events do not exercise AppKit's text checking** the way a
   real keyboard does, so "typed quotes stay straight" is checked by hand.
 
-## Hands-on check (before this ADR is final)
+## Hands-on check (before this ADR is accepted)
 
 Open the spike app (`cd Spikes/EditorSpike && mise exec -- tuist generate`,
 run the `EditorSpike` scheme) and, with a real keyboard:
 
-1. Type `'`, `"`, `--`, `(c)` in the Markdown sample with macOS's own smart
-   quotes turned **on** (System Settings ▸ Keyboard ▸ Text Input ▸ Edit): all
-   must stay as typed.
+1. Turn macOS's smart quotes and dashes **on** first (System Settings ▸
+   Keyboard ▸ Text Input ▸ Edit; they were off on the machine the spike ran
+   on, which would make this check pass for nothing). Then type `'`, `"`,
+   `--`, `(c)` in the Markdown sample: all must stay as typed.
 2. Home/End, ⌥←/→, ⇧-selection, Tab/Shift-Tab over several lines, ⌘Z.
 3. ⌥⌘[ under "## Folding", then arrow and select across the fold.
 4. Switch to the 1 MB JSON sample and type in the middle: no visible lag.
