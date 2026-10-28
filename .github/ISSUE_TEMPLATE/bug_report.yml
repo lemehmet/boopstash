@@ -1,0 +1,52 @@
+name: Bug report
+description: Something Boopstash did wrongly, or did not do that it should
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time. Boopstash has no crash reporter by design, so what you attach
+        here is all we will ever see. **Please remove anything private from notes or logs first.**
+
+  - type: input
+    id: version
+    attributes:
+      label: Boopstash version
+      description: From Boopstash ▸ About Boopstash
+      placeholder: 0.1.0
+    validations:
+      required: true
+
+  - type: input
+    id: platform
+    attributes:
+      label: macOS or iOS version, and Mac model
+      placeholder: macOS 26.1, MacBook Pro M3
+    validations:
+      required: true
+
+  - type: dropdown
+    id: channel
+    attributes:
+      label: Installed from
+      options:
+        - Homebrew
+        - Mac App Store / App Store
+        - Built from source
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What you did, what you expected, and what you got
+    validations:
+      required: true
+
+  - type: textarea
+    id: crash
+    attributes:
+      label: Crash report, if it crashed
+      description: >-
+        Console.app ▸ Crash Reports, the `Boopstash-*.ips` file. Paste it or attach it.
+      render: text

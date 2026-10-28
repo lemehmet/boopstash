@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  The complete list of what the app may reach. Every key here is a promise in
+  SECURITY.md; adding one needs an ADR (see docs/adr/0001).
+  iCloud (CloudKit) arrives with sync in milestone 5. There is deliberately no
+  network-client entitlement.
+-->
+<plist version="1.0">
+<dict>
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+</dict>
+</plist>

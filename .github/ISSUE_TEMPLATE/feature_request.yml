@@ -1,0 +1,23 @@
+name: Feature request
+description: Something Boopstash should do
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Boopstash keeps a deliberately small scope: persistent scratch buffers, private by
+        construction. The decisions behind that are in `docs/adr/`; a request that needs network
+        access, background clipboard monitoring or a cloud model will be declined.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: The situation, not the solution. "I paste X and then have to Y" is ideal.
+    validations:
+      required: true
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would help?

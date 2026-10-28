@@ -1,0 +1,7 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/lemehmet/boopstash/security/advisories/new
+    about: >-
+      Report privately instead of opening an issue. Boopstash stores whatever its user pasted,
+      so anything that could expose a note outside the user's devices and iCloud belongs here.

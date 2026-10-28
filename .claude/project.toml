@@ -1,0 +1,84 @@
+# Per-project config for the portable fuko skills (/fuko:draft-issue,
+# /fuko:issue, /fuko:address-pr-reviews, /fuko:overnight-issue-list). The
+# skill bodies read this file at runtime. Shape copied from fuko-pr's.
+
+[repo]
+owner = "lemehmet"
+name = "boopstash"
+url = "https://github.com/lemehmet/boopstash"
+
+[bots]
+# Neither CodeRabbit nor Copilot is installed on this repo, so nothing gates
+# a round except CI and the observe-only fuko-pr review workflow (see [ci]).
+# `fuko status` still reports both rows as `none`; the short timeouts below
+# keep each round's wait at about a minute instead of 25.
+gate_reviewers = []
+triage_logins = ["coderabbitai", "copilot", "fuko-"]
+
+[bots.copilot]
+login = "copilot-pull-request-reviewer[bot]"
+unresponsive_timeout_ms = 60000 # not installed; see [bots]
+
+[bots.coderabbit]
+login = "coderabbitai[bot]"
+unresponsive_timeout_ms = 60000 # not installed; see [bots]
+resume_command = "@coderabbitai resume"
+
+[bots.fuko_pr]
+# One seat since 2026-10-28 (see .fuko.toml): basil, Kimi K3.1 Pro on Kimi
+# Code. Its role there is `active`; the loop waits on the workflow row ([ci]).
+login = "fuko-basil[bot]"
+gated = false   # observe-only in the review loop: triaged and replied, not a round gate
+
+[ci]
+excluded_workflow_names = ["Running Copilot Code Review"]
+# Tracked but non-blocking: the loop waits for fuko-basil to post before
+# opening a fix round, but a red run does not block the merge.
+observe_only_workflow_names = ["fuko-pr review"]
+
+# Mirrors .github/workflows/ci.yml. --no-selective-testing: Tuist otherwise
+# skips tests whose hashes passed before and reports a vacuous pass.
+[toolchain]
+lint_command = ""
+test_command = "mise exec -- tuist generate --no-open && mise exec -- tuist test BoopstashCore --no-selective-testing"
+web_build_command = ""
+
+[fuko]
+# Same pin as .github/workflows/fuko-pr-review.yml and mepro. v0.7.8
+# (2026-10-25): the kimi-code preset basil needs.
+github_ref = "git+https://github.com/lemehmet/fuko-pr@d75529b1d7205b11357b3210a87bc195175e8118"
+
+[commit]
+round_message_template = "Address round {round} review on PR #{pr}"
+
+[issue]
+followup_prefix_with_originating = "Follow-up from #{issue}"
+followup_prefix_without_originating = "Follow-up from PR #{pr}"
+
+[paths]
+scratch_dir = ".agent-scratch"
+
+[merge]
+method = "squash"
+flags = ["delete-branch"]
+
+[labels.proto]
+name = "proto"
+color = "D4C5F9"
+description = "Stub or in-progress draft. Autonomous pipeline must not pick this up."
+
+[labels.ready]
+name = "ready"
+color = "0E8A16"
+description = "Groomed, no open questions. Auto-agent may pick up. Never with needs-operator/deferred."
+
+[labels.policy]
+hold = ["needs-operator", "deferred"]
+
+[timing]
+ci_grace_window_ms = 90000
+review_poll_interval_ms = 270000
+rate_limit_wait_ms = 600000
+self_wake_delay_ms = 1200000
+stale_lock_threshold_ms = 1800000
+stall_alarm_threshold_ms = 900000

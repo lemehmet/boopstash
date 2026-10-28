@@ -1,0 +1,6 @@
+# Pins the Tuist version used to generate this project, locally and in CI.
+# Install with `mise install` (https://mise.jdx.dev) then run
+# `mise exec -- tuist generate`. CI installs the same version through
+# jdx/mise-action, so there is one place to bump it.
+[tools]
+tuist = "4.195.9"
