@@ -1,0 +1,12 @@
+version: 2
+updates:
+  # The actions in the workflows, which are the part of the supply chain that
+  # runs with repository credentials. Swift packages join when the first one is
+  # added (GRDB, milestone 2).
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]

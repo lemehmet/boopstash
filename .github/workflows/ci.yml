@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# The default token is read-only, and nothing in CI needs more than that.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build and test
+    # GitHub-hosted macOS minutes are free once the repository is public. While
+    # it is private they are billed at the macOS rate, so this is the only job.
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Xcode
+        run: |
+          xcodebuild -version
+          xcrun --sdk macosx --show-sdk-version
+
+      - uses: jdx/mise-action@v2
+        with:
+          install: true
+          cache: true
+
+      - run: tuist install
+      - run: tuist generate --no-open
+
+      - name: Core unit tests
+        run: tuist test BoopstashCore
+
+      # `tuist test` regenerates a test-focused project; generate again so the
+      # app scheme exists for the builds below.
+      - run: tuist generate --no-open
+
+      - name: Build the macOS app
+        run: |
+          xcodebuild build \
+            -workspace Boopstash.xcworkspace \
+            -scheme Boopstash \
+            -destination 'generic/platform=macOS' \
+            CODE_SIGNING_ALLOWED=NO
+
+      # Core is shared with the iOS app that arrives in milestone 5. Compiling
+      # it for iOS now catches a macOS-only API creeping in before there is an
+      # app to notice.
+      - name: Build Core for iOS
+        run: |
+          xcodebuild build \
+            -workspace Boopstash.xcworkspace \
+            -scheme BoopstashCore \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO

@@ -1,0 +1,39 @@
+# Tuist generates the Xcode project/workspace from the manifests — they are
+# not the source of truth and must never be committed.
+*.xcodeproj/
+*.xcworkspace/
+
+# Tuist and Xcode build output.
+Derived/
+.build/
+*.xcuserstate
+xcuserdata/
+.tuist-bin/
+graph.dot
+
+# fastlane output (milestone 3 onward).
+fastlane/build/
+fastlane/report.xml
+fastlane/test_output/
+*.dSYM.zip
+
+# Signing material is injected at build time and never lives in the tree.
+*.p8
+*.p12
+*.cer
+*.mobileprovision
+*.provisionprofile
+
+# macOS and editor noise.
+.DS_Store
+.idea/
+.vscode/
+
+# Per-user Claude Code state.
+.claude/settings.local.json
+.claude/worktrees/
+
+# Local environment files that may carry secrets.
+.env
+.env.*
+*.env

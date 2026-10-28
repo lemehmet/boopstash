@@ -1,0 +1,8 @@
+- Read `docs/adr/` before changing anything about privacy, storage, the editor, distribution or formatting. A change that contradicts an ADR needs a new ADR.
+- Privacy is a hard constraint: no network access beyond the user's iCloud, no background pasteboard reads, no new entitlement without an ADR, AI is on-device only.
+- Every new or changed piece of pure logic lands in `BoopstashCore` with Swift Testing tests. Only thin `Live*` adapters in `App/` import AppKit, CloudKit, Vision or JavaScriptCore.
+- The app is sandboxed in every build; never add code that only works unsandboxed.
+- Generated `.xcodeproj` / `.xcworkspace` are never committed. `mise exec -- tuist generate`.
+- Minimum deployment target is macOS 26 / iOS 26. No availability checks for older OS versions.
+- Plan and milestones: `docs/plan/milestones.md`.
+- This repository is public. Never commit secrets or signing material (certificates, `.p8`/`.p12`, provisioning profiles, API keys, deploy keys, `.env` files), absolute local paths, or personal data such as real notes, clipboard contents or screenshots. Secrets reach CI only through GitHub Actions secrets; test fixtures are synthetic.
