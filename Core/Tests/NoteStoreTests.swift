@@ -84,12 +84,19 @@ import Testing
     }
 
     /// Terms under three characters cannot use the trigram index and take
-    /// the LIKE path; they must behave the same way.
+    /// the scan path; they must behave the same way.
     @Test func shortTermsStillMatchAsSubstrings() throws {
         try add("run go test ./...", title: "go")
         try add("cargo test", title: "rust")
         #expect(Set(try titles(NoteQuery(text: "go"))) == ["go", "rust"]) // "cargo" contains "go"
         #expect(try titles(NoteQuery(text: "go ./"))  == ["go"])
+    }
+
+    @Test func nonASCIICaseIsFoldedOnBothPaths() throws {
+        try add("Élan vital", title: "french")
+        #expect(try titles(NoteQuery(text: "é")) == ["french"], "short path")
+        #expect(try titles(NoteQuery(text: "ÉL")) == ["french"], "short path, two letters")
+        #expect(try titles(NoteQuery(text: "élan")) == ["french"], "trigram path")
     }
 
     @Test func likeWildcardsInTermsAreLiteral() throws {
@@ -160,5 +167,43 @@ import Testing
         let reopened = try NoteStore.open(at: url)
         #expect(try reopened.note(id: note.id) == note)
         #expect(try reopened.notes(matching: NoteQuery(text: "surviv"), now: Self.now).map(\.id) == [note.id])
+    }
+}
+
+/// A clock tests can move.
+final class TestClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var current: Date
+    init(_ date: Date) { current = date }
+    var now: Date { lock.withLock { current } }
+    func set(_ date: Date) { lock.withLock { current = date } }
+}
+
+@Suite struct NoteStoreObservationTests {
+    @Test func resultsStreamDeliversChanges() async throws {
+        let store = try NoteStore.inMemory()
+        var iterator = store.results(NoteQuery(text: "watched")).makeAsyncIterator()
+        #expect(try await iterator.next() == [])
+        let note = Note(title: "w", body: "a watched note", createdAt: Date())
+        try store.save(note)
+        #expect(try await iterator.next()?.map(\.id) == [note.id])
+    }
+
+    @Test func observedAgeFilterMovesOnWithTheClock() async throws {
+        let store = try NoteStore.inMemory()
+        let calendar = NoteStoreTests.calendar
+        let today = NoteStoreTests.daysAgo(0, hour: 10)
+        let clock = TestClock(NoteStoreTests.daysAgo(0, hour: 23))
+        try store.save(Note(title: "today", body: "x", createdAt: today))
+
+        var iterator = store.results(NoteQuery(days: 1), clock: { clock.now }, calendar: calendar).makeAsyncIterator()
+        #expect(try await iterator.next()?.map(\.title) == ["today"])
+
+        // Past midnight, "today" is yesterday: the next change re-fetches
+        // with the new cutoff.
+        let tomorrow = calendar.date(byAdding: .hour, value: 2, to: calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: today))!)!
+        clock.set(tomorrow)
+        try store.save(Note(title: "tomorrow", body: "y", createdAt: tomorrow))
+        #expect(try await iterator.next()?.map(\.title) == ["tomorrow"])
     }
 }

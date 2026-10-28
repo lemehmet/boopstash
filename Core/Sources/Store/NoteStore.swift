@@ -6,21 +6,41 @@ import GRDB
 public final class NoteStore: Sendable {
     public let writer: any DatabaseWriter
 
-    public init(_ writer: any DatabaseWriter) throws {
+    /// `writer` must have been made with `NoteStore.configuration`, which
+    /// installs the SQL functions the queries use.
+    init(_ writer: any DatabaseWriter) throws {
         self.writer = writer
         try Self.migrator.migrate(writer)
     }
 
     /// A store in memory, for tests and previews.
     public static func inMemory() throws -> NoteStore {
-        try NoteStore(DatabaseQueue())
+        try NoteStore(DatabaseQueue(configuration: configuration))
     }
 
     /// The store at `url`, created if missing. A pool lets the list read
     /// while the editor writes.
     public static func open(at url: URL) throws -> NoteStore {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        return try NoteStore(DatabasePool(path: url.path))
+        return try NoteStore(DatabasePool(path: url.path, configuration: configuration))
+    }
+
+    static var configuration: Configuration {
+        var configuration = Configuration()
+        configuration.prepareDatabase { db in
+            db.add(function: containsIgnoringCase)
+        }
+        return configuration
+    }
+
+    /// Substring match with Unicode case folding, for terms too short for
+    /// the trigram index. SQLite's own LIKE folds ASCII only, so "é" would
+    /// miss "Élan". Diacritics still count, as they do in the index.
+    static let containsIgnoringCase = DatabaseFunction("boopContainsIgnoringCase", argumentCount: 2, pure: true) { values in
+        guard let haystack = String.fromDatabaseValue(values[0]),
+              let needle = String.fromDatabaseValue(values[1])
+        else { return false }
+        return haystack.range(of: needle, options: .caseInsensitive) != nil
     }
 
     // MARK: Schema
@@ -78,17 +98,48 @@ public final class NoteStore: Sendable {
         return try writer.read { db in try Note.fetchAll(db, sql: sql, arguments: arguments) }
     }
 
-    /// The query's results, re-delivered whenever a note changes.
-    public func observe(_ query: NoteQuery, now: Date = Date(), calendar: Calendar = .current) -> ValueObservation<ValueReducers.Fetch<[Note]>> {
-        let (sql, arguments) = Self.sql(for: query, now: now, calendar: calendar)
-        return ValueObservation.tracking { db in try Note.fetchAll(db, sql: sql, arguments: arguments) }
+    /// The query's results, re-delivered whenever a note changes. The age
+    /// cutoff is recomputed from `clock` on every fetch, so "today" moves on
+    /// at midnight with the next change. With no change at all nothing
+    /// re-fetches; the app restarts its observation when the day changes.
+    public func observe(
+        _ query: NoteQuery,
+        clock: @escaping @Sendable () -> Date = { Date() },
+        calendar: Calendar = .current
+    ) -> ValueObservation<ValueReducers.Fetch<[Note]>> {
+        ValueObservation.tracking { db in
+            let (sql, arguments) = Self.sql(for: query, now: clock(), calendar: calendar)
+            return try Note.fetchAll(db, sql: sql, arguments: arguments)
+        }
+    }
+
+    /// The same, as a plain stream, so the app never imports GRDB. Ends when
+    /// the consuming task is cancelled.
+    public func results(
+        _ query: NoteQuery,
+        clock: @escaping @Sendable () -> Date = { Date() },
+        calendar: Calendar = .current
+    ) -> AsyncThrowingStream<[Note], any Error> {
+        let values = observe(query, clock: clock, calendar: calendar).values(in: writer)
+        return AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    for try await notes in values { continuation.yield(notes) }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
     }
 
     // MARK: Query building
 
     /// Trigram matching needs at least three characters; shorter terms fall
-    /// back to LIKE, which is slower but only ever narrows a query that the
-    /// index, the age limit or the row limit already bounds.
+    /// back to a scan with `boopContainsIgnoringCase`, which is slower but
+    /// only ever narrows a query that the index, the age limit or the row
+    /// limit already bounds.
     static let shortestIndexedTerm = 3
 
     static func columns(for scope: NoteQuery.Scope) -> [String] {
@@ -114,9 +165,8 @@ public final class NoteStore: Sendable {
             arguments.append(ftsPattern(indexed, columns: columns))
         }
         for term in short {
-            conditions.append("(" + columns.map { "note.\($0) LIKE ? ESCAPE '\\'" }.joined(separator: " OR ") + ")")
-            let pattern = "%" + likeEscaped(term) + "%"
-            arguments.append(contentsOf: Array(repeating: pattern, count: columns.count))
+            conditions.append("(" + columns.map { "boopContainsIgnoringCase(note.\($0), ?)" }.joined(separator: " OR ") + ")")
+            arguments.append(contentsOf: Array(repeating: term, count: columns.count))
         }
         if let cutoff = query.cutoff(now: now, calendar: calendar) {
             conditions.append("note.updatedAt >= ?")
@@ -138,9 +188,4 @@ public final class NoteStore: Sendable {
         return "{" + columns.joined(separator: " ") + "} : (" + quoted.joined(separator: " ") + ")"
     }
 
-    static func likeEscaped(_ term: String) -> String {
-        term.replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "%", with: "\\%")
-            .replacingOccurrences(of: "_", with: "\\_")
-    }
 }
