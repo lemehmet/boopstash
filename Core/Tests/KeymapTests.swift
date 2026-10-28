@@ -75,14 +75,43 @@ import Testing
           { "key": "cmd+/", "command": "-deleteLine" },
         ]
         """
-        let overrides = try Keymap.overrides(fromJSON: Data(json.utf8))
-        let keymap = Keymap(preset: .vsCode, overrides: overrides)
+        let file = try Keymap.overrides(fromJSON: Data(json.utf8))
+        #expect(file.problems.isEmpty)
+        let keymap = Keymap(preset: .vsCode, overrides: file.overrides)
         #expect(keymap.command(for: KeyChord("d", .command)) == .duplicateLineDown)
         #expect(keymap.command(for: KeyChord("up", .option)) == .moveToDocumentStart)
         #expect(keymap.command(for: KeyChord("k", [.command, .shift])) == nil)
         // Removing a command from a key it is not bound to leaves that key alone.
         #expect(keymap.command(for: KeyChord("/", .command)) == .toggleComment)
         #expect(keymap.problems.isEmpty)
+    }
+
+    @Test func malformedEntriesAreSkippedNotFatal() throws {
+        let json = #"[{"key": "cmd+d"}, {"key": "cmd+e", "command": "deleteLine"}, 42, {"key": 1, "command": "x"}]"#
+        let file = try Keymap.overrides(fromJSON: Data(json.utf8))
+        #expect(file.overrides == [.init(key: "cmd+e", command: "deleteLine")])
+        #expect(file.problems == [
+            "entry 1: missing or non-text \"command\"",
+            "entry 3: not an object",
+            "entry 4: missing or non-text \"key\"",
+        ])
+        let keymap = Keymap(overrides: file.overrides, fileProblems: file.problems)
+        #expect(keymap.command(for: KeyChord("e", .command)) == .deleteLine)
+        #expect(keymap.problems.count == 3)
+    }
+
+    @Test func aFileThatIsNotAnArrayThrows() {
+        #expect(throws: (any Error).self) { try Keymap.overrides(fromJSON: Data("{ nope".utf8)) }
+    }
+
+    @Test func tabIsLeftToTheTextView() {
+        // Tab and Shift-Tab go to NSTextView's insertTab/insertBacktab, which
+        // decide between indenting lines and inserting at the caret; binding
+        // them would route them through "indent lines" instead.
+        for preset in KeymapPreset.allCases {
+            #expect(Keymap(preset: preset).command(for: KeyChord("tab")) == nil)
+            #expect(Keymap(preset: preset).command(for: KeyChord("tab", .shift)) == nil)
+        }
     }
 
     @Test func badOverridesAreReportedNotFatal() {

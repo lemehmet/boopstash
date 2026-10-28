@@ -112,8 +112,6 @@ public enum KeymapPreset: String, CaseIterable, Codable, Sendable {
         KeyChord("right", [.option, .shift]): .selectWordRight,
         KeyChord("backspace", .option): .deleteWordBackward,
         KeyChord("delete", .option): .deleteWordForward,
-        KeyChord("tab"): .indentLines,
-        KeyChord("tab", .shift): .unindentLines,
         KeyChord("/", .command): .toggleComment,
         KeyChord("v", [.command, .option, .shift]): .pasteAsMarkdown,
     ]
@@ -177,13 +175,15 @@ public struct Keymap: Sendable {
     /// Override entries that could not be applied, for Settings to show.
     public private(set) var problems: [String]
 
-    public init(preset: KeymapPreset = .vsCode, linuxHabits: Bool = false, overrides: [Override] = []) {
+    /// `fileProblems` are carried through from reading `keybindings.json`
+    /// (`OverridesFile.problems`), so Settings shows one list.
+    public init(preset: KeymapPreset = .vsCode, linuxHabits: Bool = false, overrides: [Override] = [], fileProblems: [String] = []) {
         var bindings = preset.bindings
         if linuxHabits { bindings.merge(KeymapPreset.linuxHabits) { _, new in new } }
-        var problems: [String] = []
-        for (index, entry) in overrides.enumerated() {
+        var problems = fileProblems
+        for entry in overrides {
             guard let chord = KeyChord(parsing: entry.key) else {
-                problems.append("entry \(index + 1): unknown key \"\(entry.key)\"")
+                problems.append("\"\(entry.key)\": unknown key")
                 continue
             }
             // VS Code's convention: "-command" removes that command's binding
@@ -191,7 +191,7 @@ public struct Keymap: Sendable {
             let removing = entry.command.hasPrefix("-")
             let name = removing ? String(entry.command.dropFirst()) : entry.command
             guard let command = EditorCommand(rawValue: name) else {
-                problems.append("entry \(index + 1): unknown command \"\(name)\"")
+                problems.append("\"\(entry.key)\": unknown command \"\(name)\"")
                 continue
             }
             if removing {
@@ -212,17 +212,55 @@ public struct Keymap: Sendable {
     public struct Override: Codable, Equatable, Sendable {
         public var key: String
         public var command: String
+
+        enum CodingKeys: String, CodingKey { case key, command }
         public init(key: String, command: String) {
             self.key = key
             self.command = command
         }
     }
 
+    /// The usable entries of a `keybindings.json` and what was wrong with
+    /// the rest.
+    public struct OverridesFile: Equatable, Sendable {
+        public var overrides: [Override]
+        public var problems: [String]
+    }
+
     /// Reads `keybindings.json`. VS Code's files may carry comments and
-    /// trailing commas, so both are tolerated.
-    public static func overrides(fromJSON data: Data) throws -> [Override] {
+    /// trailing commas, so both are tolerated. Entries are decoded one at a
+    /// time: a bad entry is reported and skipped, never allowed to discard the
+    /// good ones. Only a file that is not a JSON array at all throws.
+    public static func overrides(fromJSON data: Data) throws -> OverridesFile {
         let decoder = JSONDecoder()
         decoder.allowsJSON5 = true
-        return try decoder.decode([Override].self, from: data)
+        let entries = try decoder.decode([LossyEntry].self, from: data)
+        var file = OverridesFile(overrides: [], problems: [])
+        for (index, entry) in entries.enumerated() {
+            switch entry {
+            case .valid(let override): file.overrides.append(override)
+            case .invalid(let reason): file.problems.append("entry \(index + 1): \(reason)")
+            }
+        }
+        return file
+    }
+
+    enum LossyEntry: Decodable {
+        case valid(Override)
+        case invalid(String)
+
+        init(from decoder: any Decoder) throws {
+            guard let container = try? decoder.container(keyedBy: Override.CodingKeys.self) else {
+                self = .invalid("not an object")
+                return
+            }
+            let key = try? container.decode(String.self, forKey: .key)
+            let command = try? container.decode(String.self, forKey: .command)
+            switch (key, command) {
+            case let (key?, command?): self = .valid(Override(key: key, command: command))
+            case (nil, _): self = .invalid("missing or non-text \"key\"")
+            case (_, nil): self = .invalid("missing or non-text \"command\"")
+            }
+        }
     }
 }
