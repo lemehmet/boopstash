@@ -134,6 +134,7 @@ public final class NoteStore: Sendable {
         }
     }
 
+
     // MARK: Query building
 
     /// Trigram matching needs at least three characters; shorter terms fall

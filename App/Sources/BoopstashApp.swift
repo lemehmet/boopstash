@@ -3,14 +3,100 @@ import SwiftUI
 
 @main
 struct BoopstashApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
+    @AppStorage("keymapPreset") private var preset: KeymapPreset = .vsCode
+    @AppStorage("linuxHabits") private var linuxHabits = false
+
+    private var keymap: Keymap {
+        Keymap(preset: preset, linuxHabits: linuxHabits, overrides: KeybindingsFile.load())
+    }
+
     var body: some Scene {
         WindowGroup {
-            ContentUnavailableView(
-                ProductInfo.name,
-                systemImage: "tray.full",
-                description: Text("Nothing here yet.")
-            )
-            .frame(minWidth: 480, minHeight: 320)
+            if let model = delegate.model {
+                MainWindow(model: model, keymap: keymap)
+                    .frame(minWidth: 720, minHeight: 420)
+            } else {
+                ContentUnavailableView("Boopstash could not open its notes", systemImage: "exclamationmark.triangle",
+                                       description: Text(delegate.openError ?? ""))
+            }
+        }
+        .commands {
+            CommandGroup(replacing: .newItem) {
+                Button("New Note") { delegate.model?.newNote() }
+                    .keyboardShortcut("n")
+                Button("New Note from Clipboard") { delegate.model?.captureClipboard() }
+                    .keyboardShortcut("n", modifiers: [.command, .option])
+            }
+            CommandGroup(after: .pasteboard) {
+                Button("Paste as Markdown") {
+                    NSApp.sendAction(#selector(BoopTextView.pasteAsMarkdown(_:)), to: nil, from: nil)
+                }
+                .keyboardShortcut("v", modifiers: [.command, .option, .shift])
+            }
+        }
+
+        Settings {
+            SettingsView(preset: $preset, linuxHabits: $linuxHabits)
+        }
+    }
+}
+
+@MainActor
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    let model: AppModel?
+    let openError: String?
+
+    override init() {
+        do {
+            model = try AppModel.live()
+            openError = nil
+        } catch {
+            model = nil
+            openError = error.localizedDescription
+        }
+        super.init()
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        model?.flushAll()
+    }
+}
+
+struct MainWindow: View {
+    @Bindable var model: AppModel
+    let keymap: Keymap
+
+    var body: some View {
+        NavigationSplitView {
+            NoteList(model: model)
+                .navigationSplitViewColumnWidth(min: 220, ideal: 280)
+        } detail: {
+            if let id = model.selection, let note = model.note(id: id) {
+                NoteDetail(model: model, note: note, keymap: keymap)
+                    .id(id)
+            } else {
+                ContentUnavailableView("No note selected", systemImage: "note.text")
+            }
+        }
+        .onChange(of: model.selection) { old, _ in
+            if let old { model.flush(old) }
+        }
+        .safeAreaInset(edge: .bottom) {
+            if let banner = model.banner {
+                HStack {
+                    Text(banner)
+                    Spacer()
+                    Button("Dismiss") { model.banner = nil }
+                        .buttonStyle(.borderless)
+                }
+                .padding(8)
+                .background(.bar)
+                .task(id: banner) {
+                    try? await Task.sleep(for: .seconds(6))
+                    if model.banner == banner { model.banner = nil }
+                }
+            }
         }
     }
 }
