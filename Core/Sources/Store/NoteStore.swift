@@ -75,6 +75,11 @@ public final class NoteStore: Sendable {
                 t.column("sourceAppName")
             }
         }
+        migrator.registerMigration("v2-model-titled-hash") { db in
+            try db.alter(table: "note") { t in
+                t.add(column: "modelTitledHash", .text)
+            }
+        }
         return migrator
     }
 

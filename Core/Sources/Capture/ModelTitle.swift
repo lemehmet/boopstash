@@ -29,10 +29,16 @@ public enum ModelTitle {
             .map({ $0.trimmingCharacters(in: .whitespaces) })
             .first(where: { !$0.isEmpty })
         else { return nil }
-        line = line.replacingOccurrences(of: #"^(#+\s*)"#, with: "", options: .regularExpression)
-        line = line.replacingOccurrences(of: #"^(?i)title\s*:\s*"#, with: "", options: .regularExpression)
         let wrappers = CharacterSet(charactersIn: "\"'“”‘’`*_ ")
-        line = line.trimmingCharacters(in: wrappers)
+        // Wrappers and prefixes nest in either order ("**Title: x**",
+        // "Title: **x**"), so peel until nothing changes.
+        var previous = ""
+        while previous != line {
+            previous = line
+            line = line.trimmingCharacters(in: wrappers)
+            line = line.replacingOccurrences(of: #"^(#+\s*)"#, with: "", options: .regularExpression)
+            line = line.replacingOccurrences(of: #"^(?i)title\s*:\s*"#, with: "", options: .regularExpression)
+        }
         while let last = line.last, ".:;,".contains(last) { line.removeLast() }
         line = line.replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
             .trimmingCharacters(in: wrappers)

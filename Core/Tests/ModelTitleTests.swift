@@ -12,6 +12,9 @@ import Testing
         ("“Smart quoted”", "Smart quoted"),
         ("\n\n  Two lines\nsecond line ignored", "Two lines"),
         ("Spaces    collapse   here", "Spaces collapse here"),
+        ("**Title: Deploy checklist**", "Deploy checklist"),
+        ("Title: **Deploy checklist**", "Deploy checklist"),
+        ("## \"Title: x\"", "x"),
     ])
     func cleans(_ output: String, _ expected: String) {
         #expect(ModelTitle.clean(output) == expected)
@@ -34,5 +37,26 @@ import Testing
         #expect(!prompt.contains("TAIL"))
         #expect(prompt.hasSuffix("[…]"))
         #expect(!ModelTitle.prompt(for: "short", kind: .plain).contains("[…]"))
+    }
+}
+
+@Suite struct ModelTitledHashTests {
+    @Test func hashIsStableAndTracksTheBody() throws {
+        #expect(Note.contentHash("abc") == Note.contentHash("abc"))
+        #expect(Note.contentHash("abc") != Note.contentHash("abd"))
+        var note = Note(body: "text", createdAt: Date())
+        #expect(!note.hasCurrentModelTitle)
+        note.modelTitledHash = Note.contentHash(note.body)
+        #expect(note.hasCurrentModelTitle)
+        note.body += "!"
+        #expect(!note.hasCurrentModelTitle)
+    }
+
+    @Test func hashSurvivesTheStore() throws {
+        let store = try NoteStore.inMemory()
+        var note = Note(title: "t", body: "b", createdAt: Date())
+        note.modelTitledHash = Note.contentHash("b")
+        try store.save(note)
+        #expect(try store.note(id: note.id)?.hasCurrentModelTitle == true)
     }
 }

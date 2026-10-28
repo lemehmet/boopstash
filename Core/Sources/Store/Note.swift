@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import GRDB
 
@@ -17,6 +18,9 @@ public struct Note: Codable, Hashable, Identifiable, Sendable {
     /// copied from Safari"). Nil for notes typed in Boopstash itself.
     public var sourceBundleID: String?
     public var sourceAppName: String?
+    /// `contentHash` of the body the on-device model last titled, so an
+    /// unchanged note is not sent to the model again, across launches too.
+    public var modelTitledHash: String?
 
     public init(
         id: UUID = UUID(),
@@ -36,6 +40,19 @@ public struct Note: Codable, Hashable, Identifiable, Sendable {
         self.updatedAt = (updatedAt ?? createdAt).storedPrecision
         self.sourceBundleID = sourceBundleID
         self.sourceAppName = sourceAppName
+    }
+}
+
+extension Note {
+    /// A stable digest of the body (SHA-256, hex), for "has this text changed
+    /// since we last looked". Stable across launches, unlike `hashValue`.
+    public static func contentHash(_ body: String) -> String {
+        SHA256.hash(data: Data(body.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// Whether the current title is the model's title for the current body.
+    public var hasCurrentModelTitle: Bool {
+        modelTitledHash == Note.contentHash(body)
     }
 }
 

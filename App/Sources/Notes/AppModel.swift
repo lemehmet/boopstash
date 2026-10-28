@@ -19,9 +19,9 @@ final class AppModel {
     @ObservationIgnored private var pendingSaves: [UUID: Task<Void, Never>] = [:]
     @ObservationIgnored private var drafts: [UUID: Note] = [:]
     @ObservationIgnored private var dayObserver: NSObjectProtocol?
-    /// The body each note last had a model title generated for, so leaving
-    /// an unchanged note does not ask the model again.
-    @ObservationIgnored private var modelTitledBodies: [UUID: String] = [:]
+    /// Requests in flight, so leaving and re-entering a note does not ask
+    /// twice. What was titled is persisted on the note (`modelTitledHash`).
+    @ObservationIgnored private var modelTitleRequests: Set<UUID> = []
 
     /// Settings ▸ "Name notes with Apple Intelligence"; on by default where
     /// the on-device model is available.
@@ -153,7 +153,8 @@ final class AppModel {
         pendingSaves[id]?.cancel()
         pendingSaves[id] = nil
         guard var draft = drafts[id] else { return }
-        if !draft.titleIsUserSet {
+        // A model title for this exact text beats the rule-based one.
+        if !draft.titleIsUserSet, !draft.hasCurrentModelTitle {
             draft.title = RuleTitler.title(for: draft.body, kind: ContentKind.detect(draft.body))
         }
         do {
@@ -173,19 +174,21 @@ final class AppModel {
     func requestModelTitle(for note: Note) {
         guard usesModelTitles, LiveModelTitler.isAvailable, !note.titleIsUserSet,
               !note.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              modelTitledBodies[note.id] != note.body
+              !note.hasCurrentModelTitle, !modelTitleRequests.contains(note.id)
         else { return }
-        modelTitledBodies[note.id] = note.body
+        modelTitleRequests.insert(note.id)
         let body = note.body
         Task { [weak self] in
             let title = await LiveModelTitler().title(for: body, kind: ContentKind.detect(body))
+            self?.modelTitleRequests.remove(note.id)
             self?.applyModelTitle(title, to: note.id, body: body)
         }
     }
 
     private func applyModelTitle(_ title: String, to id: UUID, body: String) {
-        guard var current = note(id: id), !current.titleIsUserSet, current.body == body, current.title != title else { return }
+        guard var current = note(id: id), !current.titleIsUserSet, current.body == body else { return }
         current.title = title
+        current.modelTitledHash = Note.contentHash(body)
         if drafts[id] != nil {
             drafts[id] = current
         } else {
@@ -210,7 +213,7 @@ final class AppModel {
         pendingSaves[id]?.cancel()
         pendingSaves[id] = nil
         drafts[id] = nil
-        modelTitledBodies[id] = nil
+        modelTitleRequests.remove(id)
         if selection == id { selection = nil }
     }
 }
