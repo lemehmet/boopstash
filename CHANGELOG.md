@@ -20,7 +20,7 @@ breaking changes may land in a minor release.
 - Paste as Markdown (⌥⇧⌘V) turns copied web pages, Slack or Google Docs into
   markdown.
 - Capture from anywhere: File ▸ New Note from Clipboard (⌥⌘N), a global ⌃⌥⌘V,
-  and Services ▸ Save to Boopstash. Password-manager items are never stored.
+  Services ▸ Save to Boopstash, and dropping text or a text file on the list. Password-manager items are never stored.
 - Notes name themselves, with Apple's on-device model where available and
   from their first meaningful line otherwise; a title you type is kept.
 - File ▸ Export All Notes… writes every note as a markdown file with its dates

@@ -90,6 +90,8 @@ final class AppModel {
         /// The global shortcut or a service, with another app in front:
         /// the window may not be visible, so success is a sound.
         case hotKey, service
+        /// Dropped on the note list: the window is in view.
+        case drop
     }
 
     func captureClipboard(origin: CaptureOrigin = .menu) {
@@ -103,17 +105,7 @@ final class AppModel {
         switch ClipboardCapture.read(from: pasteboard) {
         case .text(let text):
             let source = sources.lastOtherApp
-            var note = Note(body: text, createdAt: Date(), sourceBundleID: source?.bundleID, sourceAppName: source?.name)
-            note.title = RuleTitler.title(for: text, kind: ContentKind.detect(text))
-            // With another app in front the sound is the only feedback, so it
-            // must not say "saved" when the write failed.
-            guard insert(note) else {
-                if origin != .menu { NSSound.beep() }
-                return banner
-            }
-            requestModelTitle(for: note)
-            if origin != .menu { NSSound(named: "Pop")?.play() }
-            return nil
+            return save(text, origin: origin, sourceBundleID: source?.bundleID, sourceAppName: source?.name)
         case .refused(.refuseConcealed):
             message = "Not saved: the clipboard holds a password manager item."
         case .refused:
@@ -130,6 +122,45 @@ final class AppModel {
             NSApp.activate()
         }
         return message
+    }
+
+    /// Where a drop came from: a drag usually starts in the app that is in
+    /// front (Finder, a browser); failing that, the last one that was.
+    /// Replaceable so tests do not depend on what else is running.
+    @ObservationIgnored lazy var dropSource: () -> (bundleID: String?, name: String?)? = { [sources] in
+        if let front = NSWorkspace.shared.frontmostApplication, front.bundleIdentifier != Bundle.main.bundleIdentifier {
+            return (front.bundleIdentifier, front.localizedName)
+        }
+        return sources.lastOtherApp
+    }
+
+    /// Stores a captured text as a new note. Returns why it failed, or nil.
+    @discardableResult
+    func save(_ text: String, origin: CaptureOrigin, title: String? = nil, sourceBundleID: String? = nil, sourceAppName: String? = nil) -> String? {
+        var sourceBundleID = sourceBundleID
+        var sourceAppName = sourceAppName
+        if origin == .drop, sourceBundleID == nil {
+            let source = dropSource()
+            sourceBundleID = source?.bundleID
+            sourceAppName = source?.name
+        }
+        var note = Note(body: text, createdAt: Date(), sourceBundleID: sourceBundleID, sourceAppName: sourceAppName)
+        if let title {
+            note.title = title
+            note.titleIsUserSet = true
+        } else {
+            note.title = RuleTitler.title(for: text, kind: ContentKind.detect(text))
+        }
+        // With another app in front the sound is the only feedback, so it
+        // must not say "saved" when the write failed.
+        let background = origin == .hotKey || origin == .service
+        guard insert(note) else {
+            if background { NSSound.beep() }
+            return banner
+        }
+        if !note.titleIsUserSet { requestModelTitle(for: note) }
+        if background { NSSound(named: "Pop")?.play() }
+        return nil
     }
 
     /// False when the note could not be saved; the banner says why.

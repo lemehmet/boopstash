@@ -24,7 +24,8 @@ Each milestone ends in something that runs. Decisions behind them are in
 
 - Store: GRDB schema and migrations, FTS5 search, filter by last N days with
   title and/or content text.
-- Capture: new note from clipboard (hotkey, menu, Services, drag and drop);
+- Capture: new note from clipboard (hotkey, menu, Services, drag and drop of
+  text and text files);
   concealed/transient types refused; source app and time recorded.
 - Titles: Foundation Models when available, rule-based fallback (first
   meaningful line, detected content type, source app, time).
