@@ -1,0 +1,276 @@
+name: Release
+
+# A `v*` tag builds a universal app, signs it with Developer ID, notarizes and
+# staples it, publishes a GitHub release, and renders the Homebrew cask into
+# lemehmet/homebrew-boopstash (ADR 0004). `workflow_dispatch` is a dry run of
+# the build, signing and notarization: it never publishes.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag (or branch) to build, for a dry run
+        required: true
+
+permissions:
+  contents: read
+
+# Named explicitly: GitHub's default when no shell is given is `bash -e`
+# without pipefail, so `xcodebuild … | tail` would hide a failed build.
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: Build, sign, notarize
+    runs-on: macos-26
+    timeout-minutes: 60
+    env:
+      REF: ${{ github.event.inputs.tag || github.ref_name }}
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.REF }}
+          persist-credentials: false
+
+      - name: Version from the tag
+        id: version
+        run: |
+          version="${REF#v}"
+          # A dry run of a branch still needs a version that looks like one.
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            if [ "${{ github.event_name }}" = workflow_dispatch ]; then
+              version="0.0.0-dryrun"
+            else
+              echo "::error::tag $REF is not vMAJOR.MINOR.PATCH"; exit 1
+            fi
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Confirm the signing secrets are configured
+        env:
+          DEVELOPER_ID_P12_BASE64: ${{ secrets.DEVELOPER_ID_P12_BASE64 }}
+          DEVELOPER_ID_P12_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_CONTENT: ${{ secrets.ASC_KEY_CONTENT }}
+          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+        run: |
+          missing=()
+          for name in DEVELOPER_ID_P12_BASE64 DEVELOPER_ID_P12_PASSWORD ASC_KEY_ID ASC_ISSUER_ID ASC_KEY_CONTENT APPLE_TEAM_ID; do
+            [ -z "${!name}" ] && missing+=("$name")
+          done
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error::missing: ${missing[*]}. See CONTRIBUTING.md ▸ Releasing for what each one is and how to add it."
+            exit 1
+          fi
+
+      - uses: jdx/mise-action@v2
+        with:
+          install: true
+          cache: true
+
+      - run: tuist install
+      - run: tuist generate --no-open
+
+      # A throwaway keychain holding only the Developer ID identity, removed in
+      # the last step whatever happens.
+      - name: Import the Developer ID certificate
+        env:
+          DEVELOPER_ID_P12_BASE64: ${{ secrets.DEVELOPER_ID_P12_BASE64 }}
+          DEVELOPER_ID_P12_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
+        run: |
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          password="$(openssl rand -hex 24)"
+          echo "$DEVELOPER_ID_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/developer-id.p12"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 3600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          security import "$RUNNER_TEMP/developer-id.p12" -k "$keychain" -P "$DEVELOPER_ID_P12_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$password" "$keychain" >/dev/null
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          rm "$RUNNER_TEMP/developer-id.p12"
+          security find-identity -v -p codesigning "$keychain" | grep -q "Developer ID Application" || {
+            echo "::error::the certificate in DEVELOPER_ID_P12_BASE64 is not a Developer ID Application identity"; exit 1; }
+
+      - name: Archive (universal, hardened runtime)
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+        run: |
+          xcodebuild archive \
+            -workspace Boopstash.xcworkspace -scheme Boopstash -configuration Release \
+            -destination 'generic/platform=macOS' \
+            -archivePath "$RUNNER_TEMP/Boopstash.xcarchive" \
+            ARCHS="arm64 x86_64" ONLY_ACTIVE_ARCH=NO \
+            MARKETING_VERSION="$VERSION" CURRENT_PROJECT_VERSION="${{ github.run_number }}" \
+            CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="Developer ID Application" \
+            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" OTHER_CODE_SIGN_FLAGS="--timestamp" \
+            ENABLE_HARDENED_RUNTIME=YES | tail -5
+
+      - name: Export with Developer ID
+        env:
+          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+        run: |
+          sed "s/__TEAM_ID__/$APPLE_TEAM_ID/" packaging/release/ExportOptions.plist > "$RUNNER_TEMP/ExportOptions.plist"
+          xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/Boopstash.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" -exportPath "$RUNNER_TEMP/export" | tail -3
+
+      # What ships must be what ADR 0001 and ADR 0004 promise: signed with a
+      # timestamp, hardened, universal, and with exactly the entitlements
+      # SECURITY.md lists.
+      - name: Check the signature, architectures and entitlements
+        run: |
+          app="$RUNNER_TEMP/export/Boopstash.app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          # Each property separately: one alternation would pass on any of them.
+          details="$(codesign -dvv "$app" 2>&1)"
+          echo "$details" | grep -q "^Authority=Developer ID Application: " || { echo "::error::not signed with Developer ID"; exit 1; }
+          echo "$details" | grep -Eq "^Timestamp=[A-Z][a-z]{2} " || { echo "::error::no secure timestamp"; exit 1; }
+          echo "$details" | grep -Eq "flags=0x[0-9a-f]+\([^)]*runtime" || { echo "::error::hardened runtime is off"; exit 1; }
+          archs="$(lipo -archs "$app/Contents/MacOS/Boopstash")"
+          [[ "$archs" == *arm64* && "$archs" == *x86_64* ]] || { echo "::error::not universal: $archs"; exit 1; }
+          codesign -d --entitlements - --xml "$app" 2>/dev/null | plutil -convert json -o - - > "$RUNNER_TEMP/entitlements.json"
+          # Keys and values: app-sandbox=false must fail as loudly as a
+          # missing or extra entitlement.
+          python3 - "$RUNNER_TEMP/entitlements.json" <<'PY'
+          import json, sys
+          actual = json.load(open(sys.argv[1]))
+          expected = {
+              "com.apple.security.app-sandbox": True,
+              "com.apple.security.files.user-selected.read-write": True,
+          }
+          if actual != expected:
+              sys.exit(f"::error::entitlements are {actual}, expected {expected}")
+          PY
+
+      - name: Notarize and staple
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_CONTENT: ${{ secrets.ASC_KEY_CONTENT }}
+        run: |
+          app="$RUNNER_TEMP/export/Boopstash.app"
+          key="$RUNNER_TEMP/AuthKey.p8"
+          echo "$ASC_KEY_CONTENT" | base64 --decode > "$key"
+          ditto -c -k --keepParent "$app" "$RUNNER_TEMP/notarize.zip"
+          if ! xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" \
+                 --key "$key" --key-id "$ASC_KEY_ID" --issuer "$ASC_ISSUER_ID" \
+                 --wait --timeout 30m --output-format json > "$RUNNER_TEMP/notary.json"; then
+            cat "$RUNNER_TEMP/notary.json"
+            id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("id",""))' "$RUNNER_TEMP/notary.json")"
+            [ -n "$id" ] && xcrun notarytool log "$id" --key "$key" --key-id "$ASC_KEY_ID" --issuer "$ASC_ISSUER_ID"
+            rm "$key"; exit 1
+          fi
+          rm "$key"
+          cat "$RUNNER_TEMP/notary.json"
+          python3 -c 'import json,sys; s=json.load(open(sys.argv[1]))["status"]; sys.exit(0 if s=="Accepted" else f"notarization status: {s}")' "$RUNNER_TEMP/notary.json"
+          xcrun stapler staple "$app"
+          xcrun stapler validate "$app"
+          spctl --assess --type execute --verbose=2 "$app"
+
+      - name: Package
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          mkdir -p dist
+          name="Boopstash-$VERSION.zip"
+          ditto -c -k --keepParent "$RUNNER_TEMP/export/Boopstash.app" "dist/$name"
+          # Written from inside dist so the checksum file names a bare file.
+          ( cd dist && shasum -a 256 "$name" > "$name.sha256" && shasum -a 256 -c "$name.sha256" )
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Boopstash-${{ steps.version.outputs.version }}
+          path: dist/*
+
+      - name: Remove the signing keychain
+        if: always()
+        run: security delete-keychain "$RUNNER_TEMP/signing.keychain-db" 2>/dev/null || true
+
+  publish:
+    name: GitHub release
+    needs: build
+    runs-on: ubuntu-latest
+    # Only a pushed tag publishes. A manual run is a dry run even when it is
+    # started from a tag, where github.ref is a tag too.
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+
+  # The tap is what `brew install --cask lemehmet/boopstash/boopstash`
+  # resolves. The cask is rendered fresh from packaging/homebrew/ so the tap
+  # can never drift from this repository, and pushed with a deploy key that
+  # can write to the tap and nothing else.
+  homebrew:
+    name: Homebrew tap
+    needs: [build, publish]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Confirm the deploy key is configured
+        env:
+          HOMEBREW_TAP_DEPLOY_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
+        run: |
+          if [ -z "$HOMEBREW_TAP_DEPLOY_KEY" ]; then
+            echo "::error::HOMEBREW_TAP_DEPLOY_KEY is not set: a write deploy key on lemehmet/homebrew-boopstash, its private half as this repository's secret."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          repository: lemehmet/homebrew-boopstash
+          ssh-key: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
+          path: tap
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Render the cask
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          sha="$(cut -d' ' -f1 "dist/Boopstash-$VERSION.zip.sha256")"
+          mkdir -p tap/Casks
+          sed -e "s/__VERSION__/$VERSION/g" -e "s/__SHA256__/$sha/" packaging/homebrew/boopstash.rb > tap/Casks/boopstash.rb
+          if grep -n '__[A-Z0-9_]*__' tap/Casks/boopstash.rb; then
+            echo "::error::unfilled placeholder in the rendered cask"; exit 1
+          fi
+
+      - name: Push to the tap
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          cd tap
+          # A rerun of an older release must not take the tap backwards.
+          current="$(git show HEAD:Casks/boopstash.rb 2>/dev/null | sed -n 's/^  version "\(.*\)"$/\1/p')"
+          if [ -n "$current" ] && [ "$current" != "$VERSION" ] && \
+             [ "$(printf '%s\n%s\n' "$current" "$VERSION" | sort -V | tail -1)" = "$current" ]; then
+            echo "::notice::the tap carries $current, newer than $VERSION; leaving it"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Casks/boopstash.rb
+          if git diff --cached --quiet; then
+            echo "::notice::the tap already carries v$VERSION; skipping"; exit 0
+          fi
+          git commit -m "boopstash $VERSION"
+          git push

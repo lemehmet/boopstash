@@ -55,3 +55,25 @@ refused, what breaks if it changes.
    labelled `review-capped`, which stops further rounds.
 4. Add a line to `CHANGELOG.md` under **Unreleased** for anything a user would
    notice.
+
+## Releasing
+
+A `v*` tag runs `.github/workflows/release.yml`: a universal build signed with
+Developer ID, notarized and stapled, a GitHub release, and the cask rendered
+into [lemehmet/homebrew-boopstash](https://github.com/lemehmet/homebrew-boopstash)
+(ADR 0004). Running the workflow by hand with a tag or branch is a dry run of
+the build, signing and notarization that publishes nothing.
+
+It needs, in this repository's Actions settings:
+
+| Name | Kind | What |
+|---|---|---|
+| `APPLE_TEAM_ID` | variable | The Apple Developer team ID |
+| `DEVELOPER_ID_P12_BASE64` | secret | The Developer ID Application certificate and its private key, exported from Keychain Access as `.p12`, then `base64 -i cert.p12` |
+| `DEVELOPER_ID_P12_PASSWORD` | secret | The password chosen for that export |
+| `ASC_KEY_ID`, `ASC_ISSUER_ID` | secrets | An App Store Connect API key (Users and Access ▸ Integrations), used by `notarytool` |
+| `ASC_KEY_CONTENT` | secret | That key's `.p8` file, `base64 -i AuthKey_XXXX.p8` |
+| `HOMEBREW_TAP_DEPLOY_KEY` | secret | The private half of a write deploy key on the tap repository |
+
+To cut a release: move **Unreleased** in `CHANGELOG.md` under the new version,
+merge that, then `git tag vX.Y.Z && git push origin vX.Y.Z`.

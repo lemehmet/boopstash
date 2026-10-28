@@ -142,7 +142,10 @@ let project = Project(
             ]),
             sources: ["App/Sources/**"],
             entitlements: .file(path: "App/Boopstash.entitlements"),
-            dependencies: [.target(name: "BoopstashCore")]
+            dependencies: [.target(name: "BoopstashCore")],
+            // Notarization requires the hardened runtime; every build has it
+            // so what is tested is what ships (ADR 0004).
+            settings: .settings(base: ["ENABLE_HARDENED_RUNTIME": "YES"])
         ),
         // Hosted by the app: the editor needs a window, a responder chain
         // and AppKit's pasteboard and key machinery, which Core tests avoid.
