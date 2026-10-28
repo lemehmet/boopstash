@@ -127,6 +127,11 @@ let project = Project(
             deploymentTargets: macDeployment,
             infoPlist: .extendingDefault(with: [
                 "CFBundleDisplayName": "Boopstash",
+                // Tuist's default plist hard-codes 1.0 and 1; the release sets
+                // these build settings from the tag, so the plist must use them
+                // (v0.1.0 shipped reporting 1.0).
+                "CFBundleShortVersionString": "$(MARKETING_VERSION)",
+                "CFBundleVersion": "$(CURRENT_PROJECT_VERSION)",
                 "LSApplicationCategoryType": "public.app-category.developer-tools",
                 "NSHumanReadableCopyright": "Copyright © 2026 boopstash contributors. Apache-2.0.",
                 // Services ▸ Save to Boopstash (ServicesProvider.saveSelection).

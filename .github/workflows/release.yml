@@ -123,9 +123,13 @@ jobs:
       # What ships must be what ADR 0001 and ADR 0004 promise: signed with a
       # timestamp, hardened, universal, and with exactly the entitlements
       # SECURITY.md lists.
-      - name: Check the signature, architectures and entitlements
+      - name: Check the version, signature, architectures and entitlements
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
           app="$RUNNER_TEMP/export/Boopstash.app"
+          shown="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")"
+          [ "$shown" = "$VERSION" ] || { echo "::error::the app reports version $shown, not $VERSION"; exit 1; }
           codesign --verify --deep --strict --verbose=2 "$app"
           # Each property separately: one alternation would pass on any of them.
           details="$(codesign -dvv "$app" 2>&1)"
