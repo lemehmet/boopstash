@@ -103,7 +103,12 @@ final class AppModel {
             let source = sources.lastOtherApp
             var note = Note(body: text, createdAt: Date(), sourceBundleID: source?.bundleID, sourceAppName: source?.name)
             note.title = RuleTitler.title(for: text, kind: ContentKind.detect(text))
-            insert(note)
+            // With another app in front the sound is the only feedback, so it
+            // must not say "saved" when the write failed.
+            guard insert(note) else {
+                if origin != .menu { NSSound.beep() }
+                return
+            }
             requestModelTitle(for: note)
             if origin != .menu { NSSound(named: "Pop")?.play() }
             return
@@ -118,7 +123,9 @@ final class AppModel {
         if origin != .menu { NSSound.beep() }
     }
 
-    private func insert(_ note: Note) {
+    /// False when the note could not be saved; the banner says why.
+    @discardableResult
+    private func insert(_ note: Note) -> Bool {
         do {
             try store.save(note)
             // A filter that would hide the new note is cleared, so the
@@ -128,8 +135,10 @@ final class AppModel {
                 query.days = nil
             }
             selection = note.id
+            return true
         } catch {
             banner = "Could not save: \(error.localizedDescription)"
+            return false
         }
     }
 

@@ -66,6 +66,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private var hotKey: GlobalHotKey?
+    private var reportedHotKeyFailure = false
     private var services: ServicesProvider?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -87,6 +88,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let enabled = UserDefaults.standard.object(forKey: Self.hotKeyKey) as? Bool ?? true
         if enabled, hotKey == nil, let model {
             hotKey = GlobalHotKey.captureClipboard { model.captureClipboard(origin: .hotKey) }
+            // Left nil on failure, so the next settings change tries again.
+            if hotKey == nil, !reportedHotKeyFailure {
+                reportedHotKeyFailure = true
+                model.banner = "⌃⌥⌘V is taken by another app. Capture with ⌥⌘N or Services ▸ Save to Boopstash instead."
+            }
         } else if !enabled, let hotKey {
             hotKey.unregister()
             self.hotKey = nil

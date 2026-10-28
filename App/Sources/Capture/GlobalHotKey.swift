@@ -14,20 +14,24 @@ final class GlobalHotKey {
     /// the registered instance is found through this.
     private static var current: GlobalHotKey?
 
-    init(keyCode: Int, modifiers: Int, action: @escaping @MainActor () -> Void) {
+    /// Nil when Carbon refuses, typically because another app already owns
+    /// the chord; anything half set up is undone first.
+    init?(keyCode: Int, modifiers: Int, action: @escaping @MainActor () -> Void) {
         self.action = action
         var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
-        InstallEventHandler(GetApplicationEventTarget(), { _, _, _ in
+        let installed = InstallEventHandler(GetApplicationEventTarget(), { _, _, _ in
             MainActor.assumeIsolated { GlobalHotKey.current?.action() }
             return noErr
         }, 1, &spec, nil, &handler)
+        guard installed == noErr else { return nil }
         let id = EventHotKeyID(signature: OSType(0x424F4F50), id: 1) // 'BOOP'
-        RegisterEventHotKey(UInt32(keyCode), UInt32(modifiers), id, GetApplicationEventTarget(), 0, &reference)
+        let registered = RegisterEventHotKey(UInt32(keyCode), UInt32(modifiers), id, GetApplicationEventTarget(), 0, &reference)
+        guard registered == noErr, reference != nil else {
+            if let handler { RemoveEventHandler(handler) }
+            return nil
+        }
         Self.current = self
     }
-
-    /// Whether registration succeeded; another app may already own the chord.
-    var isRegistered: Bool { reference != nil }
 
     func unregister() {
         if let reference { UnregisterEventHotKey(reference) }
@@ -38,7 +42,7 @@ final class GlobalHotKey {
     }
 
     /// ⌃⌥⌘V: "paste" into Boopstash from anywhere.
-    static func captureClipboard(action: @escaping @MainActor () -> Void) -> GlobalHotKey {
+    static func captureClipboard(action: @escaping @MainActor () -> Void) -> GlobalHotKey? {
         GlobalHotKey(keyCode: kVK_ANSI_V, modifiers: cmdKey | optionKey | controlKey, action: action)
     }
 }
