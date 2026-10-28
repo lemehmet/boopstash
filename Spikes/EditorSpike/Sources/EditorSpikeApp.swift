@@ -70,6 +70,11 @@ struct SpikeEditor: NSViewRepresentable {
         private var highlighter: JSONHighlighter?
         private var observers: [NSObjectProtocol] = []
 
+        // Block-based observers stay registered until removed.
+        isolated deinit {
+            observers.forEach(NotificationCenter.default.removeObserver)
+        }
+
         func attach(_ view: SpikeTextView, status: Binding<String>) {
             self.view = view
             self.status = status

@@ -24,6 +24,7 @@ let project = Project(
             deploymentTargets: deployment,
             infoPlist: .extendingDefault(with: [:]),
             sources: ["Sources/**"],
+            entitlements: .file(path: "EditorSpike.entitlements"),
             dependencies: [
                 .package(product: "SwiftTreeSitter"),
                 .package(product: "TreeSitterJSON"),
