@@ -3,15 +3,25 @@ import Foundation
 /// Line-level edits as pure functions over text and UTF-16 ranges, so the
 /// editor's behaviour is tested here rather than through a window.
 public enum LineEditing {
-    /// Applies `transform` to each line of a block of whole lines, keeping a
-    /// trailing newline if the block had one.
+    /// Applies `transform` to each line of a block of whole lines. Lines
+    /// end wherever NSString says they do (LF, CRLF, CR, U+2028, U+2029),
+    /// the same rule `lineRange(for:)` uses to pick the block, and each
+    /// line keeps its own terminator.
     public static func mapLines(_ block: String, _ transform: (String) -> String) -> String {
-        let trailingNewline = block.hasSuffix("\n")
-        var lines = block.components(separatedBy: "\n")
-        if trailingNewline { lines.removeLast() }
-        var result = lines.map(transform).joined(separator: "\n")
-        if trailingNewline { result += "\n" }
-        return result
+        let ns = block as NSString
+        var lines: [(content: NSRange, terminator: NSRange)] = []
+        ns.enumerateSubstrings(in: NSRange(location: 0, length: ns.length), options: [.byLines, .substringNotRequired]) { _, line, enclosing, _ in
+            lines.append((line, NSRange(location: NSMaxRange(line), length: NSMaxRange(enclosing) - NSMaxRange(line))))
+        }
+        return lines.map { transform(ns.substring(with: $0.content)) + ns.substring(with: $0.terminator) }.joined()
+    }
+
+    /// Whether `range` reaches past the end of the line it starts on.
+    public static func spansLines(_ text: String, _ range: NSRange) -> Bool {
+        let ns = text as NSString
+        var contentsEnd = 0
+        ns.getLineStart(nil, end: nil, contentsEnd: &contentsEnd, for: NSRange(location: range.location, length: 0))
+        return NSMaxRange(range) > contentsEnd
     }
 
     public struct Edit: Equatable, Sendable {

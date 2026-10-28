@@ -164,7 +164,7 @@ final class BoopTextView: NSTextView {
     /// otherwise it inserts the indent unit at the caret, as in VS Code.
     override func insertTab(_ sender: Any?) {
         let selection = selectedRange()
-        guard (string as NSString).substring(with: selection).contains("\n") else {
+        guard LineEditing.spansLines(string, selection) else {
             insertText(indentUnit, replacementRange: selection)
             return
         }
@@ -194,8 +194,11 @@ final class BoopTextView: NSTextView {
         let rewritten = LineEditing.mapLines(original, transform)
         guard rewritten != original else { return }
         replace(range, with: rewritten)
-        let length = (rewritten as NSString).length - (rewritten.hasSuffix("\n") ? 1 : 0)
-        setSelectedRange(NSRange(location: range.location, length: length))
+        // Select the rewritten lines without their final terminator.
+        let ns = rewritten as NSString
+        var contentsEnd = 0
+        ns.getLineStart(nil, end: nil, contentsEnd: &contentsEnd, for: NSRange(location: max(ns.length - 1, 0), length: 0))
+        setSelectedRange(NSRange(location: range.location, length: contentsEnd))
     }
 
     private func deleteLines() {

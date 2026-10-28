@@ -57,9 +57,13 @@ final class AppModel {
         }
     }
 
-    /// The current version of a note, including edits not saved yet.
+    /// The current version of a note: the unsaved draft if there is one,
+    /// otherwise the store. Not the observed list, which lags a save by a
+    /// delivery and would hand back the previous version as the base for the
+    /// next edit.
     func note(id: UUID) -> Note? {
-        drafts[id] ?? notes.first { $0.id == id } ?? (try? store.note(id: id))
+        if let draft = drafts[id] { return draft }
+        return (try? store.note(id: id)) ?? notes.first { $0.id == id }
     }
 
     // MARK: Creating
@@ -154,15 +158,18 @@ final class AppModel {
         for id in Array(drafts.keys) { flush(id) }
     }
 
+    /// The draft and selection go only once the row is gone, so a failed
+    /// delete leaves the note exactly as it was, unsaved edits included.
     func delete(_ id: UUID) {
-        pendingSaves[id]?.cancel()
-        pendingSaves[id] = nil
-        drafts[id] = nil
-        if selection == id { selection = nil }
         do {
             try store.delete(id: id)
         } catch {
             banner = "Could not delete: \(error.localizedDescription)"
+            return
         }
+        pendingSaves[id]?.cancel()
+        pendingSaves[id] = nil
+        drafts[id] = nil
+        if selection == id { selection = nil }
     }
 }

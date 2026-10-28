@@ -19,6 +19,20 @@ import Testing
         #expect(LineEditing.mapLines("a\nb") { "> " + $0 } == "> a\n> b")
     }
 
+    @Test func mapLinesKeepsEachLinesTerminator() {
+        #expect(LineEditing.mapLines("a\r\nb\rc\u{2028}d") { "> " + $0 } == "> a\r\n> b\r> c\u{2028}> d")
+        #expect(LineEditing.mapLines("") { "> " + $0 } == "")
+    }
+
+    @Test func spanningLinesUsesNSStringLineBreaks() {
+        #expect(LineEditing.spansLines("a\rb", NSRange(location: 0, length: 3)))
+        #expect(LineEditing.spansLines("a\u{2028}b", NSRange(location: 0, length: 3)))
+        #expect(!LineEditing.spansLines("abc\ndef", NSRange(location: 1, length: 2)))
+        // Selecting a line including its newline still counts as one line
+        // being extended into the next, as in VS Code.
+        #expect(LineEditing.spansLines("abc\ndef", NSRange(location: 0, length: 4)))
+    }
+
     @Test func swapUpAndDownInTheMiddle() {
         let text = "one\ntwo\nthree\n"
         #expect(apply(LineEditing.swap(text, lines: lines(text, containing: "two"), up: true), to: text) == "two\none\nthree\n")
