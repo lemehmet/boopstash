@@ -121,13 +121,26 @@ jobs:
         run: |
           app="$RUNNER_TEMP/export/Boopstash.app"
           codesign --verify --deep --strict --verbose=2 "$app"
-          codesign -dvv "$app" 2>&1 | grep -E "Authority=Developer ID Application|Timestamp=|flags=.*runtime"
+          # Each property separately: one alternation would pass on any of them.
+          details="$(codesign -dvv "$app" 2>&1)"
+          echo "$details" | grep -q "^Authority=Developer ID Application: " || { echo "::error::not signed with Developer ID"; exit 1; }
+          echo "$details" | grep -Eq "^Timestamp=[A-Z][a-z]{2} " || { echo "::error::no secure timestamp"; exit 1; }
+          echo "$details" | grep -Eq "flags=0x[0-9a-f]+\([^)]*runtime" || { echo "::error::hardened runtime is off"; exit 1; }
           archs="$(lipo -archs "$app/Contents/MacOS/Boopstash")"
           [[ "$archs" == *arm64* && "$archs" == *x86_64* ]] || { echo "::error::not universal: $archs"; exit 1; }
           codesign -d --entitlements - --xml "$app" 2>/dev/null | plutil -convert json -o - - > "$RUNNER_TEMP/entitlements.json"
-          keys="$(python3 -c 'import json,sys; print(" ".join(sorted(json.load(open(sys.argv[1])))))' "$RUNNER_TEMP/entitlements.json")"
-          expected="com.apple.security.app-sandbox com.apple.security.files.user-selected.read-write"
-          [ "$keys" = "$expected" ] || { echo "::error::entitlements are '$keys', expected '$expected'"; exit 1; }
+          # Keys and values: app-sandbox=false must fail as loudly as a
+          # missing or extra entitlement.
+          python3 - "$RUNNER_TEMP/entitlements.json" <<'PY'
+          import json, sys
+          actual = json.load(open(sys.argv[1]))
+          expected = {
+              "com.apple.security.app-sandbox": True,
+              "com.apple.security.files.user-selected.read-write": True,
+          }
+          if actual != expected:
+              sys.exit(f"::error::entitlements are {actual}, expected {expected}")
+          PY
 
       - name: Notarize and staple
         env:
@@ -177,8 +190,9 @@ jobs:
     name: GitHub release
     needs: build
     runs-on: ubuntu-latest
-    # `workflow_dispatch` is documented as a dry run. It must never reach here.
-    if: startsWith(github.ref, 'refs/tags/')
+    # Only a pushed tag publishes. A manual run is a dry run even when it is
+    # started from a tag, where github.ref is a tag too.
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
     permissions:
       contents: write
     steps:
@@ -199,7 +213,7 @@ jobs:
     name: Homebrew tap
     needs: [build, publish]
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
     steps:
       - uses: actions/checkout@v4
 
