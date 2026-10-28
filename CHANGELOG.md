@@ -6,11 +6,28 @@ breaking changes may land in a minor release.
 
 ## Unreleased
 
-- Releases: a signed, notarized universal app on GitHub and through Homebrew
-  (`brew install --cask lemehmet/boopstash/boopstash`).
-- A Mac app to stash buffers in: a list of notes, newest edit first, with a
-  filter that matches anywhere inside words, a title/content scope and an
-  edited-within choice (today, 7 or 30 days).
+## v0.1.0 — 2026-10-28
+
+The first release: a scratch pad for macOS that keeps what you paste.
+
+### Install
+
+- `brew install --cask lemehmet/boopstash/boopstash`, or the `.zip` from the
+  release. Signed with Developer ID and notarized; universal (Apple Silicon
+  and Intel); macOS 26 or newer.
+
+### Notes
+
+- A list of notes, newest edit first, with a filter that matches anywhere
+  inside words, a title/content scope and an edited-within choice (today, 7
+  or 30 days).
+- Notes name themselves, with Apple's on-device model where available and
+  from their first meaningful line otherwise; a title you type is kept.
+- File ▸ Export All Notes… writes every note as a markdown file with its dates
+  and source app in front matter.
+
+### Editing
+
 - An editor that leaves your text alone: no smart quotes, dashes or
   auto-pairing, ⌘V always pastes plain text, Tab and Shift-Tab indent, and
   key bindings follow VS Code (or JetBrains, or Emacs) with an optional
@@ -21,11 +38,10 @@ breaking changes may land in a minor release.
   toolbar's language menu forces a language, or plain text, for a note.
 - Paste as Markdown (⌥⇧⌘V) turns copied web pages, Slack or Google Docs into
   markdown.
-- Capture from anywhere: File ▸ New Note from Clipboard (⌥⌘N), a global ⌃⌥⌘V,
-  Services ▸ Save to Boopstash, and dropping text or a text file on the list. Password-manager items are never stored.
-- Notes name themselves, with Apple's on-device model where available and
-  from their first meaningful line otherwise; a title you type is kept.
-- File ▸ Export All Notes… writes every note as a markdown file with its dates
-  and source app in front matter.
-- Project skeleton: Tuist project with `BoopstashCore` and a sandboxed macOS
-  app, CI, and the first architecture decision records.
+
+### Capture
+
+- File ▸ New Note from Clipboard (⌥⌘N), a global ⌃⌥⌘V from any app,
+  Services ▸ Save to Boopstash, and dropping text or a text file on the list.
+- Password-manager and transient clipboard items are never stored, by any of
+  these or by pasting into a note.
