@@ -128,7 +128,10 @@ struct SpikeEditor: NSViewRepresentable {
         private func report(_ event: String) {
             guard let view else { return }
             let engine = view.textLayoutManager != nil ? "TextKit 2" : "TextKit 1 (fell back!)"
-            status?.wrappedValue = "\(engine) · \(view.string.utf8.count) bytes · \(event)"
+            let text = "\(engine) · \(view.string.utf8.count) bytes · \(event)"
+            // `load` runs inside updateNSView, where SwiftUI drops state
+            // changes; publish on the next turn instead.
+            DispatchQueue.main.async { [status] in status?.wrappedValue = text }
         }
     }
 }
