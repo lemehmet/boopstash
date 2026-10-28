@@ -26,6 +26,11 @@ jobs:
         with:
           persist-credentials: false
 
+      # The release's tap logic, run under bash -eo pipefail like the
+      # release workflow runs it, against real repositories.
+      - name: Release script tests
+        run: bash packaging/release/test-tap-is-newer.sh
+
       - name: Xcode
         run: |
           xcodebuild -version
