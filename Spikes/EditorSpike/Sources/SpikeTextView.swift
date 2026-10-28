@@ -218,6 +218,16 @@ final class SpikeTextView: NSTextView {
         refreshLayout()
     }
 
+    /// Fold ranges are character offsets, so any edit can invalidate them.
+    /// The spike clears them; the app will remap them through the edit.
+    override func didChangeText() {
+        super.didChangeText()
+        if !folds.folded.isEmpty {
+            folds.removeAll()
+            refreshLayout()
+        }
+    }
+
     /// Loads a different document. Fold ranges are character offsets into
     /// the old text, so they go with it.
     func replaceDocument(_ text: String) {
