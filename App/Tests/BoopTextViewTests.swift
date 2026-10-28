@@ -195,10 +195,14 @@ struct BoopTextViewTests {
     /// Plain Text must not leave the old colours on screen.
     @Test func switchingToPlainTextMarksTheTextForRedisplay() async throws {
         let host = Host()
-        host.view.load("let a = 1\nlet b = \"two\"\n", syntax: .language(.swift))
-        for _ in 0..<100 where Self.renderingColor(in: host.view, at: 13) == nil {
+        let text = "let a = 1\nlet b = \"two\"\n"
+        // Inside the string literal, which Swift highlighting colours.
+        let literal = (text as NSString).range(of: "\"two\"").location + 1
+        host.view.load(text, syntax: .language(.swift))
+        for _ in 0..<100 where Self.renderingColor(in: host.view, at: literal) == nil {
             try await Task.sleep(for: .milliseconds(20))
         }
+        #expect(Self.renderingColor(in: host.view, at: literal) != nil, "the literal must be coloured before switching")
         host.window.display()
         var dirty: [Bool] = []
         await withCheckedContinuation { continuation in
@@ -212,7 +216,7 @@ struct BoopTextViewTests {
         }
         #expect(dirty.count > 1)
         #expect(dirty.allSatisfy { $0 }, "\(dirty.filter { !$0 }.count) of \(dirty.count) views were not marked")
-        #expect(Self.renderingColor(in: host.view, at: 13) == nil)
+        #expect(Self.renderingColor(in: host.view, at: literal) == nil)
         host.close()
     }
 
