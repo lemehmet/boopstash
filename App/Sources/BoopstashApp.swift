@@ -65,6 +65,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         super.init()
     }
 
+    private var hotKey: GlobalHotKey?
+    private var services: ServicesProvider?
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        guard let model else { return }
+        let provider = ServicesProvider(model: model)
+        services = provider
+        NSApp.servicesProvider = provider
+        NSUpdateDynamicServices()
+        updateHotKey()
+        NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.updateHotKey() }
+        }
+    }
+
+    static let hotKeyKey = "globalCaptureShortcut"
+
+    /// Settings ▸ "⌃⌥⌘V saves the clipboard from any app", on by default.
+    private func updateHotKey() {
+        let enabled = UserDefaults.standard.object(forKey: Self.hotKeyKey) as? Bool ?? true
+        if enabled, hotKey == nil, let model {
+            hotKey = GlobalHotKey.captureClipboard { model.captureClipboard(origin: .hotKey) }
+        } else if !enabled, let hotKey {
+            hotKey.unregister()
+            self.hotKey = nil
+        }
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         model?.flushAll()
     }

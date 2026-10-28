@@ -83,21 +83,39 @@ final class AppModel {
         insert(note)
     }
 
-    func captureClipboard() {
-        switch ClipboardCapture.read() {
+    /// Where a capture came from, which decides how loudly to report it.
+    enum CaptureOrigin {
+        /// File ▸ New Note from Clipboard, with Boopstash in front.
+        case menu
+        /// The global shortcut or a service, with another app in front:
+        /// the window may not be visible, so success is a sound.
+        case hotKey, service
+    }
+
+    func captureClipboard(origin: CaptureOrigin = .menu) {
+        capture(from: .general, origin: origin)
+    }
+
+    func capture(from pasteboard: NSPasteboard, origin: CaptureOrigin) {
+        let message: String
+        switch ClipboardCapture.read(from: pasteboard) {
         case .text(let text):
             let source = sources.lastOtherApp
             var note = Note(body: text, createdAt: Date(), sourceBundleID: source?.bundleID, sourceAppName: source?.name)
             note.title = RuleTitler.title(for: text, kind: ContentKind.detect(text))
             insert(note)
             requestModelTitle(for: note)
+            if origin != .menu { NSSound(named: "Pop")?.play() }
+            return
         case .refused(.refuseConcealed):
-            banner = "Not saved: the clipboard holds a password manager item."
+            message = "Not saved: the clipboard holds a password manager item."
         case .refused:
-            banner = "Not saved: the app that copied this marked it as not to be kept."
+            message = "Not saved: the app that copied this marked it as not to be kept."
         case .empty:
-            banner = "The clipboard has no text to save."
+            message = origin == .service ? "The selection has no text to save." : "The clipboard has no text to save."
         }
+        banner = message
+        if origin != .menu { NSSound.beep() }
     }
 
     private func insert(_ note: Note) {
