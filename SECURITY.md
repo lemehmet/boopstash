@@ -16,6 +16,9 @@ around that, and each point is enforceable rather than aspirational:
 - **The app is sandboxed in every build.** Homebrew and App Store builds are the
   same code with the same entitlements. `App/Boopstash.entitlements` is the
   complete list of what the app may reach.
+- **Files: only where you point it.** Beyond its own container, the app can
+  write only into a folder you choose in an open panel, which is how export
+  works. It cannot read or write anything else on disk.
 - **No network access except your iCloud.** There is no network-client
   entitlement. No analytics, no crash reporting service, no update checks. Once
   sync ships, the only remote endpoint is the private database of the app's

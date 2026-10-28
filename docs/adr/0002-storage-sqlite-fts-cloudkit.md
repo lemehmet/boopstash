@@ -35,7 +35,10 @@ over conflict resolution or what is encrypted.
   the app is fully functional without an iCloud account.
 - **Export is a first-class feature, not an afterthought.** "Export as a folder
   of `.md` files plus attachments" ships with the Mac MVP, which answers the
-  data-ownership cost of option A.
+  data-ownership cost of option A. Each file carries YAML front matter (title,
+  created, updated, source app, ID) above the body. Writing it is the one use
+  of the `files.user-selected.read-write` entitlement: the app can write only
+  where the user points it in an open panel.
 - **The schema lives in `BoopstashCore`** with migrations and tests; only a thin
   `Live*` adapter imports CloudKit.
 
