@@ -2,48 +2,84 @@ import AppKit
 import SwiftTreeSitter
 import TreeSitterJSON
 
-/// Tree-sitter highlighting applied as TextKit 2 rendering attributes, which
-/// colour the text without touching storage (no undo entries, no change
-/// notifications). Only the viewport is painted, which is the point: the cost
-/// of a 1 MB document should be one parse plus one screenful.
-@MainActor
-final class JSONHighlighter {
-    private let parser = Parser()
-    private let query: Query
-    private(set) var tree: MutableTree?
-    private(set) var highlights: [NamedRange] = []
+/// One highlighted range, as plain values so results can cross from the
+/// background parse to the main thread.
+struct Highlight: Sendable {
+    let range: NSRange
+    let name: String
+}
 
-    init() throws {
-        let language = Language(language: tree_sitter_json())
-        try parser.setLanguage(language)
-        query = try Self.loadHighlightsQuery(language: language)
-    }
-
-    /// SPM puts the grammar's queries in a resource bundle. Under Tuist the
-    /// bundle name differs from what `LanguageConfiguration` guesses, so look
-    /// for the file in every bundle the app carries.
-    private static func loadHighlightsQuery(language: Language) throws -> Query {
+/// Parsing, with no main-actor state: each call builds its own parser, so it
+/// can run on any thread.
+enum JSONGrammar {
+    /// SPM puts the grammar's queries in a resource bundle; look for the file
+    /// in every bundle the app carries rather than guess the bundle's name.
+    static func highlightsQuery() throws -> Data {
         let candidates = [Bundle.main] + Bundle.allBundles + Bundle.allFrameworks
         for bundle in candidates {
             guard let resources = bundle.resourceURL,
                   let entries = try? FileManager.default.contentsOfDirectory(at: resources, includingPropertiesForKeys: nil)
             else { continue }
             for entry in entries where entry.lastPathComponent.contains("TreeSitterJSON") {
-                let url = entry.appendingPathComponent("queries/highlights.scm")
-                if let data = try? Data(contentsOf: url) { return try Query(language: language, data: data) }
-                let flat = entry.appendingPathComponent("Contents/Resources/queries/highlights.scm")
-                if let data = try? Data(contentsOf: flat) { return try Query(language: language, data: data) }
+                for relative in ["queries/highlights.scm", "Contents/Resources/queries/highlights.scm"] {
+                    if let data = try? Data(contentsOf: entry.appendingPathComponent(relative)) { return data }
+                }
             }
         }
         throw CocoaError(.fileNoSuchFile)
     }
 
     /// Full parse and query. The real app parses incrementally; this is the
-    /// upper bound a keystroke could cost.
+    /// upper bound one edit could cost.
+    static func highlights(in source: String, query queryData: Data) throws -> [Highlight] {
+        let language = Language(language: tree_sitter_json())
+        let parser = Parser()
+        try parser.setLanguage(language)
+        let query = try Query(language: language, data: queryData)
+        guard let tree = parser.parse(source) else { return [] }
+        return query.execute(in: tree).resolve(with: .init(string: source)).highlights()
+            .map { Highlight(range: $0.range, name: $0.name) }
+    }
+}
+
+/// Holds the current highlights and paints them as TextKit 2 rendering
+/// attributes, which colour text without touching storage (no undo entries,
+/// no change notifications). Only the viewport is painted: the cost of a
+/// 1 MB document is one parse, off the main thread, plus one screenful.
+@MainActor
+final class JSONHighlighter {
+    let query: Data
+    var highlights: [Highlight] = []
+    private var pending: Task<Void, Never>?
+    private var generation = 0
+
+    init() throws {
+        query = try JSONGrammar.highlightsQuery()
+    }
+
+    /// Synchronous parse, for the benchmark's worst-case figure.
     func parse(_ source: String) {
-        tree = parser.parse(source)
-        guard let tree else { highlights = []; return }
-        highlights = query.execute(in: tree).resolve(with: .init(string: source)).highlights()
+        highlights = (try? JSONGrammar.highlights(in: source, query: query)) ?? []
+    }
+
+    /// What edits use: wait for typing to pause, parse on a background task,
+    /// and deliver only the newest result. The main thread pays for copying
+    /// the string and nothing else.
+    func schedule(_ source: String, debounce: Duration = .milliseconds(150), then done: @escaping @MainActor () -> Void) {
+        pending?.cancel()
+        generation += 1
+        let generation = generation
+        let query = query
+        pending = Task.detached(priority: .userInitiated) { [weak self] in
+            try? await Task.sleep(for: debounce)
+            guard !Task.isCancelled else { return }
+            let result = (try? JSONGrammar.highlights(in: source, query: query)) ?? []
+            await MainActor.run {
+                guard let self, self.generation == generation else { return }
+                self.highlights = result
+                done()
+            }
+        }
     }
 
     /// Paints the highlights intersecting `visible` (a character range).

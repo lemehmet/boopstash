@@ -91,10 +91,10 @@ struct SpikeEditor: NSViewRepresentable {
             switch sample {
             case .markdown:
                 highlighter = nil
-                view.string = Samples.markdown
+                view.replaceDocument(Samples.markdown)
             case .json:
                 highlighter = try? JSONHighlighter()
-                view.string = Samples.largeJSON()
+                view.replaceDocument(Samples.largeJSON())
                 reparse()
             }
             view.setSelectedRange(NSRange(location: 0, length: 0))
@@ -104,10 +104,11 @@ struct SpikeEditor: NSViewRepresentable {
         private func reparse() {
             guard let view, let highlighter else { return report("edited") }
             let start = ContinuousClock.now
-            highlighter.parse(view.string)
-            let parse = ContinuousClock.now - start
-            repaint()
-            report("full parse \(parse.formatted(.units(allowed: [.milliseconds])))")
+            highlighter.schedule(view.string) { [weak self] in
+                self?.repaint()
+                let elapsed = ContinuousClock.now - start
+                self?.report("re-highlighted \(elapsed.formatted(.units(allowed: [.milliseconds]))) after the edit (off the main thread)")
+            }
         }
 
         private func repaint() {

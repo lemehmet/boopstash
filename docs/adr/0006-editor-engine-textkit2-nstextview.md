@@ -27,7 +27,7 @@ Two gates were added before the bench: a licence the app can ship under
 
 ## Bench results: TextKit 2 `NSTextView` subclass
 
-Ten checks in `Spikes/EditorSpike/Tests/SpikeChecks.swift`, all passing on
+Eleven checks in `Spikes/EditorSpike/Tests/SpikeChecks.swift`, all passing on
 macOS 26.7 / Xcode 27.1. Each check that could pass vacuously has a control: a
 stock `NSTextView` given the same input must show the behaviour being
 removed.
@@ -38,7 +38,7 @@ removed.
 | 2 | Key handling | Pass. A chord table in `keyDown` / `performKeyEquivalent` takes Home/End (control: stock view leaves the caret), ⇧⌥↓ duplicate line, and ⌃⌘Space before the main menu's Emoji & Symbols item sees it. |
 | 3 | No substitutions | Pass as far as automation reaches; real-keyboard typing is the hands-on check. No quote, dash, replacement, correction, link, spelling or grammar bit in `enabledTextCheckingTypes`; inline predictions, math completion and Writing Tools off; Edit ▸ Substitutions toggles refused and greyed out. |
 | 4 | Tab / Shift-Tab | Pass. Multi-line selection indents and unindents, undone in one step; Tab without a multi-line selection inserts the indent unit at the caret. |
-| 5 | 1 MB highlighting | Pass. 1 MB of JSON, 169k highlight ranges. Release build: full tree-sitter parse plus highlight query 247 ms (the worst case; the app parses incrementally, off the main thread), viewport paint 7.5 ms, keystroke plus viewport layout 11.7 ms (without re-highlighting). |
+| 5 | 1 MB highlighting | Pass, with parsing off the main thread. 1 MB of JSON, 169k highlight ranges, Release build. A synchronous full parse plus highlight query takes 245 ms, too long for the main thread, so edits schedule it on a background task (debounced, newest result wins). Main-thread cost of a keystroke (insert, viewport layout, scheduling) 11 ms; edit to re-highlighted viewport 266 ms; viewport paint 6.5 ms. The app replaces the full parse with an incremental one in milestone 2. |
 | 6 | Inline image chip | Pass. An `NSTextAttachment` lays out inline at its image's height, and the view stays on TextKit 2. |
 
 ## Decision
@@ -71,6 +71,12 @@ removed.
   reached it. The spike uses Xcode's native package integration
   (`packages:` in `Project.swift`) instead. The main project should do the
   same for packages with resources, or check this before adopting Tuist's.
+- **Never parse on the main thread.** A full tree-sitter parse of 1 MB is a
+  quarter of a second even optimised. Parse incrementally (`tree.edit` plus
+  re-parse with the old tree), off the main actor, and deliver only the newest
+  result.
+- **Fold ranges are offsets into one document** and must be cleared or
+  remapped whenever the text is replaced or edited above them.
 - **Synthesized key events do not exercise AppKit's text checking** the way a
   real keyboard does, so "typed quotes stay straight" is checked by hand.
 
