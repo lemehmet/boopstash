@@ -60,7 +60,12 @@ final class SpikeTextView: NSTextView {
         let scroll = NSScrollView(frame: frame)
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
-        let view = SpikeTextView(frame: frame, textContainer: nil)
+        // `init(frame:textContainer: nil)` builds a TextKit 1 view; this is
+        // the initializer that guarantees TextKit 2.
+        let view = SpikeTextView(usingTextLayoutManager: true)
+        view.frame = frame
+        view.minSize = NSSize(width: 0, height: frame.height)
+        view.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude)
         view.autoresizingMask = [.width]
         view.isVerticallyResizable = true
         view.isHorizontallyResizable = false
