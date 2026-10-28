@@ -14,6 +14,9 @@ final class ServicesProvider: NSObject {
 
     /// Named by `NSMessage` in Info.plist.
     @objc func saveSelection(_ pasteboard: NSPasteboard, userData: String?, error: AutoreleasingUnsafeMutablePointer<NSString?>) {
-        model.capture(from: pasteboard, origin: .service)
+        // A non-nil error is shown to the user by the system.
+        if let failure = model.capture(from: pasteboard, origin: .service) {
+            error.pointee = failure as NSString
+        }
     }
 }

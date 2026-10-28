@@ -96,7 +96,9 @@ final class AppModel {
         capture(from: .general, origin: origin)
     }
 
-    func capture(from pasteboard: NSPasteboard, origin: CaptureOrigin) {
+    /// Returns why nothing was saved, or nil on success.
+    @discardableResult
+    func capture(from pasteboard: NSPasteboard, origin: CaptureOrigin) -> String? {
         let message: String
         switch ClipboardCapture.read(from: pasteboard) {
         case .text(let text):
@@ -107,11 +109,11 @@ final class AppModel {
             // must not say "saved" when the write failed.
             guard insert(note) else {
                 if origin != .menu { NSSound.beep() }
-                return
+                return banner
             }
             requestModelTitle(for: note)
             if origin != .menu { NSSound(named: "Pop")?.play() }
-            return
+            return nil
         case .refused(.refuseConcealed):
             message = "Not saved: the clipboard holds a password manager item."
         case .refused:
@@ -120,7 +122,14 @@ final class AppModel {
             message = origin == .service ? "The selection has no text to save." : "The clipboard has no text to save."
         }
         banner = message
-        if origin != .menu { NSSound.beep() }
+        if origin == .hotKey {
+            // A beep alone does not say why. The capture was the user's own
+            // action, so bringing the window forward to show the reason is
+            // fair; the Services menu reports through its error instead.
+            NSSound.beep()
+            NSApp.activate()
+        }
+        return message
     }
 
     /// False when the note could not be saved; the banner says why.
