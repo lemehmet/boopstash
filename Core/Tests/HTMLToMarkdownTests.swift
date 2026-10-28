@@ -27,16 +27,27 @@ import Testing
         #expect(md(#"<a href="https://x.test/wiki/Foo_(bar)">Foo</a>"#) == "[Foo](https://x.test/wiki/Foo_%28bar%29)")
         #expect(md(#"<img src="https://x.test/a b).png" alt="pic">"#) == "![pic](https://x.test/a%20b%29.png)")
         #expect(md(#"<a href="https://x.test/a<b>c">x</a>"#) == "[x](https://x.test/a%3Cb%3Ec)")
+        #expect(md(#"<a href="https://x.test/a\">x</a>"#) == "[x](https://x.test/a%5C)", "a trailing backslash would escape the )")
     }
 
     @Test func labelsEscapeTheirBrackets() {
         #expect(md(#"<a href="https://x.test">see [1] here</a>"#) == #"[see \[1\] here](https://x.test)"#)
         #expect(md(#"<img src="https://x.test/i.png" alt="a]b">"#) == #"![a\]b](https://x.test/i.png)"#)
+        #expect(md(#"<a href="https://x.test">a\b</a>"#) == #"[a\\b](https://x.test)"#)
+    }
+
+    /// Escaping applies to the page's text, not to the code spans and hard
+    /// breaks generated inside the label.
+    @Test func labelEscapingLeavesGeneratedMarkdownAlone() {
+        #expect(md(#"<a href="https://x.test"><code>[1]</code></a>"#) == "[`[1]`](https://x.test)")
+        #expect(md(#"<a href="https://x.test">one<br>two</a>"#) == "[one\\\ntwo](https://x.test)")
+        #expect(md(#"<a href="https://x.test"><b>[x]</b></a>"#) == #"[**\[x\]**](https://x.test)"#)
     }
 
     @Test func linkEdgeWhitespaceStaysInTheSentence() {
         #expect(md(#"<p>a<a href="https://x.test"> b</a>c</p>"#) == "a [b](https://x.test)c")
         #expect(md(#"<p>see<a href="https://x.test">docs </a>now</p>"#) == "see[docs](https://x.test) now")
+        #expect(md(#"<p>a<a href="https://x.test"> </a>b</p>"#) == "a <https://x.test>b", "whitespace-only kept once")
     }
 
     @Test func imagesAreReferencesNeverData() {

@@ -13,9 +13,20 @@ final class AppModel {
     }
     /// A one-line message for the window, such as why a capture was refused.
     var banner: String?
-    /// Whether a note editor has keyboard focus; editor-only menu commands
-    /// are disabled otherwise (#25).
-    var editorHasFocus = false
+    /// The editor with keyboard focus, if any; editor-only menu commands
+    /// are disabled otherwise (#25). Every window's editor reports to this
+    /// one model, so only the editor holding focus can give it up: another
+    /// editor closing in the background leaves it alone.
+    private(set) var focusedEditor: UUID?
+    var editorHasFocus: Bool { focusedEditor != nil }
+
+    func editor(_ editor: UUID, hasFocus focused: Bool) {
+        if focused {
+            focusedEditor = editor
+        } else if focusedEditor == editor {
+            focusedEditor = nil
+        }
+    }
 
     @ObservationIgnored private let sources = SourceAppTracker()
     @ObservationIgnored private var observation: Task<Void, Never>?

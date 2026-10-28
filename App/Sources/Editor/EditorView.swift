@@ -11,7 +11,9 @@ struct EditorView: NSViewRepresentable {
     let keymap: Keymap
     var syntax: SyntaxChoice = .automatic
     var showMessage: (String) -> Void = { _ in }
-    var onFocusChange: (Bool) -> Void = { _ in }
+    /// Reports focus with this editor's identity, so the model can tell
+    /// editors in different windows apart.
+    var onFocusChange: (UUID, Bool) -> Void = { _, _ in }
     let onChange: (String) -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -26,7 +28,8 @@ struct EditorView: NSViewRepresentable {
         guard let view = scroll.documentView as? BoopTextView else { return }
         view.keymap = keymap
         view.showMessage = showMessage
-        view.onFocusChange = onFocusChange
+        let editor = context.coordinator.editor
+        view.onFocusChange = { onFocusChange(editor, $0) }
         context.coordinator.onFocusChange = onFocusChange
         context.coordinator.onChange = onChange
         if context.coordinator.noteID != noteID {
@@ -44,14 +47,15 @@ struct EditorView: NSViewRepresentable {
     /// An editor removed while focused never resigns first responder, so
     /// its departure counts as losing focus.
     static func dismantleNSView(_ scroll: NSScrollView, coordinator: Coordinator) {
-        coordinator.onFocusChange?(false)
+        coordinator.onFocusChange?(coordinator.editor, false)
     }
 
     @MainActor
     final class Coordinator: NSObject, NSTextViewDelegate {
+        let editor = UUID()
         var noteID: UUID?
         var onChange: ((String) -> Void)?
-        var onFocusChange: ((Bool) -> Void)?
+        var onFocusChange: ((UUID, Bool) -> Void)?
 
         func textDidChange(_ notification: Notification) {
             guard let view = notification.object as? NSTextView else { return }

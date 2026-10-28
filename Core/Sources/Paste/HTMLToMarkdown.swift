@@ -96,6 +96,11 @@ struct Writer {
     static let headings = ["h1": 1, "h2": 2, "h3": 3, "h4": 4, "h5": 5, "h6": 6]
     static let invisible: Set<String> = ["script", "style", "title", "template", "noscript", "head", "meta", "link"]
 
+    /// Inside a link's text, the page's own brackets and backslashes are
+    /// escaped as text, before any Markdown is generated around them; the
+    /// code spans and hard breaks the writer adds are left alone.
+    var inLinkLabel = false
+
     /// Renders a run of siblings as blocks. Consecutive inline content forms
     /// one paragraph.
     func blocks(_ nodes: [HTMLNode]) -> [String] {
@@ -244,8 +249,9 @@ struct Writer {
 
     func inline(_ node: HTMLNode) -> String {
         if node.isText {
-            return node.text.replacingOccurrences(of: "\u{00A0}", with: " ")
+            let text = node.text.replacingOccurrences(of: "\u{00A0}", with: " ")
                 .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            return inLinkLabel ? Self.escapedLabel(text) : text
         }
         if Self.invisible.contains(node.name) { return "" }
         let content = { inline(node.children) }
@@ -258,7 +264,7 @@ struct Writer {
         case "em", "i": return wrap(content(), "*")
         case "del", "s", "strike": return wrap(content(), "~~")
         case "code", "kbd", "samp": return inlineCode(node.rawText)
-        case "a": return link(node, text: content())
+        case "a": return link(node, text: Writer(inLinkLabel: true).inline(node.children))
         case "img": return image(node)
         case "span": return styled(node, content())
         case "input": return ""
@@ -317,15 +323,16 @@ struct Writer {
         guard !href.isEmpty, !href.lowercased().hasPrefix("javascript:"), !href.hasPrefix("#") else { return text }
         // Spaces at the anchor's edges belong to the sentence around it, so
         // they stay outside the link rather than vanish (#24).
-        let leading = String(text.prefix(while: \.isWhitespace))
-        let trailing = String(text.reversed().prefix(while: \.isWhitespace).reversed())
+        // An anchor of nothing but spaces keeps them once, before the link.
         let label = text.trimmingCharacters(in: .whitespaces)
+        let leading = label.isEmpty ? text : String(text.prefix(while: \.isWhitespace))
+        let trailing = label.isEmpty ? "" : String(text.reversed().prefix(while: \.isWhitespace).reversed())
         let destination = Self.destination(href)
         let link: String
         if label.isEmpty || label == href || "mailto:" + label == href {
             link = "<\(destination)>"
         } else {
-            link = "[\(Self.escapedLabel(label))](\(destination))"
+            link = "[\(label)](\(destination))"
         }
         return leading + link + trailing
     }
@@ -337,14 +344,15 @@ struct Writer {
         return "![\(Self.escapedLabel(alt))](\(Self.destination(src)))"
     }
 
-    /// A link destination that cannot end early: whitespace, parentheses and
-    /// angle brackets are percent-encoded, which every URL reader accepts
+    /// A link destination that cannot end early: whitespace, parentheses,
+    /// angle brackets and backslashes (which would escape a closing
+    /// parenthesis) are percent-encoded, which every URL reader accepts
     /// (#23). Other characters are left as the page wrote them.
     static func destination(_ url: String) -> String {
         var out = ""
         for scalar in url.unicodeScalars {
             switch scalar {
-            case " ", "\t", "\n", "\r", "(", ")", "<", ">":
+            case " ", "\t", "\n", "\r", "(", ")", "<", ">", "\\":
                 out += String(format: "%%%02X", scalar.value)
             default:
                 out.unicodeScalars.append(scalar)
