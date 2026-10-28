@@ -6,7 +6,12 @@ import BoopstashCore
 @MainActor
 enum ExportPanel {
     static func run(model: AppModel) {
-        model.flushAll()
+        // Exporting reads the store; an edit that could not be saved would be
+        // missing from the export while it claimed success.
+        guard model.flushAll() else {
+            model.banner = "Export cancelled: some edits could not be saved. \(model.banner ?? "")"
+            return
+        }
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
