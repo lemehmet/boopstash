@@ -1,0 +1,98 @@
+# fuko-pr review: basil (Kimi K3.1 Pro on Kimi Code) reviews every non-draft
+# PR from this repository. Mirrors zapollo's workflow, trimmed to one seat.
+#
+# Runner: GitHub-hosted. This repository is public, and a self-hosted runner
+# on a public repository is one fork PR away from running a stranger's code on
+# the fleet. The job-level `if` already refuses fork PRs, but hosted runners
+# keep that a policy rather than the only line of defence. The hosted image
+# has no `claude` CLI, so the workflow installs a pinned one.
+#
+# Identity: the seat posts as its GitHub App when vars.FUKO_BASIL_APP_ID and
+# secrets.FUKO_BASIL_APP_PRIVATE_KEY are set; otherwise as
+# github-actions[bot].
+name: fuko-pr review
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+    paths-ignore:
+      - '**/*.md'
+      - 'LICENSE'
+
+concurrency:
+  group: fuko-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    # Skip drafts, skip-review/* branches, and never run fork-PR head code with
+    # this repo's secrets.
+    if: ${{ github.event.pull_request.draft == false && !startsWith(github.event.pull_request.head.ref, 'skip-review/') && github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    # Lockstep with job_budget_minutes in .fuko.toml (1 seat * 2100 s + setup).
+    timeout-minutes: 60
+    permissions:
+      contents: read # reads PR data + posts comments only; no commits/pushes
+      pull-requests: write
+      issues: write
+    steps:
+      - name: Mint fuko-basil app token
+        id: app-token-basil
+        if: ${{ vars.FUKO_BASIL_APP_ID != '' }}
+        continue-on-error: true # a failed mint falls back to github-actions[bot] rather than failing the check
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.FUKO_BASIL_APP_ID }}
+          private-key: ${{ secrets.FUKO_BASIL_APP_PRIVATE_KEY }}
+          permission-contents: read
+          permission-pull-requests: write
+          permission-issues: write
+
+      # continue-on-error hides a failed mint from the job status; make it loud.
+      - name: Surface App token mint failure
+        if: ${{ steps.app-token-basil.outcome == 'failure' }}
+        run: echo "::warning title=fuko-basil App token mint failed::check vars.FUKO_BASIL_APP_ID / secrets.FUKO_BASIL_APP_PRIVATE_KEY and the App installation; the review posts as github-actions[bot]"
+
+      - name: Surface missing secrets
+        env:
+          KIMI_CODE_KEY: ${{ secrets.PRIVATE_KIMI_KEY }}
+        run: |
+          if [ -z "$KIMI_CODE_KEY" ]; then
+            echo "::error title=PRIVATE_KIMI_KEY secret is not set::basil (the only seat, kimi-code) cannot review without it. Mint a key in the Kimi Code Console and add it as the repo secret PRIVATE_KIMI_KEY"
+            exit 1
+          fi
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          version: "0.11.22"
+
+      # The agentic seat runs headless Claude Code as a subprocess. Pinned: an
+      # unpinned install resolves `latest`, so an upstream release could change
+      # the agentic driver under us with no repo change. 2.1.283 is what the
+      # fleet's light runners carry. Bump deliberately.
+      - name: Install Claude Code harness
+        run: |
+          npm install -g @anthropic-ai/claude-code@2.1.283
+          claude --version
+
+      - name: Review
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token-basil.outputs.token || github.token }}
+          FUKO_GITHUB_TOKEN_BASIL: ${{ steps.app-token-basil.outputs.token }}
+          # basil's Kimi Code membership key; the kimi-code preset reads
+          # KIMI_CODE_KEY.
+          KIMI_CODE_KEY: ${{ secrets.PRIVATE_KIMI_KEY }}
+          CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT: '1'
+          CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1'
+          CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK: '1'
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          # Pin MUST equal [fuko].github_ref in .claude/project.toml (v0.7.8).
+          uvx --from "git+https://github.com/lemehmet/fuko-pr@d75529b1d7205b11357b3210a87bc195175e8118" \
+            fuko review --pr-url "$PR_URL" 2>&1 | tee "$RUNNER_TEMP/fuko-review.log"
+          exit "${PIPESTATUS[0]}"

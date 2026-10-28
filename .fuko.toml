@@ -1,0 +1,63 @@
+# fuko-pr config for boopstash. Used by `fuko review` in
+# .github/workflows/fuko-pr-review.yml.
+#
+# One seat since 2026-10-28: basil (Kimi K3.1 Pro on Kimi Code). It is the
+# only reviewer, so it is `active` rather than the `trial` it is on mepro and
+# zapollo. gray (codex-proxy) and ivy (Claude subscription) are not carried
+# over: gray needs the proxy on a self-hosted runner, and this repository is
+# public, so its reviews run on GitHub-hosted runners only (see the
+# workflow). Adding a seat = an entry here + a mint step in the workflow.
+#
+# Knowledge: no FUKO_URL, so reviews run without a knowledge sidecar.
+
+[review]
+backend = "pr-agent"
+tools = ["review"]
+optional_tools = []
+# Must stay in lockstep with the workflow's timeout-minutes.
+# Budget: 1 seat * 1 tool * 2100 s = 35 min + setup (~5 min) < 60.
+job_budget_minutes = 60
+tool_timeout = 800
+image = "ghcr.io/lemehmet/pr-agent:0.41.0@sha256:7341dc6214be964534ce3e68fc73143f3d642240829fe66894b87864db417223"
+
+# basil: Kimi K3.1 Pro on Kimi Code (KIMI_CODE_KEY, the membership's console
+# key, stored here as the PRIVATE_KIMI_KEY secret). Plain slug on purpose
+# (`[1m]` would break the receipt's label == model check); thinking-only
+# endpoint, hence the generous tool_timeout.
+[[review.models]]
+provider = "kimi-code"
+name = "k3.1-pro"
+max_context = 262144
+auth = "api-key"
+backend = "agentic"
+token_env = "FUKO_GITHUB_TOKEN_BASIL"
+tool_timeout = 2100
+role = "active"
+extra_instructions = """
+Your reader is another AI that will act on your finding directly. Be terse.
+No preamble, no restating what the diff does, no diplomatic softening, no
+summarizing your own reasoning at the end. Never pad to look thorough.
+Per finding: one sentence naming the defect, then the mechanism, then the
+concrete evidence (file:line, or the exact input that breaks it), then the
+fix in one sentence. Stop there.
+Target under 120 words; go longer only when the mechanism genuinely needs it.
+Severity means CONSEQUENCE IF YOU ARE RIGHT. Do not lower it because you are
+unsure — state uncertainty in one clause instead, tagged confirmed / likely /
+speculative so a reader can discount the level without discarding the finding.
+Rank by what happens when it is NOT fixed:
+  high   - lost or corrupted notes, note content leaving the device other than
+           through the user's own iCloud, a network call, a background
+           pasteboard read, a new entitlement without an ADR, secrets or
+           personal data committed to this public repository, or a silent
+           failure of something load-bearing
+  medium - a real defect whose blast radius is bounded, or a test that
+           passes against the broken code it exists to pin
+  low    - an inaccurate comment or doc that would mislead a maintainer
+  info   - preference, style, naming
+Project rules worth checking on every diff (CLAUDE.md, docs/adr/): pure logic
+belongs in BoopstashCore with Swift Testing tests; only thin Live* adapters
+in App/ import AppKit, CloudKit, Vision or JavaScriptCore; the app is
+sandboxed in every build; AI is on-device only; the deployment floor is
+macOS 26 / iOS 26. Swift 6 strict concurrency is on.
+Report everything you find at its true severity. Coverage is not what is
+being limited here; verbosity is."""

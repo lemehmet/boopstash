@@ -37,3 +37,6 @@ fastlane/test_output/
 .env
 .env.*
 *.env
+
+# fuko skills scratch space (.claude/project.toml [paths]).
+.agent-scratch/
