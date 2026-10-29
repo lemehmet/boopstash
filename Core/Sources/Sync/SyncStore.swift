@@ -10,12 +10,12 @@ extension NoteStore {
     public func pendingSyncChanges(limit: Int = 200) throws -> [SyncChange] {
         try writer.read { db in
             var changes: [SyncChange] = []
-            let notes = try Row.fetchAll(db, sql: "SELECT * FROM note WHERE syncPending > 0 LIMIT ?", arguments: [limit])
+            let notes = try Row.fetchAll(db, sql: "SELECT * FROM note WHERE syncPending > syncAcknowledged LIMIT ?", arguments: [limit])
             for row in notes {
                 let note = try Note(row: row)
                 changes.append(.save(SyncMapping.record(for: note), systemFields: row["syncSystemFields"], version: row["syncPending"]))
             }
-            let attachments = try Row.fetchAll(db, sql: "SELECT * FROM attachment WHERE syncPending > 0 LIMIT ?", arguments: [limit])
+            let attachments = try Row.fetchAll(db, sql: "SELECT * FROM attachment WHERE syncPending > syncAcknowledged LIMIT ?", arguments: [limit])
             for row in attachments {
                 let attachment = try NoteAttachment(row: row)
                 changes.append(.save(SyncMapping.record(for: attachment, file: fileURL(for: attachment)),
@@ -29,21 +29,22 @@ extension NoteStore {
         }
     }
 
-    /// The server saved what was sent at `version`. The record's metadata is
-    /// kept, also when the row changed since (a first upload edited in
-    /// flight, #106), unless the upload was built before the row had to go
-    /// up again as new; the row stays pending if it changed since.
+    /// The server saved what was sent at `version`; the row stays pending
+    /// if it changed since. The record's metadata is kept, also when the
+    /// row changed since (a first upload edited in flight, #106), unless the
+    /// upload was built before the row had to go up again as new, or a
+    /// newer upload was acknowledged first. Versions only grow, so neither
+    /// check is ever undone.
     public func acknowledgeSave(kind: SyncRecord.Kind, name: String, version: Int, systemFields: Data) throws {
         guard let id = UUID(uuidString: name) else { return }
         try writer.write { db in
             // SQLite evaluates every right-hand side with the old values.
             try db.execute(sql: """
                 UPDATE \(Self.table(kind)) SET
-                    syncSystemFields = CASE WHEN ? >= syncStaleBelow THEN ? ELSE syncSystemFields END,
-                    syncStaleBelow = CASE WHEN ? >= syncStaleBelow THEN 0 ELSE syncStaleBelow END,
-                    syncPending = CASE WHEN syncPending = ? THEN 0 ELSE syncPending END
+                    syncSystemFields = CASE WHEN ? >= MAX(syncStaleBelow, syncAcknowledged) THEN ? ELSE syncSystemFields END,
+                    syncAcknowledged = MAX(syncAcknowledged, ?)
                 WHERE id = ?
-                """, arguments: [version, systemFields, version, version, id])
+                """, arguments: [version, systemFields, version, id])
         }
     }
 
@@ -66,56 +67,66 @@ extension NoteStore {
         switch record.kind {
         case .attachment:
             guard let attachment = SyncMapping.attachment(from: record) else { return nil }
-            let pending = try writer.read { db in
-                try Int.fetchOne(db, sql: "SELECT syncPending FROM attachment WHERE id = ?", arguments: [attachment.id])
-            }
-            // A row is written only after its file (the store's rule): a new
-            // attachment without its asset waits for one.
-            if pending == nil, assetData == nil { return nil }
-            // A new image, or one unchanged here, takes the server's file and
-            // fields; one changed here keeps its own until it is sent.
-            let writesFile = assetData != nil && (pending ?? 0) == 0
-            if writesFile, let assetData {
+            // The server's file goes to a temporary name first and into place
+            // only inside the transaction that decides, from the row as it is
+            // then, whether this device takes it (#121).
+            var incoming: URL?
+            if let assetData {
                 try FileManager.default.createDirectory(at: attachmentsDirectory, withIntermediateDirectories: true)
-                try assetData.write(to: fileURL(for: attachment), options: .atomic)
+                let url = attachmentsDirectory.appendingPathComponent("\(UUID().uuidString).incoming")
+                try assetData.write(to: url, options: .atomic)
+                incoming = url
             }
-            let applied = try writer.write { db -> Bool in
-                guard try !Self.isTombstoned(record, db) else { return false }
-                // Read again: a local change may have landed since.
-                switch try Int.fetchOne(db, sql: "SELECT syncPending FROM attachment WHERE id = ?", arguments: [attachment.id]) {
-                case nil:
+            defer { if let incoming { try? FileManager.default.removeItem(at: incoming) } }
+            let final = fileURL(for: attachment)
+            try writer.write { db in
+                guard try !Self.isTombstoned(record, db) else { return }
+                let row = try Row.fetchOne(db, sql: "SELECT syncPending, syncAcknowledged FROM attachment WHERE id = ?", arguments: [attachment.id])
+                let changedHere = row.map { ($0["syncPending"] as Int) > ($0["syncAcknowledged"] as Int) } ?? false
+                // A row is written only after its file (the store's rule): a
+                // new attachment without its asset waits for one. A new image,
+                // or one unchanged here, takes the server's file and fields;
+                // one changed here keeps its own until it is sent.
+                if row == nil, incoming == nil { return }
+                if !changedHere, let incoming {
+                    _ = try FileManager.default.replaceItemAt(final, withItemAt: incoming)
+                }
+                switch (row, changedHere) {
+                case (nil, _):
                     try attachment.insert(db)
-                    try db.execute(sql: "UPDATE attachment SET syncPending = 0, syncSystemFields = ? WHERE id = ?", arguments: [systemFields, attachment.id])
-                case 0?:
+                    try db.execute(sql: "UPDATE attachment SET syncAcknowledged = syncPending, syncSystemFields = ? WHERE id = ?", arguments: [systemFields, attachment.id])
+                case (_, false):
                     try attachment.update(db)
-                    try db.execute(sql: "UPDATE attachment SET syncSystemFields = ? WHERE id = ?", arguments: [systemFields, attachment.id])
-                default:
+                    try db.execute(sql: "UPDATE attachment SET syncAcknowledged = syncPending, syncSystemFields = ? WHERE id = ?", arguments: [systemFields, attachment.id])
+                case (_, true):
                     try db.execute(sql: "UPDATE attachment SET syncSystemFields = ? WHERE id = ?", arguments: [systemFields, attachment.id])
                 }
                 // Its recognised text may have changed (#109).
                 try Self.refreshImageText(referencing: attachment.id, db)
-                return true
             }
-            // Deleted here meanwhile: the file written for it goes too.
-            if !applied, writesFile, pending == nil { try? FileManager.default.removeItem(at: fileURL(for: attachment)) }
             return nil
         case .note:
             guard let server = SyncMapping.note(from: record) else { return nil }
             return try writer.write { db -> Note? in
                 guard try !Self.isTombstoned(record, db) else { return nil }
-                let pending = try Int.fetchOne(db, sql: "SELECT syncPending FROM note WHERE id = ?", arguments: [server.id])
-                guard let pending, pending > 0, let local = try Note.fetchOne(db, key: server.id) else {
+                let row = try Row.fetchOne(db, sql: "SELECT syncPending, syncAcknowledged FROM note WHERE id = ?", arguments: [server.id])
+                let changedHere = row.map { ($0["syncPending"] as Int) > ($0["syncAcknowledged"] as Int) } ?? false
+                guard changedHere, let local = try Note.fetchOne(db, key: server.id) else {
                     // New here, or unchanged here: the server's version wins.
                     try server.save(db)
                     try Self.refreshImageText(of: server.id, body: server.body, db)
-                    try db.execute(sql: "UPDATE note SET syncPending = 0, syncSystemFields = ? WHERE id = ?", arguments: [systemFields, server.id])
+                    try db.execute(sql: "UPDATE note SET syncAcknowledged = syncPending, syncSystemFields = ? WHERE id = ?", arguments: [systemFields, server.id])
                     return nil
                 }
                 let outcome = SyncMerge.merge(local: local, server: server, now: now)
                 try outcome.note.save(db)
                 try Self.refreshImageText(of: outcome.note.id, body: outcome.note.body, db)
-                try db.execute(sql: "UPDATE note SET syncPending = ?, syncSystemFields = ? WHERE id = ?",
-                               arguments: [outcome.stillPending ? pending + 1 : 0, systemFields, server.id])
+                // Still different from the server's: a new version to send.
+                // The same: in step.
+                try db.execute(sql: outcome.stillPending
+                                   ? "UPDATE note SET syncPending = syncPending + 1, syncSystemFields = ? WHERE id = ?"
+                                   : "UPDATE note SET syncAcknowledged = syncPending, syncSystemFields = ? WHERE id = ?",
+                               arguments: [systemFields, server.id])
                 if let copy = outcome.conflictCopy {
                     try copy.insert(db)
                     try Self.refreshImageText(of: copy.id, body: copy.body, db)
@@ -140,7 +151,7 @@ extension NoteStore {
         // would otherwise be deleted without a trace.
         let removed = try writer.write { db -> NoteAttachment? in
             let table = Self.table(kind)
-            if let pending = try Int.fetchOne(db, sql: "SELECT syncPending FROM \(table) WHERE id = ?", arguments: [id]), pending > 0 {
+            if try Bool.fetchOne(db, sql: "SELECT syncPending > syncAcknowledged FROM \(table) WHERE id = ?", arguments: [id]) == true {
                 // Kept and sent again as new; the version moves on, so an
                 // acknowledgement of the upload in flight cannot clear it.
                 try db.execute(sql: """

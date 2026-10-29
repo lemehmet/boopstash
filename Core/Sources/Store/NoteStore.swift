@@ -147,10 +147,20 @@ public final class NoteStore: Sendable {
             // Uploads built before a row had to go up as new (the server
             // deleted it, or the keychain was reset) carry a version below
             // this; their acknowledgements must not restore its metadata
-            // (#106). 0 when nothing is stale.
+            // (#106). Versions only grow (v8), so it is never cleared.
             for table in ["note", "attachment"] {
                 try db.alter(table: table) { t in
                     t.add(column: "syncStaleBelow", .integer).notNull().defaults(to: 0)
+                }
+            }
+        }
+        migrator.registerMigration("v8-sync-acknowledged") { db in
+            // `syncPending` becomes a version that only grows; a row is
+            // pending while it is above the last version the server
+            // acknowledged. Rows in step today (0) stay in step.
+            for table in ["note", "attachment"] {
+                try db.alter(table: table) { t in
+                    t.add(column: "syncAcknowledged", .integer).notNull().defaults(to: 0)
                 }
             }
         }

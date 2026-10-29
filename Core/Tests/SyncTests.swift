@@ -247,6 +247,74 @@ import Testing
         #expect(systemFields == newFields)
     }
 
+    /// A server version identical to this device's ends recovery's pending
+    /// state; the next edit's acknowledgement still keeps its metadata.
+    @Test func aMatchingServerVersionDoesNotStrandTheCutoff() throws {
+        var mine = note("synced")
+        try store.applyServerRecord(SyncMapping.record(for: mine), systemFields: fields)
+        mine.body = "edited"
+        try store.save(mine)
+        let name = mine.id.uuidString.lowercased()
+        try store.applyServerDeletion(kind: .note, name: name)
+        // Another device uploads exactly this text.
+        try store.applyServerRecord(SyncMapping.record(for: mine), systemFields: fields)
+        #expect(try pendingNames().isEmpty)
+        mine.body = "edited later"
+        try store.save(mine)
+        let next = try #require(try version(of: name))
+        let newFields = Data("later".utf8)
+        try store.acknowledgeSave(kind: .note, name: name, version: next, systemFields: newFields)
+        #expect(try pendingNames().isEmpty)
+        mine.body = "and again"
+        try store.save(mine)
+        guard case .save(_, let systemFields, _) = try store.pendingSyncChanges().first else {
+            Issue.record("not pending")
+            return
+        }
+        #expect(systemFields == newFields)
+    }
+
+    /// A late acknowledgement of an upload from before recovery never
+    /// overwrites the metadata of the one after it.
+    @Test func aLateStaleAcknowledgementIsIgnored() throws {
+        var mine = note("synced")
+        try store.applyServerRecord(SyncMapping.record(for: mine), systemFields: fields)
+        mine.body = "edited"
+        try store.save(mine)
+        let name = mine.id.uuidString.lowercased()
+        let stale = try #require(try version(of: name))
+        try store.applyServerDeletion(kind: .note, name: name)
+        let resent = try #require(try version(of: name))
+        let newFields = Data("new-record".utf8)
+        try store.acknowledgeSave(kind: .note, name: name, version: resent, systemFields: newFields)
+        try store.acknowledgeSave(kind: .note, name: name, version: stale, systemFields: Data("old-record".utf8))
+        mine.body = "edited again"
+        try store.save(mine)
+        guard case .save(_, let systemFields, _) = try store.pendingSyncChanges().first else {
+            Issue.record("not pending")
+            return
+        }
+        #expect(systemFields == newFields)
+    }
+
+    /// An attachment changed here keeps its own file when the server's
+    /// arrives; one in step takes the server's.
+    @Test func aServerFileReplacesOnlyAnAttachmentInStep() throws {
+        let attachment = NoteAttachment(noteID: nil, contentType: "public.png", byteSize: 1)
+        let record = SyncMapping.record(for: attachment, file: URL(fileURLWithPath: "/unused"))
+        try store.applyServerRecord(record, systemFields: fields, assetData: Data([1]))
+        try store.setRecognizedText("local", for: attachment.id)
+        try store.applyServerRecord(record, systemFields: fields, assetData: Data([2]))
+        let changed = try #require(try store.attachment(id: attachment.id))
+        #expect(try store.data(for: changed) == Data([1]))
+        guard case .save(_, _, let version) = try store.pendingSyncChanges().first else { return }
+        try store.acknowledgeSave(kind: .attachment, name: attachment.id.uuidString.lowercased(), version: version, systemFields: fields)
+        try store.applyServerRecord(record, systemFields: fields, assetData: Data([3]))
+        #expect(try store.data(for: changed) == Data([3]))
+        let leftovers = try FileManager.default.contentsOfDirectory(atPath: store.attachmentsDirectory.path).filter { $0.hasSuffix(".incoming") }
+        #expect(leftovers.isEmpty)
+    }
+
     /// Text recognised after an upload is a change to send, and text
     /// recognised during one is not cleared by its acknowledgement (#108).
     @Test func recognisedTextIsSent() throws {
