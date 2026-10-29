@@ -104,13 +104,99 @@ public final class NoteStore: Sendable {
                 t.column("recognizedText", .text)
             }
         }
+        migrator.registerMigration("v5-image-text") { db in
+            // Text recognised in a note's images, kept on the note so the
+            // index can cover it. Not part of `Note`: an older draft saved
+            // over the row must not erase text recognised since.
+            try db.alter(table: "note") { t in
+                t.add(column: "imageText", .text)
+            }
+            try db.dropFTS5SynchronizationTriggers(forTable: "noteSearch")
+            try db.drop(table: "noteSearch")
+            try db.create(virtualTable: "noteSearch", using: FTS5()) { t in
+                t.synchronize(withTable: "note")
+                t.tokenizer = FTS5TokenizerDescriptor(components: ["trigram"])
+                t.column("title")
+                t.column("body")
+                t.column("sourceAppName")
+                t.column("imageText")
+            }
+        }
+        migrator.registerMigration("v6-sync") { db in
+            // iCloud sync (#63). `syncPending` counts local changes not yet
+            // acknowledged by the server (0 when in step); every existing
+            // row starts pending, to be sent once. `syncSystemFields` holds
+            // CloudKit's record metadata, opaque here.
+            for table in ["note", "attachment"] {
+                try db.alter(table: table) { t in
+                    t.add(column: "syncPending", .integer).notNull().defaults(to: 1)
+                    t.add(column: "syncSystemFields", .blob)
+                }
+            }
+            // A deletion the server has not heard of yet.
+            try db.create(table: "syncTombstone") { t in
+                t.column("kind", .text).notNull()
+                t.column("name", .text).notNull()
+                t.column("systemFields", .blob)
+                t.primaryKey(["kind", "name"])
+            }
+            try db.create(table: "syncState") { t in
+                t.primaryKey("key", .text)
+                t.column("value", .blob)
+            }
+        }
         return migrator
     }
 
     // MARK: Reading and writing
 
     public func save(_ note: Note) throws {
-        try writer.write { db in try note.save(db) }
+        try writer.write { db in
+            try note.save(db)
+            try Self.refreshImageText(of: note.id, body: note.body, db)
+            try db.execute(sql: "UPDATE note SET syncPending = syncPending + 1 WHERE id = ?", arguments: [note.id])
+        }
+    }
+
+    // MARK: Image text
+
+    /// Stores the text recognised in an attachment (empty for none, so it
+    /// is not recognised again) and updates every note showing it.
+    public func setRecognizedText(_ text: String, for attachmentID: UUID) throws {
+        try writer.write { db in
+            guard var attachment = try NoteAttachment.fetchOne(db, key: attachmentID) else { return }
+            attachment.recognizedText = text
+            try attachment.update(db)
+            let needle = attachmentID.uuidString.lowercased()
+            let rows = try Row.fetchAll(db, sql: "SELECT id, body FROM note WHERE instr(lower(body), ?) > 0", arguments: [needle])
+            for row in rows {
+                try Self.refreshImageText(of: row["id"], body: row["body"], db)
+            }
+        }
+    }
+
+    /// Attachments not yet through text recognition, oldest first.
+    public func attachmentsAwaitingRecognition(limit: Int = 50) throws -> [NoteAttachment] {
+        try writer.read { db in
+            try NoteAttachment.filter(Column("recognizedText") == nil).order(Column("createdAt")).limit(limit).fetchAll(db)
+        }
+    }
+
+    /// The recognised text of a note's images, as the index holds it.
+    public func imageText(of noteID: UUID) throws -> String? {
+        try writer.read { db in try String.fetchOne(db, sql: "SELECT imageText FROM note WHERE id = ?", arguments: [noteID]) }
+    }
+
+    /// The note's `imageText`: the recognised text of the attachments its
+    /// body refers to, so removing an image from the text removes its words
+    /// from search.
+    static func refreshImageText(of noteID: UUID, body: String, _ db: Database) throws {
+        let ids = AttachmentReference.ids(in: body)
+        let texts = ids.isEmpty ? [] : try NoteAttachment.fetchAll(db, keys: Array(ids))
+            .sorted { $0.createdAt < $1.createdAt }
+            .compactMap(\.recognizedText).filter { !$0.isEmpty }
+        let joined = texts.isEmpty ? nil : texts.joined(separator: "\n")
+        try db.execute(sql: "UPDATE note SET imageText = ? WHERE id = ? AND imageText IS NOT ?", arguments: [joined, noteID, joined])
     }
 
     /// Deletes a note, and the attachments it owned that no other saved
@@ -119,12 +205,14 @@ public final class NoteStore: Sendable {
     @discardableResult
     public func delete(id: UUID, removingOrphanedAttachments: Bool = true) throws -> Bool {
         let (deleted, orphans) = try writer.write { db -> (Bool, [NoteAttachment]) in
+            try Self.recordTombstone(kind: .note, id: id, table: "note", db)
             guard try Note.deleteOne(db, key: id) else { return (false, []) }
             guard removingOrphanedAttachments else { return (true, []) }
             let owned = try NoteAttachment.filter(Column("noteID") == id).fetchAll(db)
             guard !owned.isEmpty else { return (true, []) }
             let referenced = try Self.referencedAttachmentIDs(db)
             let orphans = owned.filter { !referenced.contains($0.id) }
+            for orphan in orphans { try Self.recordTombstone(kind: .attachment, id: orphan.id, table: "attachment", db) }
             try NoteAttachment.deleteAll(db, keys: orphans.map(\.id))
             return (true, orphans)
         }
@@ -155,6 +243,7 @@ public final class NoteStore: Sendable {
     public func deleteAttachment(id: UUID) throws {
         let removed = try writer.write { db -> NoteAttachment? in
             let attachment = try NoteAttachment.fetchOne(db, key: id)
+            try Self.recordTombstone(kind: .attachment, id: id, table: "attachment", db)
             _ = try NoteAttachment.deleteOne(db, key: id)
             return attachment
         }
@@ -192,8 +281,15 @@ public final class NoteStore: Sendable {
         let cutoff = now.addingTimeInterval(-grace)
         let (orphans, known) = try writer.write { db -> ([NoteAttachment], Set<UUID>) in
             let referenced = try Self.referencedAttachmentIDs(db)
+            // An attachment that came from iCloud before its note did is
+            // not an orphan yet: its note is still on its way.
+            let waiting = try UUID.fetchSet(db, sql: """
+                SELECT id FROM attachment WHERE syncSystemFields IS NOT NULL AND noteID IS NOT NULL
+                    AND noteID NOT IN (SELECT id FROM note)
+                """)
             let orphans = try NoteAttachment.filter(Column("createdAt") < cutoff).fetchAll(db)
-                .filter { !referenced.contains($0.id) }
+                .filter { !referenced.contains($0.id) && !waiting.contains($0.id) }
+            for orphan in orphans { try Self.recordTombstone(kind: .attachment, id: orphan.id, table: "attachment", db) }
             try NoteAttachment.deleteAll(db, keys: orphans.map(\.id))
             let known = try UUID.fetchSet(db, sql: "SELECT id FROM attachment")
             return (orphans, known)
@@ -221,7 +317,7 @@ public final class NoteStore: Sendable {
     /// Every attachment ID any note body refers to. Only bodies that mention
     /// the scheme are read.
     static func referencedAttachmentIDs(_ db: Database) throws -> Set<UUID> {
-        let bodies = try String.fetchAll(db, sql: "SELECT body FROM note WHERE instr(body, ?) > 0", arguments: [AttachmentReference.scheme])
+        let bodies = try String.fetchAll(db, sql: "SELECT body FROM note WHERE instr(lower(body), ?) > 0", arguments: [AttachmentReference.scheme])
         return bodies.reduce(into: Set<UUID>()) { $0.formUnion(AttachmentReference.ids(in: $1)) }
     }
 
@@ -287,9 +383,9 @@ public final class NoteStore: Sendable {
 
     static func columns(for scope: NoteQuery.Scope) -> [String] {
         switch scope {
-        case .everywhere: ["title", "body", "sourceAppName"]
+        case .everywhere: ["title", "body", "sourceAppName", "imageText"]
         case .title: ["title"]
-        case .content: ["body"]
+        case .content: ["body", "imageText"]
         }
     }
 

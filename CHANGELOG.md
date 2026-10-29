@@ -6,6 +6,11 @@ breaking changes may land in a minor release.
 
 ## Unreleased
 
+- Text in images is searchable: BoopStash reads the text of each image
+  with Apple's on-device text recognition, so a word in a screenshot finds
+  its note. Nothing leaves the Mac. A note found that way is marked "in
+  image" in the list.
+
 - Images: paste an image into a note (⌘V with an image on the clipboard),
   drop one on the editor or the note list, or capture an image-only
   clipboard with New Note from Clipboard, ⌃⌥⌘V or Services. Images are kept

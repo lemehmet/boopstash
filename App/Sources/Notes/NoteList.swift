@@ -7,7 +7,7 @@ struct NoteList: View {
 
     var body: some View {
         List(model.notes, selection: $model.selection) { note in
-            NoteRow(note: note)
+            NoteRow(note: note, foundInImage: !model.query.text.isEmpty && !model.query.matchesWithoutImages(note))
                 .tag(note.id)
                 .contextMenu {
                     Button("Delete", role: .destructive) { model.delete(note.id) }
@@ -60,6 +60,8 @@ struct NoteList: View {
 
 struct NoteRow: View {
     let note: Note
+    /// The filter matched only text recognised in the note's images.
+    var foundInImage = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -71,6 +73,10 @@ struct NoteRow: View {
                 if let app = note.sourceAppName {
                     Text("·")
                     Text(app)
+                }
+                if foundInImage {
+                    Text("·")
+                    Label("in image", systemImage: "text.viewfinder").labelStyle(.titleAndIcon)
                 }
             }
             .font(.caption)

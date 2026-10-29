@@ -6,6 +6,8 @@ struct BoopstashApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @AppStorage("keymapPreset") private var preset: KeymapPreset = .vsCode
     @AppStorage("linuxHabits") private var linuxHabits = false
+    @AppStorage(PreviewSettings.shownKey) private var previewShown = false
+    @AppStorage(PreviewSettings.sideBySideKey) private var previewSideBySide = true
     @AppStorage(EditorSettings.fontFamilyKey) private var fontFamily = ""
     @AppStorage(EditorSettings.fontSizeKey) private var fontSize = 13.0
     @AppStorage(EditorSettings.lightThemeKey) private var lightTheme = Theme.systemID
@@ -36,6 +38,13 @@ struct BoopstashApp: App {
                     .keyboardShortcut("n")
                 Button("New Note from Clipboard") { delegate.model?.captureClipboard() }
                     .keyboardShortcut("n", modifiers: [.command, .option])
+            }
+            CommandGroup(before: .sidebar) {
+                // ⇧⌘V belongs to Paste as Markdown, so the preview is ⌥⌘P.
+                Toggle("Show Preview", isOn: $previewShown)
+                    .keyboardShortcut("p", modifiers: [.command, .option])
+                Toggle("Preview Beside the Editor", isOn: $previewSideBySide)
+                Divider()
             }
             CommandGroup(after: .saveItem) {
                 Button("Export All Notes…") {
@@ -131,7 +140,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 struct MainWindow: View {
     @Bindable var model: AppModel
     /// This window's script picker; every window has its own.
-    @State private var scriptPickerShown = false
+    @State private var scriptPicker: PickerTarget?
     let keymap: Keymap
     let appearance: EditorAppearance
 
@@ -152,10 +161,10 @@ struct MainWindow: View {
             model.flush(old)
             if let note = model.note(id: old) { model.requestModelTitle(for: note) }
         }
-        .sheet(isPresented: $scriptPickerShown) {
-            ScriptPicker(model: model)
+        .sheet(item: $scriptPicker) { target in
+            ScriptPicker(model: model, target: target)
         }
-        .focusedSceneValue(\.scriptPickerShown, $scriptPickerShown)
+        .focusedSceneValue(\.scriptPicker, $scriptPicker)
         .safeAreaInset(edge: .bottom) {
             if let banner = model.banner {
                 HStack {

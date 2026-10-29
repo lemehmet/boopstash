@@ -52,8 +52,10 @@ public enum AttachmentReference {
     }
 
     /// `![…](attachment:<uuid>)`; the alt text may hold escaped brackets.
+    /// The scheme matches in any case, as the preview reads it, so a
+    /// reference the preview shows is never one clean-up overlooks.
     static let pattern = try! NSRegularExpression(
-        pattern: #"!\[(?:[^\]\\]|\\.)*\]\(attachment:([0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12})\)"#
+        pattern: #"!\[(?:[^\]\\]|\\.)*\]\((?i:attachment):([0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12})\)"#
     )
 
     /// Every attachment a body refers to. A reference inside a code span
@@ -64,6 +66,20 @@ public enum AttachmentReference {
         return Set(pattern.matches(in: body, range: range).compactMap { match in
             Range(match.range(at: 1), in: body).flatMap { UUID(uuidString: String(body[$0])) }
         })
+    }
+
+    /// Each reference with where it is (UTF-16, as the editor counts), its
+    /// attachment and its alt text unescaped, in order.
+    public static func matches(in body: String) -> [(range: NSRange, id: UUID, alt: String)] {
+        let ns = body as NSString
+        return pattern.matches(in: body, range: NSRange(location: 0, length: ns.length)).compactMap { match in
+            guard let id = UUID(uuidString: ns.substring(with: match.range(at: 1))) else { return nil }
+            let whole = ns.substring(with: match.range)
+            let altEnd = (whole as NSString).range(of: "](attachment:", options: [.backwards, .caseInsensitive]).location
+            let escaped = (whole as NSString).substring(with: NSRange(location: 2, length: max(0, altEnd - 2)))
+            let alt = escaped.replacingOccurrences(of: #"\\(.)"#, with: "$1", options: .regularExpression)
+            return (match.range, id, alt)
+        }
     }
 
     /// The body without its image references: its text alone, for deciding
