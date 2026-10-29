@@ -68,6 +68,21 @@ import Testing
 
     @Test func aByteOrderMarkIsTolerated() throws {
         #expect(try json("\u{FEFF}[1]") == "[\n  1\n]\n")
+        // The caret before "1" (after the BOM and "[") stays before "1".
+        let formatted = try json("\u{FEFF}[1]")
+        let mapped = DocumentFormatter.caret(2, from: "\u{FEFF}[1]", to: formatted)
+        #expect((formatted as NSString).substring(from: mapped).hasPrefix("1"))
+    }
+
+    @Test func deepNestingIsRefusedNotRecursedInto() throws {
+        let deep = String(repeating: "[", count: 100_000) + String(repeating: "]", count: 100_000)
+        guard case .failure(let error) = JSONFormatter.format(deep) else {
+            Issue.record("formatted 100,000 levels")
+            return
+        }
+        #expect(error == FormatError(message: "nested deeper than 256 levels", line: 1, column: 257))
+        let allowed = String(repeating: "[", count: 256) + String(repeating: "]", count: 256)
+        #expect((try? json(allowed)) != nil, "256 levels still format")
     }
 
     @Test func xmlKeepsCommentsCDATAAndOrder() throws {

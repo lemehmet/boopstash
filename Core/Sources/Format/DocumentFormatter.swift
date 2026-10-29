@@ -53,14 +53,16 @@ public enum DocumentFormatter {
     /// UTF-16, as the editor's are.
     public static func caret(_ offset: Int, from original: String, to formatted: String) -> Int {
         let before = original.utf16.prefix(offset)
-        let significant = String(decoding: Array(before), as: UTF16.self).unicodeScalars.filter { !$0.properties.isWhitespace }.count
+        // A byte-order mark is dropped by the JSON formatter, so it never
+        // counts, on either side.
+        func isSignificant(_ scalar: Unicode.Scalar) -> Bool { !scalar.properties.isWhitespace && scalar != "\u{FEFF}" }
+        let significant = String(decoding: Array(before), as: UTF16.self).unicodeScalars.filter(isSignificant).count
         // Just before the next significant character: past the whitespace
         // the formatter put after the last one counted.
         var seen = 0
         var position = 0
         for scalar in formatted.unicodeScalars {
-            let isSignificant = !scalar.properties.isWhitespace
-            if isSignificant {
+            if isSignificant(scalar) {
                 if seen == significant { break }
                 seen += 1
             }

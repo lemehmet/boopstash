@@ -62,9 +62,15 @@ public enum JSONFormatter {
 
     /// A strict RFC 8259 reader over UTF-8 bytes that keeps each scalar's
     /// source text.
+    /// Deeper documents are refused rather than parsed: parsing and writing
+    /// recurse once per level. 512 levels overflowed the small stacks that
+    /// test threads get in debug builds; 256 leaves room on any thread.
+    static let maxDepth = 256
+
     struct Parser {
         let bytes: [UInt8]
         var index = 0
+        var depth = 0
 
         init(_ text: String) { bytes = Array(text.utf8) }
 
@@ -93,6 +99,8 @@ public enum JSONFormatter {
         }
 
         mutating func object() throws -> Value {
+            try descend()
+            defer { depth -= 1 }
             index += 1
             var members: [(key: String, value: Value)] = []
             skipWhitespace()
@@ -114,6 +122,8 @@ public enum JSONFormatter {
         }
 
         mutating func array() throws -> Value {
+            try descend()
+            defer { depth -= 1 }
             index += 1
             var items: [Value] = []
             skipWhitespace()
@@ -125,6 +135,13 @@ public enum JSONFormatter {
                 if peek(",") { index += 1; continue }
                 if peek("]") { index += 1; return .array(items) }
                 throw failure("expected ',' or ']'")
+            }
+        }
+
+        mutating func descend() throws {
+            depth += 1
+            guard depth <= JSONFormatter.maxDepth else {
+                throw failure("nested deeper than \(JSONFormatter.maxDepth) levels")
             }
         }
 
