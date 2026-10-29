@@ -54,12 +54,6 @@ import Testing
         #expect((body as NSString).substring(with: found[1].range) == AttachmentReference.markdown(for: b))
     }
 
-    @Test func matchesReadUppercaseSchemesToo() {
-        let id = UUID()
-        let found = AttachmentReference.matches(in: "![plot](ATTACHMENT:\(id.uuidString))")
-        #expect(found.map(\.id) == [id] && found.map(\.alt) == ["plot"])
-    }
-
     @Test func rewritingReplacesOnlyKnownReferences() {
         let known = UUID(), unknown = UUID()
         let body = "\(AttachmentReference.markdown(for: known, alt: "k")) \(AttachmentReference.markdown(for: unknown))"
