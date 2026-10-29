@@ -112,7 +112,18 @@ final class NotesModel {
 
     static func live() throws -> NotesModel {
         let support = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
-        let store = try NoteStore.open(at: support.appendingPathComponent("Boopstash/notes.sqlite"))
+        let own = support.appendingPathComponent("Boopstash", isDirectory: true)
+        // In the App Group, where the share extension writes too (#66); the
+        // store there moves once from the app's own container. A build
+        // without the group (the simulator, unsigned) keeps it at home.
+        let folder: URL
+        if let group = SharedStore.folder {
+            try NoteStore.moveStoreFolder(from: own, to: group)
+            folder = group
+        } else {
+            folder = own
+        }
+        let store = try NoteStore.open(at: folder.appendingPathComponent(SharedStore.fileName), shared: SharedStore.folder != nil)
         // Images nothing refers to, after a day's grace, as on the Mac: also
         // the clean-up a delete leaves when a draft would not save.
         _ = try? store.removeUnreferencedAttachments()

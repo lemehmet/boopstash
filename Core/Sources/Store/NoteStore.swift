@@ -24,12 +24,54 @@ public final class NoteStore: Sendable {
     }
 
     /// The store at `url`, created if missing. A pool lets the list read
-    /// while the editor writes.
-    public static func open(at url: URL) throws -> NoteStore {
+    /// while the editor writes. `shared` is for a store that another process
+    /// writes too (the iOS app and its share extension, #66): writers wait
+    /// for each other, and the database lets go of its locks while the app
+    /// is suspended (post `Database.suspendNotification` then), or iOS would
+    /// end it.
+    public static func open(at url: URL, shared: Bool = false) throws -> NoteStore {
         let folder = url.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        var configuration = configuration
+        if shared {
+            configuration.observesSuspensionNotifications = true
+            configuration.busyMode = .timeout(5)
+        }
         return try NoteStore(DatabasePool(path: url.path, configuration: configuration),
                              attachmentsDirectory: folder.appendingPathComponent("Attachments", isDirectory: true))
+    }
+
+    /// Lets every shared store give up its locks while the app is suspended,
+    /// and take them again when it is back (see `open(at:shared:)`).
+    public static func suspendSharedStores() {
+        NotificationCenter.default.post(name: Database.suspendNotification, object: nil)
+    }
+
+    public static func resumeSharedStores() {
+        NotificationCenter.default.post(name: Database.resumeNotification, object: nil)
+    }
+
+    /// Moves a store's whole folder (the database, its WAL and SHM files,
+    /// and Attachments) to `destination`, once: only when `source` holds a
+    /// store and `destination` does not. One rename on the same volume, never
+    /// a copy then a delete, so there is no moment with two stores or none.
+    /// Returns whether it moved. For the iOS store's move into the App Group
+    /// the share extension can reach (#66).
+    @discardableResult
+    public static func moveStoreFolder(from source: URL, to destination: URL, storeName: String = "notes.sqlite") throws -> Bool {
+        let files = FileManager.default
+        guard files.fileExists(atPath: source.appendingPathComponent(storeName).path),
+              !files.fileExists(atPath: destination.appendingPathComponent(storeName).path)
+        else { return false }
+        // An empty folder there (a launch that made it, then failed) would
+        // stop the rename; anything in it means someone else's data.
+        if files.fileExists(atPath: destination.path) {
+            guard (try files.contentsOfDirectory(atPath: destination.path)).isEmpty else { return false }
+            try files.removeItem(at: destination)
+        }
+        try files.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try files.moveItem(at: source, to: destination)
+        return true
     }
 
     static var configuration: Configuration {

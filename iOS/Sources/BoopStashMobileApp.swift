@@ -26,7 +26,19 @@ struct BoopStashMobileApp: App {
                     .onChange(of: phase) { _, phase in
                         // Leaving the foreground may be the last chance to save;
                         // coming back may be on another day.
-                        if phase == .active { model.refresh() } else { model.drafts.flushAll() }
+                        // The store is shared with the share extension: it lets go of
+                        // its locks in the background, or iOS would end the app.
+                        switch phase {
+                        case .active:
+                            NoteStore.resumeSharedStores()
+                            // Notes shared while away were written by the extension.
+                            model.refresh()
+                        case .background:
+                            model.drafts.flushAll()
+                            NoteStore.suspendSharedStores()
+                        default:
+                            model.drafts.flushAll()
+                        }
                     }
             } else {
                 ContentUnavailableView("BoopStash could not open its notes", systemImage: "exclamationmark.triangle",

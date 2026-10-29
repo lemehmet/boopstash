@@ -211,9 +211,9 @@ let project = Project(
                 // Changes from other devices arrive while in the background.
                 "UIBackgroundModes": ["remote-notification"],
             ]),
-            sources: ["iOS/Sources/**", "App/SyncAdapter/**"],
+            sources: ["iOS/Sources/**", "iOS/Shared/**", "App/SyncAdapter/**"],
             resources: ["iOS/Resources/**"],
-            dependencies: [.target(name: "BoopstashCore")],
+            dependencies: [.target(name: "BoopstashCore"), .target(name: "BoopStashShare")],
             settings: .settings(base: [
                 "PRODUCT_MODULE_NAME": "BoopStashMobile",
                 "ASSETCATALOG_COMPILER_APPICON_NAME": "AppIcon",
@@ -228,6 +228,44 @@ let project = Project(
                 "BOOPSTASH_ICLOUD": "NO",
                 "BOOPSTASH_ICLOUD_ENVIRONMENT": "Production",
                 "BOOPSTASH_APS_ENVIRONMENT": "production",
+            ])
+        ),
+        // Share ▸ BoopStash on iOS (#66): writes a note into the store the
+        // app keeps in the App Group, and nothing else.
+        .target(
+            name: "BoopStashShare",
+            destinations: [.iPhone, .iPad],
+            product: .appExtension,
+            productName: "BoopStashShare",
+            bundleId: "\(appBundleId).share",
+            deploymentTargets: .iOS("26.0"),
+            infoPlist: .extendingDefault(with: [
+                "CFBundleDisplayName": "BoopStash",
+                "CFBundleShortVersionString": "$(MARKETING_VERSION)",
+                "CFBundleVersion": "$(CURRENT_PROJECT_VERSION)",
+                "NSExtension": [
+                    "NSExtensionPointIdentifier": "com.apple.share-services",
+                    "NSExtensionPrincipalClass": "$(PRODUCT_MODULE_NAME).ShareViewController",
+                    "NSExtensionAttributes": [
+                        "NSExtensionActivationRule": [
+                            "NSExtensionActivationSupportsText": true,
+                            "NSExtensionActivationSupportsWebURLWithMaxCount": 1,
+                            "NSExtensionActivationSupportsImageWithMaxCount": 10,
+                        ],
+                    ],
+                ],
+            ]),
+            sources: ["iOS/Share/Sources/**", "iOS/Shared/**"],
+            resources: ["iOS/Share/Resources/**"],
+            dependencies: [.target(name: "BoopstashCore")],
+            settings: .settings(base: [
+                "PRODUCT_MODULE_NAME": "BoopStashShare",
+                // The App Group, with the extension's App Store profile, only in
+                // a provisioned build (ADR 0008).
+                "BOOPSTASH_SHARE_PROFILE": "",
+                "PROVISIONING_PROFILE_SPECIFIER": "$(BOOPSTASH_SHARE_PROFILE)",
+                "BOOPSTASH_SHARE_ENTITLEMENTS": "",
+                "CODE_SIGN_ENTITLEMENTS": "$(BOOPSTASH_SHARE_ENTITLEMENTS)",
             ])
         ),
         // Runs scripts and JavaScript formatters in its own sandboxed

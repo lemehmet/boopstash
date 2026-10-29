@@ -31,19 +31,28 @@ def api_key
   )
 end
 
+SHARE_ID = "#{APP_ID}.share"
+
+# The app's profile name; on iOS the share extension (#66) has its own, read
+# with `profile_for`.
 def signing(platform, readonly:, **extra)
   match(
     # Apple Distribution for the app on both platforms (match's default,
     # stated): the Mac's installer certificate keeps its own name, 3rd Party
     # Mac Developer Installer.
-    type: "appstore", platform: platform, app_identifier: [APP_ID], generate_apple_certs: true,
+    type: "appstore", platform: platform, app_identifier: platform == "ios" ? [APP_ID, SHARE_ID] : [APP_ID],
+    generate_apple_certs: true,
     api_key: api_key, team_id: ENV["APPLE_TEAM_ID"], readonly: readonly,
     s3_access_key: ENV["MATCH_S3_ACCESS_KEY"], s3_secret_access_key: ENV["MATCH_S3_SECRET_ACCESS_KEY"],
     **extra
   )
-  ENV["sigh_#{APP_ID}_appstore_profile-name"] ||
-    ENV["sigh_#{APP_ID}_appstore_#{platform}_profile-name"] ||
-    UI.user_error!("match did not report a profile for #{APP_ID} on #{platform}")
+  profile_for(APP_ID, platform)
+end
+
+def profile_for(identifier, platform)
+  ENV["sigh_#{identifier}_appstore_profile-name"] ||
+    ENV["sigh_#{identifier}_appstore_#{platform}_profile-name"] ||
+    UI.user_error!("match did not report a profile for #{identifier} on #{platform}")
 end
 
 # The version is the changelog's newest release; the build number counts up
@@ -156,15 +165,17 @@ platform :ios do
     require_environment!
     setup_ci
     profile = signing("ios", readonly: true)
+    share_profile = profile_for(SHARE_ID, "ios")
     generate
     build_ios_app(
       workspace: "Boopstash.xcworkspace", scheme: "BoopStashMobile", configuration: "Release",
       export_method: "app-store", output_directory: "./build/appstore", clean: true,
-      export_options: { provisioningProfiles: { APP_ID => profile } },
+      export_options: { provisioningProfiles: { APP_ID => profile, SHARE_ID => share_profile } },
       xcargs: [
         "CODE_SIGN_STYLE=Manual", "DEVELOPMENT_TEAM=#{ENV['APPLE_TEAM_ID']}", "CODE_SIGN_IDENTITY='Apple Distribution'",
         # iCloud with the App Store profile (ADR 0008).
         "BOOPSTASH_ENTITLEMENTS='$(SRCROOT)/iOS/BoopStashMobileCloud.entitlements'", "BOOPSTASH_ICLOUD=YES",
+        "BOOPSTASH_SHARE_ENTITLEMENTS='$(SRCROOT)/iOS/BoopStashShare.entitlements'", "BOOPSTASH_SHARE_PROFILE='#{share_profile}'",
         "BOOPSTASH_PROFILE='#{profile}'",
         "MARKETING_VERSION=#{version}", "CURRENT_PROJECT_VERSION=#{build_number('ios')}"
       ].join(" ")

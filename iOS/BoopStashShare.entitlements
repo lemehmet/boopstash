@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  The share extension (#66), for provisioned builds only (ADR 0008): the
+  App Group, to write notes into the store the app keeps there. Nothing
+  else: no iCloud, no network.
+-->
+<plist version="1.0">
+<dict>
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.com.lemehmet.boopstash</string>
+	</array>
+</dict>
+</plist>

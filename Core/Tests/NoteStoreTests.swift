@@ -222,3 +222,58 @@ final class TestClock: @unchecked Sendable {
         #expect(try await iterator.next()?.map(\.title) == ["tomorrow"])
     }
 }
+
+/// The iOS store's one-time move into the App Group (#66).
+@Suite struct StoreMoveTests {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("move-\(UUID().uuidString)", isDirectory: true)
+    var old: URL { root.appendingPathComponent("app/Boopstash", isDirectory: true) }
+    var group: URL { root.appendingPathComponent("group/Boopstash", isDirectory: true) }
+
+    func makeStore(in folder: URL, body: String) throws {
+        let store = try NoteStore.open(at: folder.appendingPathComponent("notes.sqlite"))
+        try store.save(Note(title: "t", body: body, createdAt: Date(), updatedAt: Date()))
+        _ = try store.addAttachment(Data([1, 2, 3]), contentType: "public.png", noteID: nil)
+    }
+
+    @Test func theWholeFolderMovesOnce() throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        try makeStore(in: old, body: "kept")
+        #expect(try NoteStore.moveStoreFolder(from: old, to: group))
+        #expect(!FileManager.default.fileExists(atPath: old.path))
+        let moved = try NoteStore.open(at: group.appendingPathComponent("notes.sqlite"))
+        #expect(try moved.notes(matching: NoteQuery()).map(\.body) == ["kept"])
+        #expect(try FileManager.default.contentsOfDirectory(atPath: group.appendingPathComponent("Attachments").path).count == 1)
+        #expect(try NoteStore.moveStoreFolder(from: old, to: group) == false, "nothing left to move")
+    }
+
+    @Test func aStoreAlreadyThereIsNeverReplaced() throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        try makeStore(in: old, body: "old")
+        try makeStore(in: group, body: "group")
+        #expect(try NoteStore.moveStoreFolder(from: old, to: group) == false)
+        #expect(FileManager.default.fileExists(atPath: old.appendingPathComponent("notes.sqlite").path), "left where it was")
+        let there = try NoteStore.open(at: group.appendingPathComponent("notes.sqlite"))
+        #expect(try there.notes(matching: NoteQuery()).map(\.body) == ["group"])
+    }
+
+    @Test func anEmptyFolderThereIsReplaced() throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        try makeStore(in: old, body: "kept")
+        try FileManager.default.createDirectory(at: group, withIntermediateDirectories: true)
+        #expect(try NoteStore.moveStoreFolder(from: old, to: group))
+    }
+
+    @Test func otherFilesThereStopTheMove() throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        try makeStore(in: old, body: "kept")
+        try FileManager.default.createDirectory(at: group, withIntermediateDirectories: true)
+        try Data([1]).write(to: group.appendingPathComponent("something"))
+        #expect(try NoteStore.moveStoreFolder(from: old, to: group) == false)
+        #expect(FileManager.default.fileExists(atPath: old.appendingPathComponent("notes.sqlite").path))
+    }
+
+    @Test func nothingToMove() throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        #expect(try NoteStore.moveStoreFolder(from: old, to: group) == false)
+    }
+}
