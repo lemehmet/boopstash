@@ -177,7 +177,9 @@ let project = Project(
                 "CFBundleShortVersionString": "$(MARKETING_VERSION)",
                 "CFBundleVersion": "$(CURRENT_PROJECT_VERSION)",
                 "UILaunchScreen": [:],
-                "UIApplicationSceneManifest": ["UIApplicationSupportsMultipleScenes": true],
+                // One scene: two editors on one note would each save their own
+                // copy over the other's until editors sync live.
+                "UIApplicationSceneManifest": ["UIApplicationSupportsMultipleScenes": false],
             ]),
             sources: ["iOS/Sources/**"],
             dependencies: [.target(name: "BoopstashCore")],

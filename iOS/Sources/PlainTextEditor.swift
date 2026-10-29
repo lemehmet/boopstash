@@ -92,6 +92,12 @@ struct PlainTextEditor: UIViewRepresentable {
             guard let text = view?.text else { return }
             let changes = pendingChanges
             pendingChanges = []
+            // Undo and redo change the text without asking first, so there
+            // is no edit to apply: parse the text as it now is.
+            guard !changes.isEmpty else {
+                reset()
+                return
+            }
             enqueue { engine in
                 for change in changes { _ = await engine.apply(change, newText: text) }
             }
