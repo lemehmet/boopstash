@@ -31,6 +31,20 @@ public struct NoteQuery: Hashable, Sendable {
         return calendar.date(byAdding: .day, value: -(days - 1), to: today)
     }
 
+    /// Whether `note` matches this query's text without its image text: a
+    /// note in the results that does not was found through an image, which
+    /// the list says.
+    public func matchesWithoutImages(_ note: Note) -> Bool {
+        let fields: [String?] = switch scope {
+        case .everywhere: [note.title, note.body, note.sourceAppName]
+        case .title: [note.title]
+        case .content: [note.body]
+        }
+        return terms.allSatisfy { term in
+            fields.contains { $0?.range(of: term, options: .caseInsensitive) != nil }
+        }
+    }
+
     /// The filter split into terms. Every term must match (AND), anywhere
     /// inside a word: "ginx" finds "nginx.conf".
     public var terms: [String] {
