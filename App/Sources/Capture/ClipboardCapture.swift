@@ -1,11 +1,14 @@
 import AppKit
 import BoopstashCore
+import UniformTypeIdentifiers
 
 /// Reads the general pasteboard, only ever in response to a user action
 /// (ADR 0001): a menu item, its shortcut, or a paste.
 enum ClipboardCapture {
     enum Outcome: Equatable {
         case text(String)
+        /// No text, but an image (#51): its bytes and type.
+        case image(Data, UTType)
         case refused(CapturePolicy.Decision)
         case empty
     }
@@ -15,10 +18,15 @@ enum ClipboardCapture {
         let types = pasteboard.types?.map(\.rawValue) ?? []
         let decision = CapturePolicy.decide(types: types)
         guard decision == .accept else { return .refused(decision) }
-        guard let text = pasteboard.string(forType: .string),
-              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        else { return .empty }
-        return .text(text)
+        if let text = pasteboard.string(forType: .string), !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return .text(text)
+        }
+        // Text wins when there is any; otherwise an image is kept as one.
+        if let type = ImageImport.preferredType(among: types),
+           let data = pasteboard.data(forType: NSPasteboard.PasteboardType(type.identifier)) {
+            return .image(data, type)
+        }
+        return .empty
     }
 }
 

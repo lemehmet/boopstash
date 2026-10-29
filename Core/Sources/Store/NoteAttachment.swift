@@ -52,8 +52,10 @@ public enum AttachmentReference {
     }
 
     /// `![…](attachment:<uuid>)`; the alt text may hold escaped brackets.
+    /// The scheme matches in any case, as the preview reads it, so a
+    /// reference the preview shows is never one clean-up overlooks.
     static let pattern = try! NSRegularExpression(
-        pattern: #"!\[(?:[^\]\\]|\\.)*\]\(attachment:([0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12})\)"#
+        pattern: #"!\[(?:[^\]\\]|\\.)*\]\((?i:attachment):([0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12})\)"#
     )
 
     /// Every attachment a body refers to. A reference inside a code span
@@ -64,6 +66,12 @@ public enum AttachmentReference {
         return Set(pattern.matches(in: body, range: range).compactMap { match in
             Range(match.range(at: 1), in: body).flatMap { UUID(uuidString: String(body[$0])) }
         })
+    }
+
+    /// The body without its image references: its text alone, for deciding
+    /// whether there is anything to read beyond the images.
+    public static func removingReferences(from body: String) -> String {
+        pattern.stringByReplacingMatches(in: body, range: NSRange(location: 0, length: (body as NSString).length), withTemplate: "")
     }
 
     /// The body with each reference's destination replaced by `destination`

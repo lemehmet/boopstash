@@ -20,6 +20,8 @@ public struct RuleTitler: Titler {
     }
 
     public static func title(for body: String, kind: ContentKind) -> String {
+        // A byte-order mark is not content, as detection already treats it.
+        let body = body.hasPrefix("\u{FEFF}") ? String(body.dropFirst()) : body
         // Titles come from the start of a note (and, for Python, the end);
         // never scan a whole multi-megabyte body on every edit.
         // Leading whitespace is skipped, as detection skips it, so an
@@ -34,6 +36,8 @@ public struct RuleTitler: Titler {
         }
         if let structured { return truncated(structured) }
         if let line = firstMeaningfulLine(head) { return truncated(line) }
+        // Nothing but images: say so rather than "Plain text".
+        if !AttachmentReference.ids(in: head).isEmpty { return "Image" }
         return kind.displayName
     }
 
@@ -49,7 +53,11 @@ public struct RuleTitler: Titler {
             // its "- " and leave "[ ]" behind.
             line = line.replacingOccurrences(of: #"^[-*+] \[[ xX]\]\s+"#, with: "", options: .regularExpression)
             line = line.replacingOccurrences(of: #"^(#{1,6}|[-*+]|\d+[.)]|>)\s+"#, with: "", options: .regularExpression)
+            // An image reference reads as its alt text, so "![](attachment:…)"
+            // never becomes a title.
+            line = line.replacingOccurrences(of: #"!\[((?:[^\]\\]|\\.)*)\]\([^)]*\)"#, with: "$1", options: .regularExpression)
             line = line.replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+                .trimmingCharacters(in: .whitespaces)
             guard line.contains(where: { $0.isLetter || $0.isNumber }) else { continue }
             return line
         }

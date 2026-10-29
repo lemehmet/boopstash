@@ -104,13 +104,75 @@ public final class NoteStore: Sendable {
                 t.column("recognizedText", .text)
             }
         }
+        migrator.registerMigration("v5-image-text") { db in
+            // Text recognised in a note's images, kept on the note so the
+            // index can cover it. Not part of `Note`: an older draft saved
+            // over the row must not erase text recognised since.
+            try db.alter(table: "note") { t in
+                t.add(column: "imageText", .text)
+            }
+            try db.dropFTS5SynchronizationTriggers(forTable: "noteSearch")
+            try db.drop(table: "noteSearch")
+            try db.create(virtualTable: "noteSearch", using: FTS5()) { t in
+                t.synchronize(withTable: "note")
+                t.tokenizer = FTS5TokenizerDescriptor(components: ["trigram"])
+                t.column("title")
+                t.column("body")
+                t.column("sourceAppName")
+                t.column("imageText")
+            }
+        }
         return migrator
     }
 
     // MARK: Reading and writing
 
     public func save(_ note: Note) throws {
-        try writer.write { db in try note.save(db) }
+        try writer.write { db in
+            try note.save(db)
+            try Self.refreshImageText(of: note.id, body: note.body, db)
+        }
+    }
+
+    // MARK: Image text
+
+    /// Stores the text recognised in an attachment (empty for none, so it
+    /// is not recognised again) and updates every note showing it.
+    public func setRecognizedText(_ text: String, for attachmentID: UUID) throws {
+        try writer.write { db in
+            guard var attachment = try NoteAttachment.fetchOne(db, key: attachmentID) else { return }
+            attachment.recognizedText = text
+            try attachment.update(db)
+            let needle = attachmentID.uuidString.lowercased()
+            let rows = try Row.fetchAll(db, sql: "SELECT id, body FROM note WHERE instr(lower(body), ?) > 0", arguments: [needle])
+            for row in rows {
+                try Self.refreshImageText(of: row["id"], body: row["body"], db)
+            }
+        }
+    }
+
+    /// Attachments not yet through text recognition, oldest first.
+    public func attachmentsAwaitingRecognition(limit: Int = 50) throws -> [NoteAttachment] {
+        try writer.read { db in
+            try NoteAttachment.filter(Column("recognizedText") == nil).order(Column("createdAt")).limit(limit).fetchAll(db)
+        }
+    }
+
+    /// The recognised text of a note's images, as the index holds it.
+    public func imageText(of noteID: UUID) throws -> String? {
+        try writer.read { db in try String.fetchOne(db, sql: "SELECT imageText FROM note WHERE id = ?", arguments: [noteID]) }
+    }
+
+    /// The note's `imageText`: the recognised text of the attachments its
+    /// body refers to, so removing an image from the text removes its words
+    /// from search.
+    static func refreshImageText(of noteID: UUID, body: String, _ db: Database) throws {
+        let ids = AttachmentReference.ids(in: body)
+        let texts = ids.isEmpty ? [] : try NoteAttachment.fetchAll(db, keys: Array(ids))
+            .sorted { $0.createdAt < $1.createdAt }
+            .compactMap(\.recognizedText).filter { !$0.isEmpty }
+        let joined = texts.isEmpty ? nil : texts.joined(separator: "\n")
+        try db.execute(sql: "UPDATE note SET imageText = ? WHERE id = ? AND imageText IS NOT ?", arguments: [joined, noteID, joined])
     }
 
     /// Deletes a note, and the attachments it owned that no other saved
@@ -148,6 +210,17 @@ public final class NoteStore: Sendable {
             throw error
         }
         return attachment
+    }
+
+    /// Removes an attachment and its file, for one whose note was never
+    /// saved.
+    public func deleteAttachment(id: UUID) throws {
+        let removed = try writer.write { db -> NoteAttachment? in
+            let attachment = try NoteAttachment.fetchOne(db, key: id)
+            _ = try NoteAttachment.deleteOne(db, key: id)
+            return attachment
+        }
+        if let removed { removeFiles(of: [removed]) }
     }
 
     public func attachment(id: UUID) throws -> NoteAttachment? {
@@ -210,7 +283,7 @@ public final class NoteStore: Sendable {
     /// Every attachment ID any note body refers to. Only bodies that mention
     /// the scheme are read.
     static func referencedAttachmentIDs(_ db: Database) throws -> Set<UUID> {
-        let bodies = try String.fetchAll(db, sql: "SELECT body FROM note WHERE instr(body, ?) > 0", arguments: [AttachmentReference.scheme])
+        let bodies = try String.fetchAll(db, sql: "SELECT body FROM note WHERE instr(lower(body), ?) > 0", arguments: [AttachmentReference.scheme])
         return bodies.reduce(into: Set<UUID>()) { $0.formUnion(AttachmentReference.ids(in: $1)) }
     }
 
@@ -276,9 +349,9 @@ public final class NoteStore: Sendable {
 
     static func columns(for scope: NoteQuery.Scope) -> [String] {
         switch scope {
-        case .everywhere: ["title", "body", "sourceAppName"]
+        case .everywhere: ["title", "body", "sourceAppName", "imageText"]
         case .title: ["title"]
-        case .content: ["body"]
+        case .content: ["body", "imageText"]
         }
     }
 

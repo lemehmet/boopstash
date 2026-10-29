@@ -1,4 +1,5 @@
 import AppKit
+import UniformTypeIdentifiers
 import BoopstashCore
 
 /// The note editor: a TextKit 2 `NSTextView` with every automatic
@@ -102,6 +103,9 @@ final class BoopTextView: NSTextView {
 
     /// Replaces the whole text with another note's, and highlights it.
     func load(_ text: String, syntax choice: SyntaxChoice = .automatic) {
+        // A format still running belongs to the previous note.
+        formatting?.cancel()
+        documentGeneration += 1
         syntax.replacingDocument { string = text }
         // The new text arrives in the default font and colour.
         applyAppearance()
@@ -240,11 +244,51 @@ final class BoopTextView: NSTextView {
         format(style: .sortedKeys)
     }
 
-    func format(style: DocumentFormatter.Style) {
-        let whole = selectedRange().length == 0
-        let range = whole ? NSRange(location: 0, length: (string as NSString).length) : selectedRange()
-        let source = (string as NSString).substring(with: range)
-        switch DocumentFormatter.format(source, as: syntax.currentLanguage, style: style) {
+    /// Formats on another thread (#81): detection and a large JSON or XML
+    /// document must not stall the window (ADR 0006). The result is applied
+    /// only if the text and selection are as they were when it started.
+    @discardableResult
+    func format(style: DocumentFormatter.Style) -> Task<Void, Never> {
+        let snapshot = string
+        let selection = selectedRange()
+        let whole = selection.length == 0
+        let range = whole ? NSRange(location: 0, length: (snapshot as NSString).length) : selection
+        let source = (snapshot as NSString).substring(with: range)
+        let choice = syntax.choice
+        let formatter = self.formatter
+        let generation = documentGeneration
+        formatting?.cancel()
+        let task = Task { [weak self] in
+            // The worker is cancelled with this task, so a superseded format
+            // stops parsing instead of running to the end.
+            let worker = Task.detached(priority: .userInitiated) {
+                formatter(source, choice.resolve(for: snapshot), style)
+            }
+            let result = await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
+            guard let self, !Task.isCancelled else { return }
+            // Another note in this reused editor, even one with the same
+            // text, is not the note that was formatted.
+            guard self.documentGeneration == generation, self.string == snapshot, self.selectedRange() == selection else {
+                self.showMessage?("The note changed while it was being formatted, so it was left as it is.")
+                return
+            }
+            self.apply(result, source: source, range: range, whole: whole, style: style)
+        }
+        formatting = task
+        return task
+    }
+
+    /// The formatter Format Document uses; replaceable for tests.
+    var formatter: @Sendable (String, SyntaxLanguage?, DocumentFormatter.Style) -> Result<String, FormatError> = {
+        DocumentFormatter.format($0, as: $1, style: $2)
+    }
+    private var formatting: Task<Void, Never>?
+    /// Counts loaded documents, so work started for one is not applied to
+    /// the next.
+    private var documentGeneration = 0
+
+    private func apply(_ result: Result<String, FormatError>, source: String, range: NSRange, whole: Bool, style: DocumentFormatter.Style) {
+        switch result {
         case .failure(let error):
             NSSound.beep()
             showMessage?("Not formatted. \(error.description)")
@@ -284,6 +328,9 @@ final class BoopTextView: NSTextView {
     /// private one, which never triggers macOS's paste-privacy prompt.
     func pastePlainText(from pasteboard: NSPasteboard) {
         guard !refusesSecret(on: pasteboard) else { return }
+        // No text but an image: stored with the note, referenced here (#51).
+        // An empty string, which some apps add beside an image, is no text.
+        if isEditable, pasteboard.string(forType: .string)?.isEmpty ?? true, insertImage(from: pasteboard) { return }
         guard isEditable, let text = pasteboard.string(forType: .string) else {
             NSSound.beep()
             // macOS's paste privacy can deny every read; say so instead of
@@ -296,10 +343,42 @@ final class BoopTextView: NSTextView {
         insertText(text, replacementRange: selectedRange())
     }
 
+    /// Stores an image's bytes for this note and returns the markdown that
+    /// shows it, or nil (the reason goes to the banner). Set by the host.
+    var storeImage: ((Data, UTType) -> String?)?
+
+    /// Inserts references for the images on `pasteboard`: image files (a
+    /// Finder drag) or image data. False when there were none.
+    func insertImage(from pasteboard: NSPasteboard) -> Bool {
+        guard let storeImage else { return false }
+        var references: [String] = []
+        let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+        for url in urls {
+            guard let type = UTType(filenameExtension: url.pathExtension), ImageImport.accepts(type),
+                  let data = DropCapture.readPrefix(of: url, limit: ImageImport.sizeLimit + 1)
+            else { continue }
+            if let reference = storeImage(data, type) { references.append(reference) }
+        }
+        if urls.isEmpty, let type = ImageImport.preferredType(among: pasteboard.types?.map(\.rawValue) ?? []),
+           let data = pasteboard.data(forType: NSPasteboard.PasteboardType(type.identifier)),
+           let reference = storeImage(data, type) {
+            references.append(reference)
+        }
+        guard !references.isEmpty else { return false }
+        insertText(references.joined(separator: "\n"), replacementRange: selectedRange())
+        return true
+    }
+
+    override var readablePasteboardTypes: [NSPasteboard.PasteboardType] {
+        super.readablePasteboardTypes + ImageImport.supported.map { NSPasteboard.PasteboardType($0.identifier) }
+    }
+
     /// Drags into the editor (and Services that insert) arrive here rather
     /// than through paste, so the same rule is applied before AppKit reads.
+    /// Images, as files or data, are stored with the note and referenced.
     override func readSelection(from pboard: NSPasteboard, type: NSPasteboard.PasteboardType) -> Bool {
         guard !refusesSecret(on: pboard) else { return false }
+        if pboard.string(forType: .string)?.isEmpty ?? true || type == .fileURL, insertImage(from: pboard) { return true }
         return super.readSelection(from: pboard, type: type)
     }
 

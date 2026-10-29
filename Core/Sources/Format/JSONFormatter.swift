@@ -85,6 +85,8 @@ public enum JSONFormatter {
         }
 
         mutating func value() throws -> Value {
+            // A superseded format stops here rather than parsing on.
+            if Task.isCancelled { throw FormatError(message: "cancelled", line: nil, column: nil) }
             guard index < bytes.count else { throw failure("the JSON ends early") }
             switch bytes[index] {
             case UInt8(ascii: "{"): return try object()
