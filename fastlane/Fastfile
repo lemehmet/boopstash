@@ -14,6 +14,12 @@ require "tmpdir"
 default_platform(:mac)
 
 APP_ID = "com.lemehmet.boopstash"
+# The App Store key goes by its repository-secret names; ASC_KEY_ID and
+# ASC_KEY_CONTENT are read as well, which is what the workflow passes.
+%w[KEY_ID KEY_CONTENT].each do |part|
+  ENV["ASC_#{part}"] = ENV["ASC_APPSTORE_#{part}"] unless ENV["ASC_APPSTORE_#{part}"].to_s.strip.empty?
+end
+
 REQUIRED = %w[ASC_KEY_ID ASC_ISSUER_ID ASC_KEY_CONTENT APPLE_TEAM_ID MATCH_PASSWORD
               MATCH_S3_BUCKET MATCH_S3_REGION MATCH_S3_ENDPOINT MATCH_S3_ACCESS_KEY MATCH_S3_SECRET_ACCESS_KEY].freeze
 

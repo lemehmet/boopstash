@@ -107,5 +107,7 @@ counts up from TestFlight's newest. The lanes need:
 | `MATCH_S3_BUCKET`, `MATCH_S3_REGION`, `MATCH_S3_ENDPOINT` | secrets | The private bucket for match (DigitalOcean Spaces; the endpoint is the region host, e.g. `https://fra1.digitaloceanspaces.com`) |
 | `MATCH_S3_ACCESS_KEY`, `MATCH_S3_SECRET_ACCESS_KEY` | secrets | A key that can read and write only that bucket |
 
-Locally: `bundle install`, export the same variables, then
+Locally: `bundle config set --local path .build/bundle`, `bundle install`,
+export the same variables (the Admin key as `ASC_APPSTORE_KEY_ID` and
+`ASC_APPSTORE_KEY_CONTENT`, which take precedence over `ASC_KEY_*`), then
 `bundle exec fastlane mac beta upload:false`.
