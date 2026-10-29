@@ -91,6 +91,9 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
         /// Moves on with every account change and reset, so a retry started
         /// for the previous account never applies to the new one.
         var generation = 0
+        /// Deletions from the server waiting to be applied again; one whose
+        /// record arrives again meanwhile is dropped, not applied over it.
+        var retryingDeletions: Set<String> = []
         var watcher: Task<Void, Never>?
     }
 
@@ -275,7 +278,10 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
             case .serverRecordChanged:
                 // Changed elsewhere first: merge the server's version in; the
                 // store marks what is still to send, and the watcher re-adds it.
-                if let server = failure.error.serverRecord { Task { await self.applyFetched([server], deletions: []) } }
+                // The generation now, not when the task runs: an account switch
+                // in between must not take this account's record.
+                let generation = state.withLock { $0.generation }
+                if let server = failure.error.serverRecord { Task { await self.applyFetched([server], deletions: [], generation: generation) } }
                 engine.state.add(pendingRecordZoneChanges: [.saveRecord(record.recordID)])
             case .zoneNotFound:
                 engine.state.add(pendingDatabaseChanges: [.saveZone(CKRecordZone(zoneID: Self.zoneID))])
@@ -353,8 +359,14 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
 
     /// Gives the engine everything the store still has to send.
     private func requeuePending(_ engine: CKSyncEngine) {
-        guard let pending = try? store.currentPendingSyncNames() else { return }
-        add(pending, to: engine, except: state.withLock { $0.heldBack })
+        do {
+            add(try store.currentPendingSyncNames(), to: engine, except: state.withLock { $0.heldBack })
+        } catch {
+            // Changes may be waiting that the engine no longer knows of; the
+            // problem stays shown until Sync Now gives them back.
+            state.withLock { $0.sendFailed = true }
+            report(.problem("Changes waiting to sync could not be read: \(error.localizedDescription)"))
+        }
     }
 
     private func acknowledgeDelete(_ id: CKRecord.ID) {
@@ -438,6 +450,9 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
             for item in incoming {
                 do {
                     let copy = try store.applyServerRecord(item.record, systemFields: item.systemFields, assetData: item.asset)
+                    // A newer version arrived: an older deletion waiting to be
+                    // applied again no longer holds.
+                    _ = state.withLock { $0.retryingDeletions.remove(item.record.name) }
                     if item.record.kind == .note, let id = UUID(uuidString: item.record.name) { outcome.changed.insert(id) }
                     if let copy { outcome.changed.insert(copy.id) }
                 } catch {
@@ -460,6 +475,7 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
     /// Applies again deletions from the server that failed here: the
     /// engine will not send them again.
     private func retryDeletions(_ deletions: [Deletion], attempt: Int, generation: Int) {
+        state.withLock { $0.retryingDeletions.formUnion(deletions.map(\.name)) }
         guard attempt <= 3 else {
             report(.problem("Some deletions from iCloud could not be applied on this Mac."))
             return
@@ -467,7 +483,10 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
         Task {
             try? await Task.sleep(for: .seconds(5 * attempt))
             guard state.withLock({ $0.engine != nil && $0.generation == generation }) else { return }
-            if let failed = await apply([], deletions: deletions, generation: generation)?.failedDeletions, !failed.isEmpty {
+            // Only those whose record has not come back since.
+            let still = state.withLock { state in deletions.filter { state.retryingDeletions.remove($0.name) != nil } }
+            guard !still.isEmpty else { return }
+            if let failed = await apply([], deletions: still, generation: generation)?.failedDeletions, !failed.isEmpty {
                 retryDeletions(failed, attempt: attempt + 1, generation: generation)
             }
         }
