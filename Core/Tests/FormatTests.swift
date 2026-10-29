@@ -236,6 +236,16 @@ extension Result where Success == String, Failure == FormatError {
         #expect(error.message.contains("xml:space"))
     }
 
+    /// Only an element asking to keep its whitespace counts, not a mention.
+    @Test func preservationIsAnAttributeNotAMention() throws {
+        #expect(XMLFormatter.preservesSpace(#"<r xml:space="preserve"><a>  </a></r>"#))
+        #expect(XMLFormatter.preservesSpace(#"<r xml:space='preserve'><a>"#), "partial text, by its form")
+        #expect(!XMLFormatter.preservesSpace("<r><!-- xml:space=\"preserve\" is not used --><a/></r>"))
+        #expect(!XMLFormatter.preservesSpace(#"<r xml:space="default"><a/></r>"#))
+        let mentioned = try XMLFormatter.format("<r><!-- about xml:space --><a><b/></a></r>", indent: 2).get()
+        #expect(mentioned.contains("\n  <a>\n    <b/>\n  </a>"), "\(mentioned)")
+    }
+
     @Test func processingInstructionsAndDeclarationsAreKept() throws {
         let out = try XMLFormatter.format(#"<?xml version="1.0"?><?pi some data?><r a="1"><x/></r>"#, indent: 2).get()
         #expect(out.hasPrefix("<?xml version=\"1.0\""), "\(out)")

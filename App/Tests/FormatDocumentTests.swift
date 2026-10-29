@@ -151,4 +151,16 @@ struct FormatDocumentTests {
         #expect(view.string.contains("\n\(pad)<b>1</b>"), "\(view.string)")
         window.close()
     }
+
+    /// A selection inside an element keeping its whitespace is left as it
+    /// is, though the selection itself does not say so (#149).
+    @Test func aSelectionInheritsPreservedWhitespace() async {
+        let text = #"<r xml:space="preserve"><a>  </a></r>"#
+        let (window, view) = host(text, .xml)
+        let selected = (text as NSString).range(of: "<a>  </a>")
+        view.setSelectedRange(selected)
+        await view.format(style: .standard).value
+        #expect(view.string == text)
+        window.close()
+    }
 }

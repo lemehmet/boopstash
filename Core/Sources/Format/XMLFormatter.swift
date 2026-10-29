@@ -24,7 +24,7 @@ public enum XMLFormatter {
             // xml:space="preserve" asks to keep; such a document is left as
             // it is rather than changed (#149). (Parsing with whitespace kept
             // makes libxml2 write stray whitespace inside tags.)
-            if text.contains("xml:space") {
+            if preservesSpace(text) {
                 return .failure(FormatError(message: #"The document keeps its whitespace (xml:space="preserve"), so it is left as it is"#, line: nil, column: nil))
             }
             let document = try XMLDocument(xmlString: text, options: [.nodePreserveCDATA, .nodeLoadExternalEntitiesNever])
@@ -89,6 +89,20 @@ public enum XMLFormatter {
         for child in children { render(child, depth: depth + 1, width: width, into: &out) }
         out.append(pad + "</\(element.name ?? "")>")
     }
+    /// Whether an element in the document asks to keep its whitespace
+    /// (`xml:space="preserve"`), which the parser would drop. A document
+    /// that only mentions it, in a comment or text, does not. Text that does
+    /// not parse on its own (a selection's surroundings, say) is judged by
+    /// the attribute's form instead.
+    public static func preservesSpace(_ text: String) -> Bool {
+        guard text.contains("xml:space") else { return false }
+        if let document = try? XMLDocument(xmlString: text, options: [.nodeLoadExternalEntitiesNever]),
+           let found = try? document.nodes(forXPath: "//*[@xml:space='preserve']") {
+            return !found.isEmpty
+        }
+        return text.contains(/xml:space\s*=\s*["']preserve["']/)
+    }
+
     /// Text that is content, not layout: any CDATA section, and any text
     /// that is not only whitespace.
     static func isCharacterData(_ node: XMLNode) -> Bool {
