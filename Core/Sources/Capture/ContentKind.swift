@@ -57,7 +57,7 @@ public enum ContentKind: String, CaseIterable, Codable, Sendable {
         let text = text.hasPrefix("\u{FEFF}") ? String(text.dropFirst()) : text
         let sample = leadingSample(of: text).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !sample.isEmpty else { return .plain }
-        let truncated = text.utf8.count > sampleLimit
+        let truncated = !text.utf8Fits(sampleLimit)
         let lines = sample.split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
 
         if !truncated, isURL(sample) { return .url }
@@ -74,7 +74,7 @@ public enum ContentKind: String, CaseIterable, Codable, Sendable {
     }
 
     static func isURL(_ text: String) -> Bool {
-        guard text.utf8.count <= urlLengthLimit, !text.contains(where: \.isWhitespace),
+        guard text.utf8Fits(urlLengthLimit), !text.contains(where: \.isWhitespace),
               let url = URL(string: text), let scheme = url.scheme?.lowercased(),
               ["http", "https"].contains(scheme), url.host != nil
         else { return false }
@@ -83,7 +83,7 @@ public enum ContentKind: String, CaseIterable, Codable, Sendable {
 
     static func isJSON(_ text: String, sample: String) -> Bool {
         guard let first = sample.first, first == "{" || first == "[" else { return false }
-        if text.utf8.count <= jsonParseLimit {
+        if text.utf8Fits(jsonParseLimit) {
             guard let data = text.trimmingCharacters(in: .whitespacesAndNewlines).data(using: .utf8) else { return false }
             return (try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])) != nil
         }
@@ -183,5 +183,14 @@ public enum ContentKind: String, CaseIterable, Codable, Sendable {
         let punctuation = sample.prefix(8192).filter { "{};()".contains($0) }.count
         let density = Double(punctuation) / Double(max(sample.prefix(8192).count, 1))
         return keywordLines >= 2 || (keywordLines >= 1 && density > 0.02) || density > 0.06
+    }
+}
+
+extension StringProtocol {
+    /// Whether the text is at most `limit` UTF-8 bytes, looking at no more
+    /// than that many: `utf8.count` walks the whole of a bridged string,
+    /// such as a large NSString from AppKit (#123).
+    func utf8Fits(_ limit: Int) -> Bool {
+        utf8.index(utf8.startIndex, offsetBy: limit, limitedBy: utf8.endIndex).map { $0 == utf8.endIndex } ?? true
     }
 }

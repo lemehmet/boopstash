@@ -88,6 +88,22 @@ import Testing
         #expect(ContentKind.detect("https://example.com/" + String(repeating: "a", count: 5_000)) != .url)
     }
 
+    /// A large bridged string, as AppKit hands over, is bounded too (#123).
+    @Test func bridgedBuffersAreBounded() {
+        let native = String(repeating: "plain words without structure ", count: 700_000)
+        let bridged = NSMutableString(string: native) as String
+        let small = NSMutableString(string: String(repeating: "plain words without structure ", count: 7_000)) as String
+        expectBounded(bridged, small: small)
+        #expect(ContentKind.detect(bridged) == ContentKind.detect(native))
+    }
+
+    @Test func utf8LimitsCountBytes() {
+        #expect("abc".utf8Fits(3))
+        #expect(!"abcd".utf8Fits(3))
+        #expect("é".utf8Fits(2) && !"é".utf8Fits(1))
+        #expect("".utf8Fits(0))
+    }
+
     @Test func detectionReadsOnlyASample() {
         // A huge buffer must not be scanned in full; this would take seconds
         // if every heuristic walked 20 MB.
