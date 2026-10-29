@@ -77,7 +77,7 @@ public struct RuleTitler: Titler {
     // MARK: Structured kinds
 
     static func jsonTitle(_ body: String, head: String) -> String? {
-        guard body.utf8.count <= ContentKind.jsonParseLimit else {
+        guard body.utf8Fits(ContentKind.jsonParseLimit) else {
             // Too big to parse for a title: name the shape from the head.
             if head.first == "[" { return "JSON array" }
             let keys = orderedTopLevelKeys(head).prefix(3)
