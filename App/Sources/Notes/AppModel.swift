@@ -29,14 +29,19 @@ final class AppModel {
     /// (#59), reloaded when the Scripts folder changes.
     private(set) var scriptLibrary = ScriptLibrary.all()
     @ObservationIgnored private var scriptsWatcher: FolderWatcher?
+    /// The user's Scripts folder; replaceable for tests.
+    @ObservationIgnored var scriptsFolder: URL? = UserScriptsFolder.url
 
+    /// Reads the scripts again. The folder watch sees files added, removed
+    /// and renamed, but not a script edited in place, so opening the picker
+    /// reloads too.
     func reloadScripts() {
-        scriptLibrary = ScriptLibrary.all()
+        scriptLibrary = ScriptLibrary.all(userFolder: scriptsFolder)
     }
 
     /// Starts watching the user's Scripts folder.
     func watchScripts() {
-        guard scriptsWatcher == nil, let url = UserScriptsFolder.url else { return }
+        guard scriptsWatcher == nil, let url = scriptsFolder else { return }
         scriptsWatcher = FolderWatcher(url) { [weak self] in self?.reloadScripts() }
     }
     @ObservationIgnored let scriptRunner = LiveScriptRunner()

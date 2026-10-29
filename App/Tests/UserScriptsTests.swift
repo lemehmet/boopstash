@@ -47,6 +47,24 @@ struct UserScriptsTests {
         _ = watcher
     }
 
+    /// A script edited in place (not replaced) is picked up when the
+    /// library reloads, as it does each time the picker opens.
+    @Test func anInPlaceEditIsSeenOnReload() throws {
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try write("Mine.js", "/**\n{\"api\":1,\"name\":\"Before\"}\n**/\nfunction main(s) {}")
+        let model = AppModel(store: try .inMemory())
+        model.scriptsFolder = folder
+        model.reloadScripts()
+        #expect(model.scriptLibrary.scripts.contains { $0.name == "Before" })
+        let handle = try FileHandle(forWritingTo: folder.appendingPathComponent("Mine.js"))
+        try handle.truncate(atOffset: 0)
+        try handle.write(contentsOf: Data("/**\n{\"api\":1,\"name\":\"After\"}\n**/\nfunction main(s) {}".utf8))
+        try handle.close()
+        model.reloadScripts()
+        #expect(model.scriptLibrary.scripts.contains { $0.name == "After" })
+        #expect(!model.scriptLibrary.scripts.contains { $0.name == "Before" })
+    }
+
     @Test func theWatcherSeesNewScripts() async throws {
         defer { try? FileManager.default.removeItem(at: folder) }
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
