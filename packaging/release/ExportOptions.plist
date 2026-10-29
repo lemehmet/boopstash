@@ -2,7 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!-- Developer ID export for the Homebrew release (ADR 0004). The team is
      injected by the release workflow; signing is manual with the identity it
-     imported. -->
+     imported, and the app's
+     Developer ID profile (iCloud, ADR 0008) is named by it too. -->
 <plist version="1.0">
 <dict>
 	<key>method</key>
@@ -11,6 +12,11 @@
 	<string>manual</string>
 	<key>signingCertificate</key>
 	<string>Developer ID Application</string>
+	<key>provisioningProfiles</key>
+	<dict>
+		<key>com.lemehmet.boopstash</key>
+		<string>__PROFILE__</string>
+	</dict>
 	<key>teamID</key>
 	<string>__TEAM_ID__</string>
 </dict>
