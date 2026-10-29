@@ -151,6 +151,17 @@ jobs:
           if actual != expected:
               sys.exit(f"::error::entitlements are {actual}, expected {expected}")
           PY
+          # The script service (ADR 0007) may have the sandbox and nothing else.
+          service="$app/Contents/XPCServices/BoopStashScripts.xpc"
+          [ -d "$service" ] || { echo "::error::the script service is missing"; exit 1; }
+          codesign -d --entitlements - --xml "$service" 2>/dev/null | plutil -convert json -o - - > "$RUNNER_TEMP/service-entitlements.json"
+          python3 - "$RUNNER_TEMP/service-entitlements.json" <<'PY'
+          import json, sys
+          actual = json.load(open(sys.argv[1]))
+          expected = {"com.apple.security.app-sandbox": True}
+          if actual != expected:
+              sys.exit(f"::error::script service entitlements are {actual}, expected {expected}")
+          PY
 
       - name: Notarize and staple
         env:

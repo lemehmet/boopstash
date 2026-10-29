@@ -52,6 +52,14 @@ struct BoopstashApp: App {
                 // chain, so it follows the editor's focus explicitly (#25).
                 .disabled(!(delegate.model?.editorHasFocus ?? false))
             }
+            CommandMenu("Scripts") {
+                Button("Run Script…") { delegate.model?.showScriptPicker() }
+                    .keyboardShortcut("b")
+                    .disabled(!(delegate.model?.editorHasFocus ?? false))
+                Button("Run Last Script") { delegate.model?.runLastScript() }
+                    .keyboardShortcut("b", modifiers: [.command, .shift])
+                    .disabled(!(delegate.model?.editorHasFocus ?? false) || delegate.model?.lastScript == nil)
+            }
         }
 
         Settings {
@@ -136,6 +144,9 @@ struct MainWindow: View {
             guard let old else { return }
             model.flush(old)
             if let note = model.note(id: old) { model.requestModelTitle(for: note) }
+        }
+        .sheet(isPresented: $model.scriptPickerShown) {
+            ScriptPicker(model: model)
         }
         .safeAreaInset(edge: .bottom) {
             if let banner = model.banner {

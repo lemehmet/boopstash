@@ -22,6 +22,42 @@ final class AppModel {
     /// The key window's first responder; replaceable for tests.
     @ObservationIgnored var keyResponder: () -> NSResponder? = { NSApp.keyWindow?.firstResponder }
 
+    // MARK: Scripts
+
+    /// The scripts the picker offers (ADR 0005).
+    @ObservationIgnored lazy var scriptLibrary = ScriptLibrary.bundled()
+    @ObservationIgnored let scriptRunner = LiveScriptRunner()
+    /// Scripts ▸ Run Script… is showing its picker.
+    var scriptPickerShown = false
+    /// The editor the picker will run its choice in: the one that had focus
+    /// when the picker opened, since the sheet takes focus while it shows.
+    @ObservationIgnored weak var scriptTarget: BoopTextView?
+    private(set) var lastScript: BoopScript?
+
+    func showScriptPicker() {
+        guard let editor = keyResponder() as? BoopTextView else {
+            NSSound.beep()
+            return
+        }
+        scriptTarget = editor
+        scriptPickerShown = true
+    }
+
+    func run(_ script: BoopScript) {
+        lastScript = script
+        guard let editor = scriptTarget else { return }
+        Task { await editor.run(script, with: scriptRunner) }
+    }
+
+    func runLastScript() {
+        guard let script = lastScript, let editor = keyResponder() as? BoopTextView else {
+            NSSound.beep()
+            return
+        }
+        scriptTarget = editor
+        run(script)
+    }
+
     func refreshEditorFocus() {
         editorHasFocus = keyResponder() is BoopTextView
     }
