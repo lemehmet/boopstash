@@ -103,3 +103,13 @@ public enum ScriptSearch {
         return 0.3
     }
 }
+
+/// The scripts on offer: Boop's bundled set and the user's own (#59).
+public enum ScriptCatalog {
+    /// A user script with the same name as a bundled one replaces it, so a
+    /// tweaked copy of a Boop script is the one that runs.
+    public static func merge(bundled: [BoopScript], user: [BoopScript]) -> [BoopScript] {
+        let mine = Set(user.map(\.name))
+        return bundled.filter { !mine.contains($0.name) } + user
+    }
+}
