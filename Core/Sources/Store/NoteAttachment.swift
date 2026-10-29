@@ -1,5 +1,6 @@
 import Foundation
 import GRDB
+import Markdown
 import UniformTypeIdentifiers
 
 /// An image (or other file) a note shows. Its bytes live in a file beside
@@ -86,7 +87,33 @@ public enum AttachmentReference {
     /// shows is not.
     public static func ids(in body: String) -> Set<UUID> {
         let ns = body as NSString
-        return Set(idRanges(in: body).compactMap { UUID(uuidString: ns.substring(with: $0)) })
+        let matched = Set(idRanges(in: body).compactMap { UUID(uuidString: ns.substring(with: $0)) })
+        return matched.union(parsedIDs(in: body))
+    }
+
+    /// The attachments the Markdown parser resolves, as the preview does:
+    /// whatever the form (a definition inside a quote, CRLF, anything
+    /// CommonMark allows), an image the preview shows is one clean-up keeps
+    /// (#113). Only bodies that mention the scheme are parsed.
+    static func parsedIDs(in body: String) -> Set<UUID> {
+        guard body.range(of: scheme, options: .caseInsensitive) != nil else { return [] }
+        var collector = ImageSources()
+        collector.visit(Document(parsing: body))
+        return Set(collector.sources.compactMap(id(fromSource:)))
+    }
+
+    static func id(fromSource source: String) -> UUID? {
+        guard source.lowercased().hasPrefix(scheme) else { return nil }
+        return UUID(uuidString: String(source.dropFirst(scheme.count)))
+    }
+
+    /// Whether the body has anything to read besides its images, judged by
+    /// the parser so reference-style images count as images, not text
+    /// (#114).
+    public static func hasText(besidesImages body: String) -> Bool {
+        var collector = ImageSources()
+        collector.visit(Document(parsing: body))
+        return collector.hasText
     }
 
     /// Each reference with where it is (UTF-16, as the editor counts), its
@@ -95,10 +122,14 @@ public enum AttachmentReference {
         let ns = body as NSString
         return pattern.matches(in: body, range: NSRange(location: 0, length: ns.length)).compactMap { match in
             guard let id = UUID(uuidString: ns.substring(with: match.range(at: 2))) else { return nil }
-            let alt = ns.substring(with: match.range(at: 1)).replacingOccurrences(of: #"\\(.)"#, with: "$1", options: .regularExpression)
+            // Escapes can cover a line break too (#115).
+            let escaped = ns.substring(with: match.range(at: 1))
+            let alt = Self.unescape.stringByReplacingMatches(in: escaped, range: NSRange(location: 0, length: (escaped as NSString).length), withTemplate: "$1")
             return (match.range, id, alt)
         }
     }
+
+    static let unescape = try! NSRegularExpression(pattern: #"\\(.)"#, options: [.dotMatchesLineSeparators])
 
     /// The body without its image references: its text alone, for deciding
     /// whether there is anything to read beyond the images.
@@ -122,4 +153,25 @@ public enum AttachmentReference {
         }
         return result + ns.substring(from: last)
     }
+}
+
+/// Walks parsed markdown for image sources, and notes whether there is any
+/// text outside images.
+struct ImageSources: MarkupWalker {
+    var sources: [String] = []
+    var hasText = false
+
+    mutating func visitImage(_ image: Markdown.Image) {
+        if let source = image.source { sources.append(source) }
+        // Alt text is the image's, not the note's.
+    }
+
+    mutating func visitText(_ text: Markdown.Text) {
+        if !text.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { hasText = true }
+    }
+
+    mutating func visitInlineCode(_ code: InlineCode) { if !code.code.isEmpty { hasText = true } }
+    mutating func visitCodeBlock(_ code: CodeBlock) { if !code.code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { hasText = true } }
+    mutating func visitHTMLBlock(_ html: HTMLBlock) { hasText = true }
+    mutating func visitInlineHTML(_ html: InlineHTML) { hasText = true }
 }

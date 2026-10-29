@@ -98,6 +98,33 @@ import Testing
         #expect(try store.attachment(id: image.id) != nil)
     }
 
+    /// Forms only the parser sees: a definition inside a quote, CRLF line
+    /// endings (#113).
+    @Test(arguments: ["> ![plot][img]\n>\n> [img]: attachment:%@", "![plot][img]\r\n\r\n[img]:\r\n attachment:%@"])
+    func parsedFormsAreReferences(_ form: String) throws {
+        let owner = try note("")
+        let image = try store.addAttachment(png, contentType: "public.png", noteID: owner.id)
+        let body = String(format: form, image.id.uuidString)
+        #expect(AttachmentReference.ids(in: body) == [image.id], "\(body.debugDescription)")
+        _ = try note(body)
+        try store.delete(id: owner.id)
+        #expect(try store.attachment(id: image.id) != nil)
+    }
+
+    /// Reference-style images are images, not text (#114).
+    @Test func imagesAreNotText() {
+        let id = UUID().uuidString
+        #expect(!AttachmentReference.hasText(besidesImages: "![plot][img]\n\n[img]: attachment:\(id)"))
+        #expect(!AttachmentReference.hasText(besidesImages: "![x](attachment:\(id))\n"))
+        #expect(AttachmentReference.hasText(besidesImages: "![x](attachment:\(id))\nmeeting notes"))
+    }
+
+    /// An escaped line break in alt text is unescaped in the label (#115).
+    @Test func altLineBreaksAreUnescaped() {
+        let id = UUID()
+        #expect(AttachmentReference.matches(in: "![a\\\nb](attachment:\(id.uuidString))").first?.alt == "a\nb")
+    }
+
     @Test func exportRewritesDefinitionsToo() {
         let id = UUID()
         let body = "![x][a]\n\n[a]: attachment:\(id.uuidString)"
