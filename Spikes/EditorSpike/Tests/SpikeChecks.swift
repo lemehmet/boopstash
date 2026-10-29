@@ -314,4 +314,40 @@ struct SpikeChecks {
         #expect(Self.fragmentCount(view) == json.split(separator: "\n", omittingEmptySubsequences: false).count - 1)
         host.close()
     }
+    /// Highlight ranges index the NSString (UTF-16) the text view paints,
+    /// not UTF-8 bytes: every string highlight must cover exactly a quoted
+    /// string, including after accented and astral-plane characters.
+    @Test func highlightRangesAreUTF16() throws {
+        let json = #"{"café": "naïve 🙂", "after": "plain", "n": 1}"#
+        let highlights = try JSONGrammar.highlights(in: json, query: JSONGrammar.highlightsQuery())
+        let ns = json as NSString
+        let strings = highlights.filter { $0.name.hasPrefix("string") }.map { ns.substring(with: $0.range) }
+        #expect(strings.contains(#""naïve 🙂""#), "got \(strings)")
+        #expect(strings.contains(#""plain""#), "got \(strings)")
+        #expect(highlights.allSatisfy { NSMaxRange($0.range) <= ns.length })
+    }
+
+    @Test func editingClearsFolds() {
+        let host = Self.spike(Samples.markdown)
+        let view = host.view as! SpikeTextView
+        let heading = (view.string as NSString).range(of: "## Folding")
+        view.setSelectedRange(NSRange(location: NSMaxRange(heading), length: 0))
+        view.toggleFoldAtCaret()
+        #expect(!view.folds.folded.isEmpty)
+        view.setSelectedRange(NSRange(location: 0, length: 0))
+        view.insertText("inserted above\n", replacementRange: view.selectedRange())
+        #expect(view.folds.folded.isEmpty, "a fold's offsets are stale after an edit above it")
+        // Inserting an image chip is an edit too.
+        view.setSelectedRange(NSRange(location: NSMaxRange((view.string as NSString).range(of: "## Folding")), length: 0))
+        view.toggleFoldAtCaret()
+        #expect(!view.folds.folded.isEmpty)
+        let before = view.string.utf16.count
+        view.setSelectedRange(NSRange(location: 0, length: 0))
+        view.insertChip()
+        #expect(view.string.utf16.count == before + 1, "the chip is one attachment character")
+        #expect(view.textStorage?.attribute(.attachment, at: 0, effectiveRange: nil) is NSTextAttachment,
+                "the character carries its attachment, not a bare U+FFFC")
+        #expect(view.folds.folded.isEmpty, "a chip inserted above a fold clears it")
+        host.close()
+    }
 }

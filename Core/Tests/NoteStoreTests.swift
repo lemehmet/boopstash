@@ -89,9 +89,12 @@ import Testing
         #expect(Set(try titles(NoteQuery(text: "postgres"))) == ["database notes", "postgres tuning"])
     }
 
+    /// Neither the title nor the body contains the term, so only the
+    /// source-app column can match (#12).
     @Test func sourceAppIsSearchableEverywhereOnly() throws {
-        try add("some output", title: "from terminal", app: "Terminal")
-        #expect(try titles(NoteQuery(text: "termin")) == ["from terminal"])
+        try add("some output", title: "build log", app: "Terminal")
+        #expect(try titles(NoteQuery(text: "termin")) == ["build log"])
+        #expect(try titles(NoteQuery(text: "termin", scope: .title)).isEmpty)
         #expect(try titles(NoteQuery(text: "termin", scope: .content)).isEmpty)
     }
 

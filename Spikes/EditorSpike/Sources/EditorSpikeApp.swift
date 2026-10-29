@@ -127,7 +127,7 @@ struct SpikeEditor: NSViewRepresentable {
 
         private func insertChip() {
             guard let view else { return }
-            view.textStorage?.insert(Attachments.chip(), at: view.selectedRange().location)
+            view.insertChip()
             report("chip inserted")
         }
 

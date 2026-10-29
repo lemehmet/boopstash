@@ -162,6 +162,10 @@ final class AppModel {
         let background = origin == .hotKey || origin == .service
         guard insert(note) else {
             if background { NSSound.beep() }
+            // With another app in front the banner is out of sight; the
+            // shortcut was the user's own action, so show why (#19). A
+            // service reports through its error instead.
+            if origin == .hotKey { NSApp.activate() }
             return banner
         }
         if !note.titleIsUserSet { requestModelTitle(for: note) }
