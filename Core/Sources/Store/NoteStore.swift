@@ -212,6 +212,17 @@ public final class NoteStore: Sendable {
         return attachment
     }
 
+    /// Removes an attachment and its file, for one whose note was never
+    /// saved.
+    public func deleteAttachment(id: UUID) throws {
+        let removed = try writer.write { db -> NoteAttachment? in
+            let attachment = try NoteAttachment.fetchOne(db, key: id)
+            _ = try NoteAttachment.deleteOne(db, key: id)
+            return attachment
+        }
+        if let removed { removeFiles(of: [removed]) }
+    }
+
     public func attachment(id: UUID) throws -> NoteAttachment? {
         try writer.read { db in try NoteAttachment.fetchOne(db, key: id) }
     }
