@@ -13,17 +13,30 @@ mkdir -p "$mac" "$ios"
 
 xcodebuild build -workspace Boopstash.xcworkspace -scheme Boopstash -destination 'platform=macOS' -derivedDataPath "$dd" -quiet
 app="$dd/Build/Products/Debug/BoopStash.app"
-shoot_mac() { # note index, preview YES/NO, file
+# The default font and themes, for this run only: the debug build shares
+# the installed app's preferences, which the shots must not show.
+defaults_args=(-editorFontFamily "" -editorFontSize 13 -editorLightTheme system -editorDarkTheme system)
+shoot_mac() { # note index, preview YES/NO, file, Settings tab or ""
   osascript -e 'tell application id "com.lemehmet.boopstash" to quit' 2>/dev/null || true
   sleep 2
-  open -n "$app" --args -BoopStashDemo YES -BoopStashDemoNote "$1" -previewShown "$2" -previewSideBySide YES
-  sleep 6
-  id="$(swift "$here/window-id.swift" | awk '$2==1440 && $3==900 {print $1; exit}')"
-  screencapture -o -x -l "$id" "$mac/$3"
+  local settings=()
+  [ -n "${4:-}" ] && settings=(-BoopStashDemoSettings YES -settingsTab "$4")
+  open -n "$app" --args -BoopStashDemo YES -BoopStashDemoNote "$1" -previewShown "$2" -previewSideBySide YES \
+    "${defaults_args[@]}" ${settings[@]+"${settings[@]}"}
+  sleep 9
+  read -r id _ _ x y < <(swift "$here/window-id.swift" | awk '$2==1440 && $3==900 {print; exit}')
+  if [ -n "${4:-}" ]; then
+    # The window's area with Settings open over it.
+    screencapture -x -R "$x,$y,1440,900" "$mac/$3"
+  else
+    screencapture -o -x -l "$id" "$mac/$3"
+  fi
 }
 shoot_mac 2 YES 1-preview.png
 shoot_mac 0 NO 2-json.png
 shoot_mac 4 NO 3-code.png
+shoot_mac 0 NO 4-settings-icloud.png general
+shoot_mac 0 NO 5-settings-editor.png editor
 osascript -e 'tell application id "com.lemehmet.boopstash" to quit' 2>/dev/null || true
 
 shoot_ios() { # device name, file, extra launch arguments
@@ -45,6 +58,7 @@ shoot_ios() { # device name, file, extra launch arguments
 }
 shoot_ios "iPhone 17 Pro Max" 1-iphone-list.png
 shoot_ios "iPhone 17 Pro Max" 2-iphone-note.png -BoopStashDemoNote 0
-shoot_ios "iPad Pro 13-inch (M5)" 3-ipad.png -BoopStashDemoNote 4
+shoot_ios "iPhone 17 Pro Max" 3-iphone-settings.png -BoopStashDemoSettings YES
+shoot_ios "iPad Pro 13-inch (M5)" 4-ipad.png -BoopStashDemoNote 4
 
 swift "$here/flatten.swift" "$mac"/*.png "$ios"/*.png

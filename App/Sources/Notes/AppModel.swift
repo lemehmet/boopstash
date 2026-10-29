@@ -30,7 +30,7 @@ final class AppModel {
     /// What Settings shows about sync while it is on.
     private(set) var syncAccountProblem: String?
     private(set) var syncProblem: String?
-    private(set) var lastSynced: Date?
+    var lastSynced: Date?
     @ObservationIgnored private var syncEngine: LiveSyncEngine?
     /// The engine, made only when sync is on; replaceable for tests.
     @ObservationIgnored var makeSyncEngine: (NoteStore, @escaping @Sendable (LiveSyncEngine.Event) -> Void,
@@ -53,6 +53,11 @@ final class AppModel {
     }
 
     var isSyncing: Bool { syncEngine != nil }
+    /// Screenshots' demo mode (debug builds) shows sync on, without an engine.
+    @ObservationIgnored var demoSync = false
+    /// Whether Settings offers sync, and shows it running.
+    var canSync: Bool { LiveSyncEngine.isAvailable || demoSync }
+    var showsSyncing: Bool { isSyncing || demoSync }
 
     /// Starts or stops sync. Starting is the first contact with CloudKit
     /// (ADR 0008); stopping keeps everything here and the engine's place.
@@ -247,6 +252,12 @@ final class AppModel {
         }
         if UserDefaults.standard.bool(forKey: "BoopStashDemo") {
             let model = AppModel(store: try DemoNotes.store())
+            // Bundled scripts only: the user's folder and its file names stay
+            // out of the shots.
+            model.scriptsFolder = nil
+            model.reloadScripts()
+            model.demoSync = true
+            model.lastSynced = Date().addingTimeInterval(-120)
             let index = UserDefaults.standard.integer(forKey: "BoopStashDemoNote")
             model.selection = try model.store.notes(matching: NoteQuery()).dropFirst(index).first?.id
             return model

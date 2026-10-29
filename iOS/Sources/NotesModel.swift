@@ -51,12 +51,17 @@ final class NotesModel {
     static let syncKey = "syncWithICloud"
     private(set) var syncAccountProblem: String?
     private(set) var syncProblem: String?
-    private(set) var lastSynced: Date?
+    var lastSynced: Date?
     /// Counts changes from iCloud per note, so an open editor reloads.
     private(set) var remoteRevisions: [UUID: Int] = [:]
     @ObservationIgnored private var syncEngine: LiveSyncEngine?
 
     var isSyncing: Bool { syncEngine != nil }
+    /// Screenshots' demo mode (debug builds) shows sync on, without an engine.
+    @ObservationIgnored var demoSync = false
+    /// Whether Settings offers sync, and shows it running.
+    var canSync: Bool { LiveSyncEngine.isAvailable || demoSync }
+    var showsSyncing: Bool { isSyncing || demoSync }
 
     /// Starts or stops sync. Starting is the first contact with CloudKit;
     /// stopping keeps everything here and the engine's place.
@@ -122,6 +127,8 @@ final class NotesModel {
         // sync are never touched.
         if UserDefaults.standard.bool(forKey: "BoopStashDemo") {
             let model = NotesModel(store: try DemoNotes.store())
+            model.demoSync = true
+            model.lastSynced = Date().addingTimeInterval(-120)
             let index = UserDefaults.standard.integer(forKey: "BoopStashDemoNote")
             model.initialSelection = UserDefaults.standard.object(forKey: "BoopStashDemoNote") == nil
                 ? nil : try model.store.notes(matching: NoteQuery()).dropFirst(index).first?.id
