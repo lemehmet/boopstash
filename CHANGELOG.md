@@ -6,6 +6,8 @@ breaking changes may land in a minor release.
 
 ## Unreleased
 
+- Boopstash has its own icon.
+
 - Settings ▸ Editor: the editor's font and size, and a theme for light and
   dark appearance from Solarized, GitHub, One, Gruvbox, Dracula and Nord, or
   the system's colours. A theme sets the background, text, selection and
