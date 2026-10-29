@@ -31,7 +31,7 @@ struct ScriptPicker: View {
             ScrollViewReader { proxy in
                 List(results, selection: $highlighted) { script in
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(script.name)
+                        Text(script.isBundled ? script.name : "\(script.name) (yours)")
                         if !script.description.isEmpty {
                             Text(script.description).font(.caption).foregroundStyle(.secondary)
                         }
@@ -86,7 +86,10 @@ struct ScriptCommands: Commands {
     var body: some Commands {
         CommandMenu("Scripts") {
             Button("Run Script…") {
-                if let editor = model?.keyEditor() { picker?.wrappedValue = PickerTarget(editor: editor) }
+                if let model, let editor = model.keyEditor() {
+                    model.reloadScripts()
+                    picker?.wrappedValue = PickerTarget(editor: editor)
+                }
             }
             .keyboardShortcut("b")
             .disabled(!(model?.editorHasFocus ?? false) || picker == nil)
