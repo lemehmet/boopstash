@@ -24,8 +24,9 @@ struct BoopStashMobileApp: App {
             if let model {
                 NotesView(model: model)
                     .onChange(of: phase) { _, phase in
-                        // Leaving the foreground may be the last chance to save.
-                        if phase != .active { model.drafts.flushAll() }
+                        // Leaving the foreground may be the last chance to save;
+                        // coming back may be on another day.
+                        if phase == .active { model.refresh() } else { model.drafts.flushAll() }
                     }
             } else {
                 ContentUnavailableView("BoopStash could not open its notes", systemImage: "exclamationmark.triangle",

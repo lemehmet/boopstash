@@ -15,11 +15,27 @@ final class NotesModel {
     private(set) var notes: [Note] = []
     var banner: String?
     @ObservationIgnored private var observation: Task<Void, Never>?
+    @ObservationIgnored private var dayObserver: NSObjectProtocol?
 
     init(store: NoteStore) {
         self.store = store
         drafts = NoteDrafts(store: store)
         drafts.onError = { [weak self] in self?.banner = $0 }
+        observe()
+        // "Today" is re-evaluated on every fetch, but nothing fetches when
+        // nothing changes: start over when the day does, as on the Mac.
+        dayObserver = NotificationCenter.default.addObserver(forName: .NSCalendarDayChanged, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refresh() }
+        }
+    }
+
+    isolated deinit {
+        if let dayObserver { NotificationCenter.default.removeObserver(dayObserver) }
+    }
+
+    /// Re-reads the list, for a new day or a return to the foreground
+    /// (the day may have changed while the app was suspended).
+    func refresh() {
         observe()
     }
 
@@ -76,8 +92,15 @@ final class NotesModel {
         return newNote(body: text)
     }
 
+    /// The draft goes only once the row is gone, so a failed delete leaves
+    /// the note exactly as it was, unsaved edits included.
     func delete(_ id: UUID) {
+        do {
+            try store.delete(id: id)
+        } catch {
+            banner = "Could not delete: \(error.localizedDescription)"
+            return
+        }
         drafts.discard(id)
-        do { try store.delete(id: id) } catch { banner = "Could not delete: \(error.localizedDescription)" }
     }
 }

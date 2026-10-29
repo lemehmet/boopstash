@@ -83,11 +83,19 @@ struct NoteEditorView: View {
                 .font(.title3.weight(.semibold))
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
-                .onSubmit { model.drafts.rename(note.id, to: title) }
+                // Saved as it changes, like the body, so leaving the field
+                // any way at all keeps it.
+                .onChange(of: title) { _, title in
+                    // Only a real change: filling the field on appear is not a rename.
+                    let current = model.drafts.note(id: note.id) ?? note
+                    let changed = title.isEmpty ? current.titleIsUserSet : title != current.title || !current.titleIsUserSet
+                    if changed { model.drafts.rename(note.id, to: title) }
+                }
             Divider()
             PlainTextEditor(text: note.body, choice: note.syntaxChoice) { model.drafts.edit(note.id, body: $0) }
         }
         .onAppear { title = note.titleIsUserSet ? note.title : "" }
+        .onDisappear { model.drafts.flush(note.id) }
         .navigationBarTitleDisplayMode(.inline)
     }
 }
