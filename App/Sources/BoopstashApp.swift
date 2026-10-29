@@ -76,6 +76,16 @@ struct BoopstashApp: App {
                     NSApp.sendAction(#selector(BoopTextView.formatJSONSortingKeys(_:)), to: nil, from: nil)
                 }
                 .disabled(!(delegate.model?.canSortJSONKeys ?? false))
+                Divider()
+                // Folding (#155); shortcuts from the key-binding preset
+                // (⌥⌘[ and ⌥⌘] in VS Code, ⌘- and ⌘= in JetBrains).
+                Menu("Folding") {
+                    Button("Fold") { NSApp.sendAction(#selector(BoopTextView.fold(_:)), to: nil, from: nil) }
+                    Button("Unfold") { NSApp.sendAction(#selector(BoopTextView.unfold(_:)), to: nil, from: nil) }
+                    Button("Fold All") { NSApp.sendAction(#selector(BoopTextView.foldAll(_:)), to: nil, from: nil) }
+                    Button("Unfold All") { NSApp.sendAction(#selector(BoopTextView.unfoldAll(_:)), to: nil, from: nil) }
+                }
+                .disabled(!(delegate.model?.editorHasFocus ?? false))
             }
         }
 

@@ -97,8 +97,10 @@ is in review, work lands on `main` and waits.
   view-only, with a gutter and commands (#155).
 - A bundled, sandboxed `boopstash` command: capture from stdin, search, list
   and show, sharing the store through an App Group (#156, ADR 0009).
-- On-device semantic search with NaturalLanguage sentence embeddings,
-  alongside full-text search, never synced (#157).
+- On-device semantic search with a bundled sentence-embedding model
+  (all-MiniLM-L6-v2 in Core ML; Apple's NaturalLanguage embeddings could
+  not tell related notes from unrelated ones), alongside full-text search,
+  never synced (#157).
 - More formatters built as WebAssembly in the script service, for
   languages Prettier lacks (#158, ADR 0010).
 
