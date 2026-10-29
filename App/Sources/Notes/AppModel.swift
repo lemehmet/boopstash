@@ -56,8 +56,12 @@ final class AppModel {
 
     /// Starts or stops sync. Starting is the first contact with CloudKit
     /// (ADR 0008); stopping keeps everything here and the engine's place.
+    /// False for a run that must leave the user's setting alone (the schema
+    /// seed): starting, stopping and an automatic stop all stay in memory.
+    @ObservationIgnored var remembersSyncSetting = true
+
     func setSyncEnabled(_ enabled: Bool) {
-        UserDefaults.standard.set(enabled, forKey: Self.syncKey)
+        if remembersSyncSetting { UserDefaults.standard.set(enabled, forKey: Self.syncKey) }
         guard enabled, LiveSyncEngine.isAvailable else {
             syncEngine?.stop()
             syncEngine = nil
@@ -231,6 +235,16 @@ final class AppModel {
         #if DEBUG
         // Screenshots (#69): made-up notes in memory; the real store, sync
         // and the Scripts folder are never touched.
+        // The CloudKit schema (CONTRIBUTING ▸ iCloud schema): a note with every
+        // field, synced from memory to a development build's Development
+        // environment; the real store is never opened.
+        if UserDefaults.standard.bool(forKey: "BoopStashSeedSchema") {
+            let model = AppModel(store: try DemoNotes.schemaSeedStore())
+            // For this run only: the user's own setting stays as it was.
+            model.remembersSyncSetting = false
+            model.setSyncEnabled(true)
+            return model
+        }
         if UserDefaults.standard.bool(forKey: "BoopStashDemo") {
             let model = AppModel(store: try DemoNotes.store())
             let index = UserDefaults.standard.integer(forKey: "BoopStashDemoNote")

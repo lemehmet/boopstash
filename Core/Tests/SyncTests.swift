@@ -499,6 +499,19 @@ import Testing
         #expect(try store.prepareSync(environment: "Production") == false)
     }
 
+    /// The schema seed sets every field the mapping declares, so syncing
+    /// it creates the whole schema to deploy (#142). The mapping writes
+    /// only declared fields, so a field added there fails here until the
+    /// seed sets it.
+    @Test func theSchemaSeedCarriesEveryField() throws {
+        let seed = try DemoNotes.schemaSeedStore()
+        var seen: [SyncRecord.Kind: Set<String>] = [:]
+        for case .save(let record, _, _) in try seed.pendingSyncChanges() {
+            seen[record.kind, default: []].formUnion(record.encrypted.keys)
+        }
+        #expect(seen == SyncMapping.schemaFields)
+    }
+
     @Test func theEngineStateIsKept() throws {
         #expect(try store.syncEngineState() == nil)
         try store.setSyncEngineState(Data([1, 2]))
