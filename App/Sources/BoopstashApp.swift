@@ -88,6 +88,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let openError: String?
 
     override init() {
+        // As the test host the app shares the installed app's container;
+        // tests make their own stores, so the real one is left alone.
+        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil {
+            model = nil
+            openError = nil
+            super.init()
+            return
+        }
         do {
             model = try AppModel.live()
             openError = nil

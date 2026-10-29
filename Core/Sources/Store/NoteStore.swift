@@ -53,12 +53,10 @@ public final class NoteStore: Sendable {
     // MARK: Schema
 
     static var migrator: DatabaseMigrator {
+        // Never eraseDatabaseOnSchemaChange: debug builds and the app test
+        // host share the installed app's container, so it erased real notes
+        // whenever a branch's migrations differed from the store's.
         var migrator = DatabaseMigrator()
-        #if DEBUG
-        // A migration edited after it shipped would leave existing databases
-        // behind silently; in debug builds, rebuild instead so it shows.
-        migrator.eraseDatabaseOnSchemaChange = true
-        #endif
         migrator.registerMigration("v1") { db in
             try db.create(table: "note") { t in
                 t.primaryKey("id", .blob)
