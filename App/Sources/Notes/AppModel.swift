@@ -1,5 +1,6 @@
 import AppKit
 import BoopstashCore
+import UniformTypeIdentifiers
 import Observation
 
 @MainActor
@@ -21,6 +22,44 @@ final class AppModel {
     private(set) var editorHasFocus = false
     /// The key window's first responder; replaceable for tests.
     @ObservationIgnored var keyResponder: () -> NSResponder? = { NSApp.keyWindow?.firstResponder }
+
+    // MARK: Scripts
+
+    /// The scripts the picker offers (ADR 0005).
+    @ObservationIgnored lazy var scriptLibrary = ScriptLibrary.bundled()
+    @ObservationIgnored let scriptRunner = LiveScriptRunner()
+    /// The editor the picker will run its choice in: the one that had focus
+    /// when the picker opened, since the sheet takes focus while it shows.
+    /// Each window shows its own picker (its `scriptPickerShown` focused
+    /// value); only the key window's editor can be the target.
+    @ObservationIgnored weak var scriptTarget: BoopTextView?
+    private(set) var lastScript: BoopScript?
+
+    /// Points the picker at the key window's editor. False when there is
+    /// none, and the picker should not open.
+    func prepareScriptPicker() -> Bool {
+        guard let editor = keyResponder() as? BoopTextView else {
+            NSSound.beep()
+            return false
+        }
+        scriptTarget = editor
+        return true
+    }
+
+    func run(_ script: BoopScript) {
+        lastScript = script
+        guard let editor = scriptTarget else { return }
+        Task { await editor.run(script, with: scriptRunner) }
+    }
+
+    func runLastScript() {
+        guard let script = lastScript, let editor = keyResponder() as? BoopTextView else {
+            NSSound.beep()
+            return
+        }
+        scriptTarget = editor
+        run(script)
+    }
 
     /// The focused editor's language, for the commands that depend on it.
     /// SwiftUI commands are not validated through the responder chain, so
@@ -161,12 +200,15 @@ final class AppModel {
         case .text(let text):
             let source = sources.lastOtherApp
             return save(text, origin: origin, sourceBundleID: source?.bundleID, sourceAppName: source?.name)
+        case .image(let data, let type):
+            let source = sources.lastOtherApp
+            return saveImage(data, type: type, origin: origin, sourceBundleID: source?.bundleID, sourceAppName: source?.name)
         case .refused(.refuseConcealed):
             message = "Not saved: the clipboard holds a password manager item."
         case .refused:
             message = "Not saved: the app that copied this marked it as not to be kept."
         case .empty:
-            message = origin == .service ? "The selection has no text to save." : "The clipboard has no text to save."
+            message = origin == .service ? "The selection has no text to save." : "The clipboard has no text or image to save."
         }
         banner = message
         if origin == .hotKey {
@@ -202,6 +244,57 @@ final class AppModel {
         } else {
             note.title = RuleTitler.title(for: text, kind: ContentKind.detect(text))
         }
+        return finishCapture(note, origin: origin)
+    }
+
+    /// Stores an image as a new note holding it (#51), titled by `title`
+    /// (a file name) or "Image". Returns why it failed, or nil.
+    @discardableResult
+    func saveImage(_ data: Data, type: UTType, origin: CaptureOrigin, title: String? = nil, sourceBundleID: String? = nil, sourceAppName: String? = nil) -> String? {
+        if case .failure(let refusal) = ImageImport.check(data, type: type) {
+            banner = ImageImport.message(for: refusal, name: title)
+            if origin == .hotKey { NSSound.beep(); NSApp.activate() }
+            return banner
+        }
+        var note = Note(body: "", createdAt: Date(), sourceBundleID: sourceBundleID, sourceAppName: sourceAppName)
+        let attachment: NoteAttachment
+        do {
+            attachment = try store.addAttachment(data, contentType: type.identifier, noteID: note.id)
+            note.body = AttachmentReference.markdown(for: attachment.id) + "\n"
+        } catch {
+            banner = "Could not save the image: \(error.localizedDescription)"
+            if origin == .hotKey { NSSound.beep(); NSApp.activate() }
+            return banner
+        }
+        if let title {
+            note.title = title
+            note.titleIsUserSet = true
+        } else {
+            note.title = RuleTitler.title(for: note.body, kind: .plain)
+        }
+        let failure = finishCapture(note, origin: origin)
+        // No note to show it: the image goes too, not just at the next sweep.
+        if failure != nil { try? store.deleteAttachment(id: attachment.id) }
+        return failure
+    }
+
+    /// An image added to an open note (paste or drop into the editor):
+    /// stored as the note's attachment; returns the markdown to insert, or
+    /// nil with the reason in the banner.
+    func addImage(_ data: Data, type: UTType, to noteID: UUID) -> String? {
+        if case .failure(let refusal) = ImageImport.check(data, type: type) {
+            banner = ImageImport.message(for: refusal)
+            return nil
+        }
+        do {
+            return AttachmentReference.markdown(for: try store.addAttachment(data, contentType: type.identifier, noteID: noteID).id)
+        } catch {
+            banner = "Could not save the image: \(error.localizedDescription)"
+            return nil
+        }
+    }
+
+    private func finishCapture(_ note: Note, origin: CaptureOrigin) -> String? {
         // With another app in front the sound is the only feedback, so it
         // must not say "saved" when the write failed.
         let background = origin == .hotKey || origin == .service
@@ -218,11 +311,14 @@ final class AppModel {
         return nil
     }
 
+    /// Writes a new note; replaceable so tests can make it fail.
+    @ObservationIgnored lazy var writeNote: (Note) throws -> Void = { [store] in try store.save($0) }
+
     /// False when the note could not be saved; the banner says why.
     @discardableResult
     private func insert(_ note: Note) -> Bool {
         do {
-            try store.save(note)
+            try writeNote(note)
             // A filter that would hide the new note is cleared, so the
             // capture is visible where the user expects it: at the top.
             if !query.text.isEmpty || query.days != nil {
@@ -307,8 +403,10 @@ final class AppModel {
     /// already showing; this replaces it only if, when the answer arrives,
     /// the user has not named the note and its text is what was titled.
     func requestModelTitle(for note: Note) {
+        // Image references are not text: a note of only images has nothing
+        // for the model to read, whoever asks (capture or leaving the note).
         guard usesModelTitles, !note.titleIsUserSet,
-              !note.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !AttachmentReference.removingReferences(from: note.body).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               !note.hasCurrentModelTitle, !modelTitleRequests.contains(note.id)
         else { return }
         modelTitleRequests.insert(note.id)

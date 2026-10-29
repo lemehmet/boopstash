@@ -1,4 +1,5 @@
 import AppKit
+import UniformTypeIdentifiers
 import BoopstashCore
 
 /// The note editor: a TextKit 2 `NSTextView` with every automatic
@@ -164,6 +165,69 @@ final class BoopTextView: NSTextView {
         return super.validateUserInterfaceItem(item)
     }
 
+    // MARK: - Scripts
+
+    /// Runs a Boop script (ADR 0005) on each selected range, or on the whole
+    /// note, in the script service (ADR 0007). The result is one undoable
+    /// edit named after the script; what the script posts goes to the
+    /// banner. If the note changed while the script ran, the result is
+    /// dropped rather than written over the newer text.
+    func run(_ script: BoopScript, with runner: LiveScriptRunner) async {
+        let fullText = string
+        let selections = selectedRanges.map(\.rangeValue)
+        let request = ScriptRequest(scriptName: script.name, source: script.source,
+                                    states: ScriptEdits.states(fullText: fullText, selections: selections))
+        let response = await runner.run(request)
+        if !response.errors.isEmpty {
+            NSSound.beep()
+            showMessage?(response.errors.joined(separator: " "))
+        } else if let info = response.infos.last {
+            showMessage?(info)
+        }
+        guard !response.outputs.isEmpty else { return }
+        // The note was closed (another one selected) while the script ran.
+        guard window != nil else {
+            showMessage?("\(script.name) finished after its note was closed, so its result was not applied.")
+            return
+        }
+        guard string == fullText else {
+            showMessage?("\(script.name) finished after the note changed, so its result was not applied.")
+            return
+        }
+        guard let edits = ScriptEdits.replacements(fullText: fullText, selections: selections, response: response) else { return }
+        apply(edits, actionName: script.name)
+    }
+
+    /// Replaces each range with its text as one undoable edit, then selects
+    /// the replacements (or keeps the caret, for a whole-note edit).
+    func apply(_ edits: [(NSRange, String)], actionName: String) {
+        let ns = string as NSString
+        let edits = edits.sorted { $0.0.location < $1.0.location }
+        let changed = edits.filter { ns.substring(with: $0.0) != $0.1 }
+        guard !changed.isEmpty, let storage = textStorage else { return }
+        let caret = selectedRange().location
+        guard shouldChangeText(inRanges: changed.map { NSValue(range: $0.0) }, replacementStrings: changed.map(\.1)) else { return }
+        storage.beginEditing()
+        for (range, text) in changed.reversed() { storage.replaceCharacters(in: range, with: text) }
+        storage.endEditing()
+        didChangeText()
+        undoManager?.setActionName(actionName)
+        let wholeNote = changed.count == 1 && changed[0].0 == NSRange(location: 0, length: ns.length)
+        if wholeNote {
+            setSelectedRange(NSRange(location: min(caret, (string as NSString).length), length: 0))
+        } else {
+            // Every range stays selected, changed or not, shifted by the
+            // changes before it.
+            var delta = 0
+            let ranges = edits.map { range, text -> NSValue in
+                let length = (text as NSString).length
+                defer { delta += length - range.length }
+                return NSValue(range: NSRange(location: range.location + delta, length: length))
+            }
+            selectedRanges = ranges
+        }
+    }
+
     // MARK: - Formatting
 
     /// Edit ▸ Format Document (ADR 0005): the selection, or the whole note,
@@ -221,6 +285,9 @@ final class BoopTextView: NSTextView {
     /// private one, which never triggers macOS's paste-privacy prompt.
     func pastePlainText(from pasteboard: NSPasteboard) {
         guard !refusesSecret(on: pasteboard) else { return }
+        // No text but an image: stored with the note, referenced here (#51).
+        // An empty string, which some apps add beside an image, is no text.
+        if isEditable, pasteboard.string(forType: .string)?.isEmpty ?? true, insertImage(from: pasteboard) { return }
         guard isEditable, let text = pasteboard.string(forType: .string) else {
             NSSound.beep()
             // macOS's paste privacy can deny every read; say so instead of
@@ -233,10 +300,42 @@ final class BoopTextView: NSTextView {
         insertText(text, replacementRange: selectedRange())
     }
 
+    /// Stores an image's bytes for this note and returns the markdown that
+    /// shows it, or nil (the reason goes to the banner). Set by the host.
+    var storeImage: ((Data, UTType) -> String?)?
+
+    /// Inserts references for the images on `pasteboard`: image files (a
+    /// Finder drag) or image data. False when there were none.
+    func insertImage(from pasteboard: NSPasteboard) -> Bool {
+        guard let storeImage else { return false }
+        var references: [String] = []
+        let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+        for url in urls {
+            guard let type = UTType(filenameExtension: url.pathExtension), ImageImport.accepts(type),
+                  let data = DropCapture.readPrefix(of: url, limit: ImageImport.sizeLimit + 1)
+            else { continue }
+            if let reference = storeImage(data, type) { references.append(reference) }
+        }
+        if urls.isEmpty, let type = ImageImport.preferredType(among: pasteboard.types?.map(\.rawValue) ?? []),
+           let data = pasteboard.data(forType: NSPasteboard.PasteboardType(type.identifier)),
+           let reference = storeImage(data, type) {
+            references.append(reference)
+        }
+        guard !references.isEmpty else { return false }
+        insertText(references.joined(separator: "\n"), replacementRange: selectedRange())
+        return true
+    }
+
+    override var readablePasteboardTypes: [NSPasteboard.PasteboardType] {
+        super.readablePasteboardTypes + ImageImport.supported.map { NSPasteboard.PasteboardType($0.identifier) }
+    }
+
     /// Drags into the editor (and Services that insert) arrive here rather
     /// than through paste, so the same rule is applied before AppKit reads.
+    /// Images, as files or data, are stored with the note and referenced.
     override func readSelection(from pboard: NSPasteboard, type: NSPasteboard.PasteboardType) -> Bool {
         guard !refusesSecret(on: pboard) else { return false }
+        if pboard.string(forType: .string)?.isEmpty ?? true || type == .fileURL, insertImage(from: pboard) { return true }
         return super.readSelection(from: pboard, type: type)
     }
 
