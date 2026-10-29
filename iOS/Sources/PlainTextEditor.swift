@@ -157,9 +157,14 @@ struct PlainTextEditor: UIViewRepresentable {
             guard let target = textRange(visible, in: content) else { return }
             layout.removeRenderingAttribute(.foregroundColor, for: target)
             guard let engine else {
-                // Plain text: redraw only if colours were just cleared, not
-                // on every edit and scroll (as the Mac painter does).
-                if hasColours { Self.redisplay(view) }
+                // Plain text: colours painted earlier may lie anywhere, not
+                // just on screen, so the whole document is cleared on the
+                // way from code to plain text; then redraw only that once,
+                // not on every edit and scroll (as the Mac painter does).
+                if hasColours {
+                    layout.removeRenderingAttribute(.foregroundColor, for: content.documentRange)
+                    Self.redisplay(view)
+                }
                 hasColours = false
                 return
             }
