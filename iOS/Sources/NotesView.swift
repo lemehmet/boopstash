@@ -65,6 +65,7 @@ struct NotesView: View {
             if let old { model.drafts.flush(old) }
         }
         .sheet(isPresented: $settingsShown) { SettingsView(model: model) }
+        .onAppear { if selection == nil { selection = model.initialSelection } }
         .safeAreaInset(edge: .bottom) {
             if let banner = model.banner {
                 HStack {

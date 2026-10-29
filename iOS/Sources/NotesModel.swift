@@ -14,6 +14,8 @@ final class NotesModel {
     }
     private(set) var notes: [Note] = []
     var banner: String?
+    /// The note to open at launch (the screenshots' demo mode only).
+    @ObservationIgnored var initialSelection: UUID?
     @ObservationIgnored private var observation: Task<Void, Never>?
     @ObservationIgnored private var dayObserver: NSObjectProtocol?
 
@@ -114,7 +116,13 @@ final class NotesModel {
         #if DEBUG
         // Screenshots (#69): made-up notes in memory; the real store and
         // sync are never touched.
-        if UserDefaults.standard.bool(forKey: "BoopStashDemo") { return NotesModel(store: try DemoNotes.store()) }
+        if UserDefaults.standard.bool(forKey: "BoopStashDemo") {
+            let model = NotesModel(store: try DemoNotes.store())
+            let index = UserDefaults.standard.integer(forKey: "BoopStashDemoNote")
+            model.initialSelection = UserDefaults.standard.object(forKey: "BoopStashDemoNote") == nil
+                ? nil : try model.store.notes(matching: NoteQuery()).dropFirst(index).first?.id
+            return model
+        }
         #endif
         let support = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
         let own = support.appendingPathComponent("Boopstash", isDirectory: true)
