@@ -66,28 +66,39 @@ public enum SyncMapping {
     /// one type, so reading a record needs to know.
     public static let booleanFields: Set<String> = ["titleIsUserSet"]
 
-    /// Every encrypted field each record type can carry: the CloudKit
-    /// schema. Production accepts only fields deployed to it, so a field
-    /// added here must also be in `DemoNotes.schemaSeedStore()`, synced
-    /// from a development build, and deployed (CONTRIBUTING ▸ iCloud schema).
+    /// The one declaration of what each record type carries: every field
+    /// is written from here, and the schema is read from here, so a field
+    /// cannot be sent without being in the schema. Production accepts only
+    /// deployed fields: one added here must also be set in
+    /// `DemoNotes.schemaSeedStore()` (a test checks), synced from a
+    /// development build, and deployed (CONTRIBUTING ▸ iCloud schema).
+    static let noteFields: [(name: String, value: @Sendable (Note) -> SyncValue?)] = [
+        ("title", { .string($0.title) }),
+        ("titleIsUserSet", { .bool($0.titleIsUserSet) }),
+        ("body", { .string($0.body) }),
+        ("createdAt", { .date($0.createdAt) }),
+        ("updatedAt", { .date($0.updatedAt) }),
+        ("sourceBundleID", { $0.sourceBundleID.map(SyncValue.string) }),
+        ("sourceAppName", { $0.sourceAppName.map(SyncValue.string) }),
+        ("modelTitledHash", { $0.modelTitledHash.map(SyncValue.string) }),
+        ("syntaxOverride", { $0.syntaxOverride.map(SyncValue.string) }),
+    ]
+
+    static let attachmentFields: [(name: String, value: @Sendable (NoteAttachment) -> SyncValue?)] = [
+        ("contentType", { .string($0.contentType) }),
+        ("byteSize", { .int($0.byteSize) }),
+        ("createdAt", { .date($0.createdAt) }),
+        ("recognizedText", { $0.recognizedText.map(SyncValue.string) }),
+    ]
+
+    /// Every encrypted field each record type can carry: the CloudKit schema.
     public static let schemaFields: [SyncRecord.Kind: Set<String>] = [
-        .note: ["title", "titleIsUserSet", "body", "createdAt", "updatedAt", "sourceBundleID", "sourceAppName",
-                "modelTitledHash", "syntaxOverride"],
-        .attachment: ["contentType", "byteSize", "createdAt", "recognizedText"],
+        .note: Set(noteFields.map(\.name)),
+        .attachment: Set(attachmentFields.map(\.name)),
     ]
 
     public static func record(for note: Note) -> SyncRecord {
-        var fields: [String: SyncValue] = [
-            "title": .string(note.title),
-            "titleIsUserSet": .bool(note.titleIsUserSet),
-            "body": .string(note.body),
-            "createdAt": .date(note.createdAt),
-            "updatedAt": .date(note.updatedAt),
-        ]
-        if let value = note.sourceBundleID { fields["sourceBundleID"] = .string(value) }
-        if let value = note.sourceAppName { fields["sourceAppName"] = .string(value) }
-        if let value = note.modelTitledHash { fields["modelTitledHash"] = .string(value) }
-        if let value = note.syntaxOverride { fields["syntaxOverride"] = .string(value) }
+        let fields = Dictionary(uniqueKeysWithValues: noteFields.compactMap { field in field.value(note).map { (field.name, $0) } })
         return SyncRecord(kind: .note, name: note.id.uuidString.lowercased(), encrypted: fields)
     }
 
@@ -107,12 +118,7 @@ public enum SyncMapping {
     }
 
     public static func record(for attachment: NoteAttachment, file: URL) -> SyncRecord {
-        var fields: [String: SyncValue] = [
-            "contentType": .string(attachment.contentType),
-            "byteSize": .int(attachment.byteSize),
-            "createdAt": .date(attachment.createdAt),
-        ]
-        if let text = attachment.recognizedText { fields["recognizedText"] = .string(text) }
+        let fields = Dictionary(uniqueKeysWithValues: attachmentFields.compactMap { field in field.value(attachment).map { (field.name, $0) } })
         return SyncRecord(kind: .attachment, name: attachment.id.uuidString.lowercased(), encrypted: fields,
                           parent: attachment.noteID?.uuidString.lowercased(), assetFile: file)
     }

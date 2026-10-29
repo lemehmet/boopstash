@@ -499,9 +499,10 @@ import Testing
         #expect(try store.prepareSync(environment: "Production") == false)
     }
 
-    /// The schema seed carries every field the mapping can write, so
-    /// syncing it creates the whole schema to deploy (#142). A field added
-    /// to the mapping fails here until it is in the seed and the schema.
+    /// The schema seed sets every field the mapping declares, so syncing
+    /// it creates the whole schema to deploy (#142). The mapping writes
+    /// only declared fields, so a field added there fails here until the
+    /// seed sets it.
     @Test func theSchemaSeedCarriesEveryField() throws {
         let seed = try DemoNotes.schemaSeedStore()
         var seen: [SyncRecord.Kind: Set<String>] = [:]
@@ -509,14 +510,6 @@ import Testing
             seen[record.kind, default: []].formUnion(record.encrypted.keys)
         }
         #expect(seen == SyncMapping.schemaFields)
-        var full = Note(title: "t", titleIsUserSet: true, body: "b", createdAt: Date(), sourceBundleID: "x", sourceAppName: "y")
-        full.modelTitledHash = "h"
-        full.syntaxOverride = "json"
-        #expect(Set(SyncMapping.record(for: full).encrypted.keys).isSubset(of: SyncMapping.schemaFields[.note]!))
-        // Every optional field of an attachment set, too.
-        let image = NoteAttachment(noteID: UUID(), contentType: "public.png", byteSize: 1, recognizedText: "t")
-        #expect(Set(SyncMapping.record(for: image, file: URL(fileURLWithPath: "/unused")).encrypted.keys)
-            .isSubset(of: SyncMapping.schemaFields[.attachment]!))
     }
 
     @Test func theEngineStateIsKept() throws {
