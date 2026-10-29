@@ -52,8 +52,10 @@ public enum AttachmentReference {
     }
 
     /// `![…](attachment:<uuid>)`; the alt text may hold escaped brackets.
+    /// The scheme matches in any case, as the preview reads it, so a
+    /// reference the preview shows is never one clean-up overlooks.
     static let pattern = try! NSRegularExpression(
-        pattern: #"!\[(?:[^\]\\]|\\.)*\]\(attachment:([0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12})\)"#
+        pattern: #"!\[(?:[^\]\\]|\\.)*\]\((?i:attachment):([0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12})\)"#
     )
 
     /// Every attachment a body refers to. A reference inside a code span

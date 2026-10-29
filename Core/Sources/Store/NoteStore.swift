@@ -210,7 +210,7 @@ public final class NoteStore: Sendable {
     /// Every attachment ID any note body refers to. Only bodies that mention
     /// the scheme are read.
     static func referencedAttachmentIDs(_ db: Database) throws -> Set<UUID> {
-        let bodies = try String.fetchAll(db, sql: "SELECT body FROM note WHERE instr(body, ?) > 0", arguments: [AttachmentReference.scheme])
+        let bodies = try String.fetchAll(db, sql: "SELECT body FROM note WHERE instr(lower(body), ?) > 0", arguments: [AttachmentReference.scheme])
         return bodies.reduce(into: Set<UUID>()) { $0.formUnion(AttachmentReference.ids(in: $1)) }
     }
 
