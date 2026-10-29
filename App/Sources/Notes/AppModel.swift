@@ -170,6 +170,8 @@ final class AppModel {
     @ObservationIgnored private var recognition: Task<Void, Never>?
     /// A request that came while the worker was finishing: run again.
     @ObservationIgnored private var recognitionRequested = false
+    /// Called between the worker's last empty query and its end; for tests.
+    @ObservationIgnored var recognitionWillFinish: () -> Void = {}
 
     /// Reads the text of images not read yet, one at a time at low
     /// priority, so screenshots become searchable. Images from before this
@@ -200,6 +202,9 @@ final class AppModel {
                 }
             }.value
             guard let self else { return }
+            // The worker has found nothing left and is about to finish: the
+            // window the rerun flag covers. Tests add an image here.
+            self.recognitionWillFinish()
             self.recognition = nil
             // An image added after the worker's last look would otherwise
             // wait for the next change or launch.
