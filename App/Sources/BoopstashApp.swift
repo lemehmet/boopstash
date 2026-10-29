@@ -52,14 +52,7 @@ struct BoopstashApp: App {
                 // chain, so it follows the editor's focus explicitly (#25).
                 .disabled(!(delegate.model?.editorHasFocus ?? false))
             }
-            CommandMenu("Scripts") {
-                Button("Run Script…") { delegate.model?.showScriptPicker() }
-                    .keyboardShortcut("b")
-                    .disabled(!(delegate.model?.editorHasFocus ?? false))
-                Button("Run Last Script") { delegate.model?.runLastScript() }
-                    .keyboardShortcut("b", modifiers: [.command, .shift])
-                    .disabled(!(delegate.model?.editorHasFocus ?? false) || delegate.model?.lastScript == nil)
-            }
+            ScriptCommands(model: delegate.model)
         }
 
         Settings {
@@ -125,6 +118,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 struct MainWindow: View {
     @Bindable var model: AppModel
+    /// This window's script picker; every window has its own.
+    @State private var scriptPickerShown = false
     let keymap: Keymap
     let appearance: EditorAppearance
 
@@ -145,9 +140,10 @@ struct MainWindow: View {
             model.flush(old)
             if let note = model.note(id: old) { model.requestModelTitle(for: note) }
         }
-        .sheet(isPresented: $model.scriptPickerShown) {
+        .sheet(isPresented: $scriptPickerShown) {
             ScriptPicker(model: model)
         }
+        .focusedSceneValue(\.scriptPickerShown, $scriptPickerShown)
         .safeAreaInset(edge: .bottom) {
             if let banner = model.banner {
                 HStack {

@@ -178,6 +178,11 @@ final class BoopTextView: NSTextView {
             showMessage?(info)
         }
         guard !response.outputs.isEmpty else { return }
+        // The note was closed (another one selected) while the script ran.
+        guard window != nil else {
+            showMessage?("\(script.name) finished after its note was closed, so its result was not applied.")
+            return
+        }
         guard string == fullText else {
             showMessage?("\(script.name) finished after the note changed, so its result was not applied.")
             return

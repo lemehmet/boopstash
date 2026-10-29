@@ -128,10 +128,7 @@ import Testing
         let whole = try #require(ScriptEdits.replacements(fullText: text, selections: [NSRange(location: 2, length: 0)], response: ScriptResponse(outputs: ["X"])))
         #expect(whole.count == 1 && whole[0].0 == NSRange(location: 0, length: 7))
         #expect(ScriptEdits.replacements(fullText: text, selections: ranges, response: ScriptResponse(outputs: ["only one"])) == nil)
-        // One selected range whose script rewrote the whole note.
-        let rewritten = try #require(ScriptEdits.replacements(fullText: text, selections: [ranges[0]],
-                                                              response: ScriptResponse(outputs: ["one"], wholeNote: "ONE TWO")))
-        #expect(rewritten.count == 1 && rewritten[0].0 == NSRange(location: 0, length: 7) && rewritten[0].1 == "ONE TWO")
+
     }
 
     @Test func requestsAndResponsesRoundTripAsJSON() throws {

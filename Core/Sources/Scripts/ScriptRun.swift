@@ -11,10 +11,6 @@ public struct ScriptState: Codable, Hashable, Sendable {
     public var insertIndex: Int?
     /// How many UTF-16 units earlier `insert` calls added after the caret.
     var insertedUTF16 = 0
-    /// Whether the script assigned `fullText` while a range was selected.
-    /// Boop ignores that; with one selected range it is applied to the
-    /// whole note, since what the script meant is unambiguous.
-    public var fullTextAssigned = false
 
     public init(selection: String?, fullText: String, insertIndex: Int? = nil) {
         isSelection = selection != nil
@@ -71,18 +67,17 @@ public struct ScriptRequest: Codable, Sendable {
 }
 
 /// What came back: each state's final `text`, in order, and what the script
-/// posted. `outputs` is empty when the script could not run at all.
-/// `wholeNote` is set when a single selected range's script assigned
-/// `fullText`: the whole note's new text.
+/// posted. `outputs` is empty when the script could not run at all. With a
+/// selection, only the selection changes: Boop ignores `fullText` writes
+/// then, and so does this (scripts such as Collapse build from the
+/// selection but assign `fullText`, which would replace the whole note).
 public struct ScriptResponse: Codable, Sendable, Equatable {
     public var outputs: [String]
-    public var wholeNote: String?
     public var errors: [String]
     public var infos: [String]
 
-    public init(outputs: [String], wholeNote: String? = nil, errors: [String] = [], infos: [String] = []) {
+    public init(outputs: [String], errors: [String] = [], infos: [String] = []) {
         self.outputs = outputs
-        self.wholeNote = wholeNote
         self.errors = errors
         self.infos = infos
     }
@@ -111,7 +106,6 @@ public enum ScriptEdits {
             guard response.outputs.count == 1 else { return nil }
             return [(whole, response.outputs[0])]
         }
-        if ranges.count == 1, let wholeNote = response.wholeNote { return [(whole, wholeNote)] }
         guard response.outputs.count == ranges.count else { return nil }
         return Array(zip(ranges, response.outputs))
     }

@@ -96,15 +96,29 @@ struct ScriptServiceTests {
         #expect(failures.isEmpty, "\(failures.joined(separator: "\n"))")
     }
 
-    /// Boop ignores `fullText` writes on a selection; with one range they
-    /// apply to the whole note.
-    @Test func aFullTextWriteOnOneSelectionRewritesTheNote() async {
-        let response = await runner.run(ScriptRequest(scriptName: "Test", source: script("function main(state) { state.fullText = state.fullText.toUpperCase() }"),
-                                                      states: [ScriptState(selection: "b", fullText: "abc")]))
-        #expect(response.wholeNote == "ABC")
-        let many = await runner.run(ScriptRequest(scriptName: "Test", source: script("function main(state) { state.fullText = 'x' }"),
-                                                  states: [ScriptState(selection: "a", fullText: "ab"), ScriptState(selection: "b", fullText: "ab")]))
-        #expect(many.wholeNote == nil, "ambiguous with several ranges, as in Boop")
+    /// As in Boop, a `fullText` write on a selection changes nothing:
+    /// Collapse builds its result from the selection but assigns
+    /// `fullText`, and must not replace the whole note.
+    @Test func fullTextWritesOnASelectionAreIgnored() async {
+        let collapse = try! #require(ScriptLibrary.bundled().scripts.first { $0.name == "Collapse lines" })
+        let response = await runner.run(ScriptRequest(scriptName: collapse.name, source: collapse.source,
+                                                      states: [ScriptState(selection: "a\nb", fullText: "keep\na\nb\nend")]))
+        #expect(response.errors.isEmpty)
+        let edits = ScriptEdits.replacements(fullText: "keep\na\nb\nend", selections: [NSRange(location: 5, length: 3)], response: response)
+        #expect(edits?.count == 1 && edits?[0].0 == NSRange(location: 5, length: 3), "only the selection is replaced")
+    }
+
+    /// A result for a note that was closed meanwhile is not applied to the
+    /// editor that is gone.
+    @Test func aResultForAClosedNoteIsDropped() async {
+        let (_, view) = BoopTextView.makeScrollable()
+        view.string = "abc"
+        var message: String?
+        view.showMessage = { message = $0 }
+        let upper = try! BoopScript.parse(script("function main(state) { state.text = state.text.toUpperCase() }"), id: "t/u.js", bundled: false).get()
+        await view.run(upper, with: runner)
+        #expect(view.string == "abc")
+        #expect(message == "Test finished after its note was closed, so its result was not applied.")
     }
 
     @Test func unchangedSelectionsStaySelected() async {

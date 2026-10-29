@@ -27,20 +27,22 @@ final class AppModel {
     /// The scripts the picker offers (ADR 0005).
     @ObservationIgnored lazy var scriptLibrary = ScriptLibrary.bundled()
     @ObservationIgnored let scriptRunner = LiveScriptRunner()
-    /// Scripts ▸ Run Script… is showing its picker.
-    var scriptPickerShown = false
     /// The editor the picker will run its choice in: the one that had focus
     /// when the picker opened, since the sheet takes focus while it shows.
+    /// Each window shows its own picker (its `scriptPickerShown` focused
+    /// value); only the key window's editor can be the target.
     @ObservationIgnored weak var scriptTarget: BoopTextView?
     private(set) var lastScript: BoopScript?
 
-    func showScriptPicker() {
+    /// Points the picker at the key window's editor. False when there is
+    /// none, and the picker should not open.
+    func prepareScriptPicker() -> Bool {
         guard let editor = keyResponder() as? BoopTextView else {
             NSSound.beep()
-            return
+            return false
         }
         scriptTarget = editor
-        scriptPickerShown = true
+        return true
     }
 
     func run(_ script: BoopScript) {
