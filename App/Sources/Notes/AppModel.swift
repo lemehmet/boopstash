@@ -1,5 +1,6 @@
 import AppKit
 import BoopstashCore
+import UniformTypeIdentifiers
 import Observation
 
 @MainActor
@@ -151,12 +152,15 @@ final class AppModel {
         case .text(let text):
             let source = sources.lastOtherApp
             return save(text, origin: origin, sourceBundleID: source?.bundleID, sourceAppName: source?.name)
+        case .image(let data, let type):
+            let source = sources.lastOtherApp
+            return saveImage(data, type: type, origin: origin, sourceBundleID: source?.bundleID, sourceAppName: source?.name)
         case .refused(.refuseConcealed):
             message = "Not saved: the clipboard holds a password manager item."
         case .refused:
             message = "Not saved: the app that copied this marked it as not to be kept."
         case .empty:
-            message = origin == .service ? "The selection has no text to save." : "The clipboard has no text to save."
+            message = origin == .service ? "The selection has no text to save." : "The clipboard has no text or image to save."
         }
         banner = message
         if origin == .hotKey {
@@ -192,6 +196,53 @@ final class AppModel {
         } else {
             note.title = RuleTitler.title(for: text, kind: ContentKind.detect(text))
         }
+        return finishCapture(note, origin: origin)
+    }
+
+    /// Stores an image as a new note holding it (#51), titled by `title`
+    /// (a file name) or "Image". Returns why it failed, or nil.
+    @discardableResult
+    func saveImage(_ data: Data, type: UTType, origin: CaptureOrigin, title: String? = nil, sourceBundleID: String? = nil, sourceAppName: String? = nil) -> String? {
+        if case .failure(let refusal) = ImageImport.check(data, type: type) {
+            banner = ImageImport.message(for: refusal, name: title)
+            if origin == .hotKey { NSSound.beep(); NSApp.activate() }
+            return banner
+        }
+        var note = Note(body: "", createdAt: Date(), sourceBundleID: sourceBundleID, sourceAppName: sourceAppName)
+        do {
+            let attachment = try store.addAttachment(data, contentType: type.identifier, noteID: note.id)
+            note.body = AttachmentReference.markdown(for: attachment.id) + "\n"
+        } catch {
+            banner = "Could not save the image: \(error.localizedDescription)"
+            if origin == .hotKey { NSSound.beep(); NSApp.activate() }
+            return banner
+        }
+        if let title {
+            note.title = title
+            note.titleIsUserSet = true
+        } else {
+            note.title = RuleTitler.title(for: note.body, kind: .plain)
+        }
+        return finishCapture(note, origin: origin)
+    }
+
+    /// An image added to an open note (paste or drop into the editor):
+    /// stored as the note's attachment; returns the markdown to insert, or
+    /// nil with the reason in the banner.
+    func addImage(_ data: Data, type: UTType, to noteID: UUID) -> String? {
+        if case .failure(let refusal) = ImageImport.check(data, type: type) {
+            banner = ImageImport.message(for: refusal)
+            return nil
+        }
+        do {
+            return AttachmentReference.markdown(for: try store.addAttachment(data, contentType: type.identifier, noteID: noteID).id)
+        } catch {
+            banner = "Could not save the image: \(error.localizedDescription)"
+            return nil
+        }
+    }
+
+    private func finishCapture(_ note: Note, origin: CaptureOrigin) -> String? {
         // With another app in front the sound is the only feedback, so it
         // must not say "saved" when the write failed.
         let background = origin == .hotKey || origin == .service
@@ -203,7 +254,8 @@ final class AppModel {
             if origin == .hotKey { NSApp.activate() }
             return banner
         }
-        if !note.titleIsUserSet { requestModelTitle(for: note) }
+        // An image note has no text for the model to read.
+        if !note.titleIsUserSet, AttachmentReference.ids(in: note.body).isEmpty { requestModelTitle(for: note) }
         if background { NSSound(named: "Pop")?.play() }
         return nil
     }

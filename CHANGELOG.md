@@ -6,6 +6,12 @@ breaking changes may land in a minor release.
 
 ## Unreleased
 
+- Images: paste an image into a note (⌘V with an image on the clipboard),
+  drop one on the editor or the note list, or capture an image-only
+  clipboard with New Note from Clipboard, ⌃⌥⌘V or Services. Images are kept
+  with the note, up to 20 MB each, and a note holding only an image is
+  titled "Image" (or the file's name).
+
 ## v0.1.1 — 2026-10-28
 
 ### New

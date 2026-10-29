@@ -1,4 +1,5 @@
 import AppKit
+import UniformTypeIdentifiers
 import BoopstashCore
 
 /// The note editor: a TextKit 2 `NSTextView` with every automatic
@@ -176,6 +177,8 @@ final class BoopTextView: NSTextView {
     /// private one, which never triggers macOS's paste-privacy prompt.
     func pastePlainText(from pasteboard: NSPasteboard) {
         guard !refusesSecret(on: pasteboard) else { return }
+        // No text but an image: stored with the note, referenced here (#51).
+        if isEditable, pasteboard.string(forType: .string) == nil, insertImage(from: pasteboard) { return }
         guard isEditable, let text = pasteboard.string(forType: .string) else {
             NSSound.beep()
             // macOS's paste privacy can deny every read; say so instead of
@@ -188,10 +191,42 @@ final class BoopTextView: NSTextView {
         insertText(text, replacementRange: selectedRange())
     }
 
+    /// Stores an image's bytes for this note and returns the markdown that
+    /// shows it, or nil (the reason goes to the banner). Set by the host.
+    var storeImage: ((Data, UTType) -> String?)?
+
+    /// Inserts references for the images on `pasteboard`: image files (a
+    /// Finder drag) or image data. False when there were none.
+    func insertImage(from pasteboard: NSPasteboard) -> Bool {
+        guard let storeImage else { return false }
+        var references: [String] = []
+        let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+        for url in urls {
+            guard let type = UTType(filenameExtension: url.pathExtension), ImageImport.accepts(type),
+                  let data = DropCapture.readPrefix(of: url, limit: ImageImport.sizeLimit + 1)
+            else { continue }
+            if let reference = storeImage(data, type) { references.append(reference) }
+        }
+        if urls.isEmpty, let type = ImageImport.preferredType(among: pasteboard.types?.map(\.rawValue) ?? []),
+           let data = pasteboard.data(forType: NSPasteboard.PasteboardType(type.identifier)),
+           let reference = storeImage(data, type) {
+            references.append(reference)
+        }
+        guard !references.isEmpty else { return false }
+        insertText(references.joined(separator: "\n"), replacementRange: selectedRange())
+        return true
+    }
+
+    override var readablePasteboardTypes: [NSPasteboard.PasteboardType] {
+        super.readablePasteboardTypes + ImageImport.supported.map { NSPasteboard.PasteboardType($0.identifier) }
+    }
+
     /// Drags into the editor (and Services that insert) arrive here rather
     /// than through paste, so the same rule is applied before AppKit reads.
+    /// Images, as files or data, are stored with the note and referenced.
     override func readSelection(from pboard: NSPasteboard, type: NSPasteboard.PasteboardType) -> Bool {
         guard !refusesSecret(on: pboard) else { return false }
+        if pboard.string(forType: .string) == nil || type == .fileURL, insertImage(from: pboard) { return true }
         return super.readSelection(from: pboard, type: type)
     }
 
