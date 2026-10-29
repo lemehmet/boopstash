@@ -22,8 +22,18 @@ final class AppModel {
     /// The key window's first responder; replaceable for tests.
     @ObservationIgnored var keyResponder: () -> NSResponder? = { NSApp.keyWindow?.firstResponder }
 
+    /// The focused editor's language, for the commands that depend on it.
+    /// SwiftUI commands are not validated through the responder chain, so
+    /// this is observable state they read.
+    private(set) var editorLanguage: SyntaxLanguage?
+
+    var canFormatDocument: Bool { editorHasFocus && DocumentFormatter.canFormat(editorLanguage) }
+    var canSortJSONKeys: Bool { editorHasFocus && DocumentFormatter.canFormat(editorLanguage, style: .sortedKeys) }
+
     func refreshEditorFocus() {
-        editorHasFocus = keyResponder() is BoopTextView
+        let editor = keyResponder() as? BoopTextView
+        editorHasFocus = editor != nil
+        editorLanguage = editor?.syntax.currentLanguage
     }
 
     /// An editor gained or lost focus, or went away. The window's first
@@ -125,19 +135,25 @@ final class AppModel {
     /// existed are read too. An image deleted meanwhile is skipped.
     func recognizePendingImages() {
         guard recognition == nil else { return }
-        recognition = Task(priority: .utility) { [weak self] in
-            while let self, let next = try? self.store.attachmentsAwaitingRecognition(limit: 1).first {
-                let data = try? self.store.data(for: next)
-                // Unreadable (a missing file, say): recorded as empty, so it
-                // is not tried on every change.
-                let text = if let data { await self.recognizeText(data) ?? "" } else { "" }
-                guard (try? self.store.attachment(id: next.id)) != nil else { continue }
-                do {
-                    try self.store.setRecognizedText(text, for: next.id)
-                } catch {
-                    break
+        let store = self.store
+        let recognize = recognizeText
+        recognition = Task { [weak self] in
+            // Reading a file of up to 20 MB and recognising its text both
+            // happen off the main actor; the store is safe from any thread.
+            await Task.detached(priority: .utility) {
+                while let next = try? store.attachmentsAwaitingRecognition(limit: 1).first {
+                    let data = try? store.data(for: next)
+                    // Unreadable (a missing file, say): recorded as empty,
+                    // so it is not tried on every change.
+                    let text = if let data { await recognize(data) ?? "" } else { "" }
+                    guard (try? store.attachment(id: next.id)) != nil else { continue }
+                    do {
+                        try store.setRecognizedText(text, for: next.id)
+                    } catch {
+                        break
+                    }
                 }
-            }
+            }.value
             self?.recognition = nil
         }
     }
