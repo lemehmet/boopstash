@@ -30,7 +30,9 @@ permissions:
   contents: read
 
 # One run per platform at a time: two betas would pick the same next
-# TestFlight build number (#130). A queued run waits; none is cancelled.
+# TestFlight build number (#130). The run in progress is never cancelled;
+# GitHub keeps one waiting run per group, so a third dispatch replaces the
+# one waiting. Dispatch again once it has started.
 concurrency:
   group: appstore-${{ inputs.platform }}
   cancel-in-progress: false
