@@ -166,3 +166,28 @@ extension Result where Success == String, Failure == FormatError {
         }
     }
 }
+
+@Suite struct JSFormattingTests {
+    @Test func languagesMapToTheirFormatter() throws {
+        #expect(JSFormatting.prettierParser(for: .typescript) == "typescript")
+        #expect(JSFormatting.prettierParser(for: .json) == nil, "JSON is formatted natively")
+        let sql = try #require(JSFormatting.request(for: "select 1", as: .sql, settings: FormatSettings(sqlDialect: "sqlite", keywordCase: .upper)))
+        #expect(sql.engine == .sqlFormatter)
+        #expect(sql.options == #"{"keywordCase":"upper","language":"sqlite","tabWidth":2}"#)
+        let js = try #require(JSFormatting.request(for: "x", as: .javascript, settings: FormatSettings(tabWidth: 4, singleQuote: true)))
+        #expect(js.options == #"{"parser":"babel","singleQuote":true,"tabWidth":4}"#)
+        #expect(JSFormatting.request(for: "x", as: .python) == nil)
+    }
+
+    @Test func settingsAreClamped() {
+        #expect(FormatSettings(tabWidth: 99).tabWidth == 8)
+        #expect(FormatSettings(sqlDialect: "oracle-ish").sqlDialect == "sql")
+    }
+
+    @Test func formatDocumentCoversJavaScriptLanguages() {
+        #expect(DocumentFormatter.canFormat(.markdown))
+        #expect(DocumentFormatter.canFormat(.sql))
+        #expect(!DocumentFormatter.canFormat(.sql, style: .sortedKeys))
+        #expect(!DocumentFormatter.canFormatNatively(.css))
+    }
+}

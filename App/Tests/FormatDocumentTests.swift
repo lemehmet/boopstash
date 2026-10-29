@@ -71,7 +71,7 @@ struct FormatDocumentTests {
         var message: String?
         view.showMessage = { message = $0 }
         view.formatter = { source, language, style in
-            Thread.sleep(forTimeInterval: 0.3)
+            try? await Task.sleep(for: .milliseconds(300))
             return DocumentFormatter.format(source, as: language, style: style)
         }
         let running = view.format(style: .standard)
@@ -88,7 +88,7 @@ struct FormatDocumentTests {
         let (window, view) = host("{}", .json)
         view.setSelectedRange(NSRange(location: 0, length: 0))
         view.formatter = { source, language, style in
-            Thread.sleep(forTimeInterval: 0.3)
+            try? await Task.sleep(for: .milliseconds(300))
             return DocumentFormatter.format(source, as: language, style: style)
         }
         let running = view.format(style: .standard)
@@ -96,6 +96,16 @@ struct FormatDocumentTests {
         view.setSelectedRange(NSRange(location: 0, length: 0))
         await running.value
         #expect(view.string == "{}")
+        window.close()
+    }
+
+    /// JavaScript goes to Prettier in the script service (#56).
+    @Test func javaScriptIsFormattedByPrettier() async {
+        let (window, view) = host("const a={b:1}", .javascript)
+        let runner = LiveScriptRunner()
+        view.jsFormat = { request in await runner.format(request) }
+        await view.format(style: .standard).value
+        #expect(view.string == "const a = { b: 1 };\n")
         window.close()
     }
 

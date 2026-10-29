@@ -15,7 +15,7 @@ final class LiveScriptRunner {
         let connection = connect()
         let stopped = "\(request.scriptName) took longer than \(Int(request.timeLimit)) seconds and was stopped."
         return await withCheckedContinuation { continuation in
-            let once = Once(continuation)
+            let once = Once<ScriptResponse>(continuation)
             // Both handlers run on XPC's queue, not the main actor: @Sendable
             // keeps them nonisolated, or Swift's isolation check traps.
             let proxy = connection.remoteObjectProxyWithErrorHandler { @Sendable error in
@@ -35,6 +35,32 @@ final class LiveScriptRunner {
         }
     }
 
+    /// Formats with Prettier or sql-formatter in the service.
+    func format(_ request: JSFormatRequest) async -> Result<String, FormatError> {
+        guard let data = try? JSONEncoder().encode(request) else {
+            return .failure(FormatError(message: "The text could not be sent to the formatter.", line: nil, column: nil))
+        }
+        let connection = connect()
+        let stopped = FormatError(message: "Formatting took longer than \(Int(request.timeLimit)) seconds and was stopped.", line: nil, column: nil)
+        let response: JSFormatResponse = await withCheckedContinuation { continuation in
+            let once = Once<JSFormatResponse>(continuation)
+            let proxy = connection.remoteObjectProxyWithErrorHandler { @Sendable error in
+                once.resume(JSFormatResponse(error: (error as NSError).code == NSXPCConnectionInterrupted
+                    ? stopped : FormatError(message: "The formatter failed: \(error.localizedDescription)", line: nil, column: nil)))
+            } as? ScriptServiceProtocol
+            guard let proxy else {
+                once.resume(JSFormatResponse(error: FormatError(message: "The formatter is not available.", line: nil, column: nil)))
+                return
+            }
+            proxy.format(data) { reply in
+                once.resume((try? JSONDecoder().decode(JSFormatResponse.self, from: reply))
+                    ?? JSFormatResponse(error: FormatError(message: "The formatter's answer could not be read.", line: nil, column: nil)))
+            }
+        }
+        if let formatted = response.formatted { return .success(formatted) }
+        return .failure(response.error ?? FormatError(message: "Formatting failed.", line: nil, column: nil))
+    }
+
     private func connect() -> NSXPCConnection {
         if let connection { return connection }
         let connection = NSXPCConnection(serviceName: ScriptService.name)
@@ -48,15 +74,15 @@ final class LiveScriptRunner {
     }
 
     /// The reply and the error handler can both fire; the first one wins.
-    private final class Once: @unchecked Sendable {
+    private final class Once<Response: Sendable>: @unchecked Sendable {
         private let lock = NSLock()
-        private var continuation: CheckedContinuation<ScriptResponse, Never>?
+        private var continuation: CheckedContinuation<Response, Never>?
 
-        init(_ continuation: CheckedContinuation<ScriptResponse, Never>) {
+        init(_ continuation: CheckedContinuation<Response, Never>) {
             self.continuation = continuation
         }
 
-        func resume(_ response: ScriptResponse) {
+        func resume(_ response: Response) {
             lock.lock()
             let pending = continuation
             continuation = nil

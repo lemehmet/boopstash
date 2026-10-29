@@ -1,7 +1,7 @@
 import Foundation
 
 /// Why text could not be formatted, with where when the formatter knows.
-public struct FormatError: Error, Equatable, Sendable {
+public struct FormatError: Error, Equatable, Sendable, Codable {
     public var message: String
     public var line: Int?
     public var column: Int?
@@ -30,12 +30,18 @@ public enum DocumentFormatter {
     }
 
     /// Whether `language` has a native formatter.
-    public static func canFormat(_ language: SyntaxLanguage?, style: Style = .standard) -> Bool {
+    public static func canFormatNatively(_ language: SyntaxLanguage?, style: Style = .standard) -> Bool {
         switch (language, style) {
         case (.json, _): true
         case (.xml, .standard): XMLFormatter.isAvailable
         default: false
         }
+    }
+
+    /// Whether Format Document can format `language`: natively, or with a
+    /// JavaScript formatter in the script service (sorted keys is JSON's).
+    public static func canFormat(_ language: SyntaxLanguage?, style: Style = .standard) -> Bool {
+        canFormatNatively(language, style: style) || (style == .standard && JSFormatting.supports(language))
     }
 
     public static func format(_ text: String, as language: SyntaxLanguage?, style: Style = .standard) -> Result<String, FormatError> {

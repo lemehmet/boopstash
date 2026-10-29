@@ -13,6 +13,8 @@ struct EditorView: NSViewRepresentable {
     var syntax: SyntaxChoice = .automatic
     var appearance = EditorAppearance()
     var showMessage: (String) -> Void = { _ in }
+    /// Prettier and sql-formatter, in the script service.
+    var jsFormat: (@Sendable (JSFormatRequest) async -> Result<String, FormatError>)?
     /// Stores a pasted or dropped image for this note; returns its markdown.
     var storeImage: (Data, UTType) -> String? = { _, _ in nil }
     /// Called when this editor gains or loses focus, goes away, or its
@@ -34,6 +36,7 @@ struct EditorView: NSViewRepresentable {
         view.editorAppearance = appearance
         view.showMessage = showMessage
         view.storeImage = storeImage
+        view.jsFormat = jsFormat
         view.onFocusChange = { _ in onFocusChange() }
         view.syntax.onLanguageChange = onFocusChange
         context.coordinator.onFocusChange = onFocusChange

@@ -1,0 +1,2 @@
+prettier 3.9.9 from https://registry.npmjs.org/prettier/-/prettier-3.9.9.tgz
+standalone.js and plugins/{babel,estree,typescript,postcss,html,yaml,markdown}.js, unmodified.
