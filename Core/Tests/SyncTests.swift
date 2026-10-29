@@ -208,6 +208,96 @@ import Testing
         #expect(try store.note(id: synced.id) == nil)
     }
 
+    /// A first upload edited while in flight keeps the metadata its
+    /// acknowledgement brings, so the next upload updates the record
+    /// instead of creating it again (#106).
+    @Test func aFirstUploadEditedInFlightKeepsItsMetadata() throws {
+        var mine = note("first")
+        try store.save(mine)
+        let name = mine.id.uuidString.lowercased()
+        let sent = try #require(try version(of: name))
+        mine.body = "edited in flight"
+        try store.save(mine)
+        try store.acknowledgeSave(kind: .note, name: name, version: sent, systemFields: fields)
+        guard case .save(_, let systemFields, _) = try store.pendingSyncChanges().first else {
+            Issue.record("no longer pending")
+            return
+        }
+        #expect(systemFields == fields)
+    }
+
+    /// After recovery from a server deletion, the upload built afterwards
+    /// is acknowledged normally, even when edited in flight.
+    @Test func theUploadAfterRecoveryKeepsItsMetadata() throws {
+        var mine = note("synced")
+        try store.applyServerRecord(SyncMapping.record(for: mine), systemFields: fields)
+        mine.body = "edited"
+        try store.save(mine)
+        let name = mine.id.uuidString.lowercased()
+        try store.applyServerDeletion(kind: .note, name: name)
+        let resent = try #require(try version(of: name))
+        mine.body = "edited again"
+        try store.save(mine)
+        let newFields = Data("new-record".utf8)
+        try store.acknowledgeSave(kind: .note, name: name, version: resent, systemFields: newFields)
+        guard case .save(_, let systemFields, _) = try store.pendingSyncChanges().first else {
+            Issue.record("no longer pending")
+            return
+        }
+        #expect(systemFields == newFields)
+    }
+
+    /// Text recognised after an upload is a change to send, and text
+    /// recognised during one is not cleared by its acknowledgement (#108).
+    @Test func recognisedTextIsSent() throws {
+        let attachment = try store.addAttachment(Data([1]), contentType: "public.png", noteID: nil)
+        let name = attachment.id.uuidString.lowercased()
+        let sent = try #require(try version(of: name))
+        try store.setRecognizedText("receipt", for: attachment.id)
+        try store.acknowledgeSave(kind: .attachment, name: name, version: sent, systemFields: fields)
+        #expect(try pendingNames() == ["save Attachment \(name)"])
+        guard case .save(let record, _, let version) = try store.pendingSyncChanges().first else { return }
+        #expect(record.encrypted["recognizedText"] == .string("receipt"))
+        try store.acknowledgeSave(kind: .attachment, name: name, version: version, systemFields: fields)
+        try store.setRecognizedText("receipt total", for: attachment.id)
+        #expect(try pendingNames() == ["save Attachment \(name)"])
+    }
+
+    /// Notes from the server, conflict copies and attachment updates keep
+    /// image-text search current (#109).
+    @Test func serverWritesRefreshImageText() throws {
+        var attachment = NoteAttachment(noteID: nil, contentType: "public.png", byteSize: 1, recognizedText: "invoice")
+        try store.applyServerRecord(SyncMapping.record(for: attachment, file: URL(fileURLWithPath: "/unused")), systemFields: fields, assetData: Data([1]))
+        let remote = note("see " + AttachmentReference.markdown(for: attachment.id))
+        try store.applyServerRecord(SyncMapping.record(for: remote), systemFields: fields)
+        #expect(try store.imageText(of: remote.id) == "invoice")
+        attachment.recognizedText = "invoice paid"
+        try store.applyServerRecord(SyncMapping.record(for: attachment, file: URL(fileURLWithPath: "/unused")), systemFields: fields, assetData: Data([1]))
+        #expect(try store.imageText(of: remote.id) == "invoice paid")
+        // Both sides change the body: the copy keeps this device's text and
+        // its image's words.
+        var mine = remote
+        mine.body = "mine " + AttachmentReference.markdown(for: attachment.id)
+        try store.save(mine)
+        var theirs = remote
+        theirs.body = "theirs, no image"
+        theirs.updatedAt = Date(timeIntervalSince1970: 5_000)
+        let copy = try #require(try store.applyServerRecord(SyncMapping.record(for: theirs), systemFields: fields))
+        #expect(try store.imageText(of: remote.id) == nil)
+        #expect(try store.imageText(of: copy.id) == "invoice paid")
+    }
+
+    /// A synced attachment nothing here refers to is kept by the launch
+    /// sweep until remote changes are in (#107).
+    @Test func theSweepKeepsSyncedAttachmentsUntilAFetch() throws {
+        let attachment = NoteAttachment(noteID: nil, contentType: "public.png", byteSize: 1, createdAt: Date(timeIntervalSince1970: 0))
+        try store.applyServerRecord(SyncMapping.record(for: attachment, file: URL(fileURLWithPath: "/unused")), systemFields: fields, assetData: Data([1]))
+        #expect(try store.removeUnreferencedAttachments() == 0)
+        #expect(try store.attachment(id: attachment.id) != nil)
+        #expect(try store.removeUnreferencedAttachments(includingSynced: true) == 1)
+        #expect(try store.attachment(id: attachment.id) == nil)
+    }
+
     @Test func aNewAttachmentWithoutItsAssetWaits() throws {
         let attachment = NoteAttachment(noteID: nil, contentType: "public.png", byteSize: 3)
         try store.applyServerRecord(SyncMapping.record(for: attachment, file: URL(fileURLWithPath: "/unused")), systemFields: fields)

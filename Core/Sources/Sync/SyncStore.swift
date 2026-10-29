@@ -30,19 +30,20 @@ extension NoteStore {
     }
 
     /// The server saved what was sent at `version`. The record's metadata is
-    /// kept either way; the row stays pending if it changed since.
+    /// kept, also when the row changed since (a first upload edited in
+    /// flight, #106), unless the upload was built before the row had to go
+    /// up again as new; the row stays pending if it changed since.
     public func acknowledgeSave(kind: SyncRecord.Kind, name: String, version: Int, systemFields: Data) throws {
         guard let id = UUID(uuidString: name) else { return }
         try writer.write { db in
-            // Metadata from the server is kept unless the row was changed
-            // since and has none: then the server deleted the record
-            // meanwhile, and the row must go up again as new.
+            // SQLite evaluates every right-hand side with the old values.
             try db.execute(sql: """
                 UPDATE \(Self.table(kind)) SET
-                    syncSystemFields = CASE WHEN syncPending = ? OR syncSystemFields IS NOT NULL THEN ? ELSE syncSystemFields END,
+                    syncSystemFields = CASE WHEN ? >= syncStaleBelow THEN ? ELSE syncSystemFields END,
+                    syncStaleBelow = CASE WHEN ? >= syncStaleBelow THEN 0 ELSE syncStaleBelow END,
                     syncPending = CASE WHEN syncPending = ? THEN 0 ELSE syncPending END
                 WHERE id = ?
-                """, arguments: [version, systemFields, version, id])
+                """, arguments: [version, systemFields, version, version, id])
         }
     }
 
@@ -59,19 +60,12 @@ extension NoteStore {
     @discardableResult
     public func applyServerRecord(_ record: SyncRecord, systemFields: Data, assetData: Data? = nil, now: Date = Date()) throws -> Note? {
         // Deleted here, deletion not yet sent: a stale save from the server
-        // must not bring the record back.
-        let tombstoned = try writer.read { db in
-            try Bool.fetchOne(db, sql: "SELECT EXISTS (SELECT 1 FROM syncTombstone WHERE kind = ? AND name = ?)",
-                              arguments: [record.kind.rawValue, record.name]) ?? false
-        }
-        guard !tombstoned else { return nil }
+        // must not bring the record back. Checked again inside each write,
+        // where a local delete cannot slip in between (#110).
+        guard try !writer.read({ db in try Self.isTombstoned(record, db) }) else { return nil }
         switch record.kind {
         case .attachment:
             guard let attachment = SyncMapping.attachment(from: record) else { return nil }
-            if let assetData, (try? self.attachment(id: attachment.id)) == nil {
-                try FileManager.default.createDirectory(at: attachmentsDirectory, withIntermediateDirectories: true)
-                try assetData.write(to: fileURL(for: attachment), options: .atomic)
-            }
             let pending = try writer.read { db in
                 try Int.fetchOne(db, sql: "SELECT syncPending FROM attachment WHERE id = ?", arguments: [attachment.id])
             }
@@ -80,12 +74,15 @@ extension NoteStore {
             if pending == nil, assetData == nil { return nil }
             // A new image, or one unchanged here, takes the server's file and
             // fields; one changed here keeps its own until it is sent.
-            if let assetData, (pending ?? 0) == 0 {
+            let writesFile = assetData != nil && (pending ?? 0) == 0
+            if writesFile, let assetData {
                 try FileManager.default.createDirectory(at: attachmentsDirectory, withIntermediateDirectories: true)
                 try assetData.write(to: fileURL(for: attachment), options: .atomic)
             }
-            try writer.write { db in
-                switch pending {
+            let applied = try writer.write { db -> Bool in
+                guard try !Self.isTombstoned(record, db) else { return false }
+                // Read again: a local change may have landed since.
+                switch try Int.fetchOne(db, sql: "SELECT syncPending FROM attachment WHERE id = ?", arguments: [attachment.id]) {
                 case nil:
                     try attachment.insert(db)
                     try db.execute(sql: "UPDATE attachment SET syncPending = 0, syncSystemFields = ? WHERE id = ?", arguments: [systemFields, attachment.id])
@@ -95,26 +92,42 @@ extension NoteStore {
                 default:
                     try db.execute(sql: "UPDATE attachment SET syncSystemFields = ? WHERE id = ?", arguments: [systemFields, attachment.id])
                 }
+                // Its recognised text may have changed (#109).
+                try Self.refreshImageText(referencing: attachment.id, db)
+                return true
             }
+            // Deleted here meanwhile: the file written for it goes too.
+            if !applied, writesFile, pending == nil { try? FileManager.default.removeItem(at: fileURL(for: attachment)) }
             return nil
         case .note:
             guard let server = SyncMapping.note(from: record) else { return nil }
             return try writer.write { db -> Note? in
+                guard try !Self.isTombstoned(record, db) else { return nil }
                 let pending = try Int.fetchOne(db, sql: "SELECT syncPending FROM note WHERE id = ?", arguments: [server.id])
                 guard let pending, pending > 0, let local = try Note.fetchOne(db, key: server.id) else {
                     // New here, or unchanged here: the server's version wins.
                     try server.save(db)
+                    try Self.refreshImageText(of: server.id, body: server.body, db)
                     try db.execute(sql: "UPDATE note SET syncPending = 0, syncSystemFields = ? WHERE id = ?", arguments: [systemFields, server.id])
                     return nil
                 }
                 let outcome = SyncMerge.merge(local: local, server: server, now: now)
                 try outcome.note.save(db)
+                try Self.refreshImageText(of: outcome.note.id, body: outcome.note.body, db)
                 try db.execute(sql: "UPDATE note SET syncPending = ?, syncSystemFields = ? WHERE id = ?",
                                arguments: [outcome.stillPending ? pending + 1 : 0, systemFields, server.id])
-                if let copy = outcome.conflictCopy { try copy.insert(db) }
+                if let copy = outcome.conflictCopy {
+                    try copy.insert(db)
+                    try Self.refreshImageText(of: copy.id, body: copy.body, db)
+                }
                 return outcome.conflictCopy
             }
         }
+    }
+
+    static func isTombstoned(_ record: SyncRecord, _ db: Database) throws -> Bool {
+        try Bool.fetchOne(db, sql: "SELECT EXISTS (SELECT 1 FROM syncTombstone WHERE kind = ? AND name = ?)",
+                          arguments: [record.kind.rawValue, record.name]) ?? false
     }
 
     /// The server deleted a record: it goes here too, without a tombstone,
@@ -130,7 +143,10 @@ extension NoteStore {
             if let pending = try Int.fetchOne(db, sql: "SELECT syncPending FROM \(table) WHERE id = ?", arguments: [id]), pending > 0 {
                 // Kept and sent again as new; the version moves on, so an
                 // acknowledgement of the upload in flight cannot clear it.
-                try db.execute(sql: "UPDATE \(table) SET syncSystemFields = NULL, syncPending = syncPending + 1 WHERE id = ?", arguments: [id])
+                try db.execute(sql: """
+                    UPDATE \(table) SET syncSystemFields = NULL, syncPending = syncPending + 1, syncStaleBelow = syncPending + 1
+                    WHERE id = ?
+                    """, arguments: [id])
                 return nil
             }
             switch kind {
@@ -151,7 +167,7 @@ extension NoteStore {
     public func resetSyncForReupload() throws {
         try writer.write { db in
             for table in ["note", "attachment"] {
-                try db.execute(sql: "UPDATE \(table) SET syncPending = syncPending + 1, syncSystemFields = NULL")
+                try db.execute(sql: "UPDATE \(table) SET syncPending = syncPending + 1, syncSystemFields = NULL, syncStaleBelow = syncPending + 1")
             }
             try db.execute(sql: "DELETE FROM syncTombstone")
             try db.execute(sql: "DELETE FROM syncState")
