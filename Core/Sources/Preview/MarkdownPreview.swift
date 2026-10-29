@@ -120,7 +120,9 @@ struct BlockBuilder {
         case let paragraph as Paragraph:
             // Images become blocks of their own, after the paragraph's text.
             let text = Inline.text(paragraph.children)
-            let images = paragraph.children.compactMap { $0 as? Markdown.Image }.map { PreviewBlock.image(Inline.image($0)) }
+            // Images anywhere in the paragraph, including inside a link or
+            // emphasis ([![alt](…)](…)), not only its direct children.
+            let images = Self.images(in: paragraph).map { PreviewBlock.image(Inline.image($0)) }
             let hasText = !String(text.characters).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             return (hasText ? [.paragraph(text)] : []) + images
         case let code as CodeBlock:
@@ -149,6 +151,13 @@ struct BlockBuilder {
             return [.rawHTML(html.rawHTML)]
         default:
             return blocks(markup.children)
+        }
+    }
+
+    static func images(in markup: Markup) -> [Markdown.Image] {
+        markup.children.flatMap { child -> [Markdown.Image] in
+            if let image = child as? Markdown.Image { return [image] }
+            return images(in: child)
         }
     }
 

@@ -62,6 +62,13 @@ import Testing
         #expect(plain(text) == "See  and ", "images leave the paragraph for blocks of their own")
     }
 
+    @Test func imagesInsideLinksAndEmphasisAreKept() async {
+        let id = UUID()
+        let out = await blocks("[![badge](attachment:\(id.uuidString.lowercased()))](https://example.com) *![x](https://e.test/x.png)*")
+        #expect(out.contains(.image(.attachment(id, alt: "badge"))))
+        #expect(out.contains(.image(.blocked(source: "https://e.test/x.png", alt: "x"))))
+    }
+
     @Test func onlySafeLinksStayLinks() async {
         let out = await blocks("[web](https://x.test/a?b=1) [mail](mailto:a@b.test) [bad](javascript:alert(1)) [file](file:///etc/hosts)")
         guard case .paragraph(let text) = out.first else { return }

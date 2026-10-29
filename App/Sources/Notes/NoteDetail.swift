@@ -50,6 +50,9 @@ struct NoteDetail: View {
             title = note.titleIsUserSet ? note.title : ""
             liveText = nil
         }
+        .onChange(of: previewShown) { _, shown in
+            if !shown { liveText = nil }
+        }
         .onChange(of: title) {
             if title.isEmpty || title != note.title { model.rename(note.id, to: title) }
         }
@@ -69,6 +72,9 @@ extension NoteDetail {
             guard let attachment = try? store.attachment(id: id) else { return nil }
             return NSImage(contentsOf: store.fileURL(for: attachment))
         }
+        // Edits made while the preview was hidden are in the draft, not in
+        // the copy kept for it: start from the draft each time it shows.
+        .onAppear { liveText = model.note(id: note.id)?.body }
     }
 }
 

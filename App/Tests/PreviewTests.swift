@@ -11,10 +11,10 @@ import Testing
 struct PreviewTests {
     @Test func attachmentsAreAskedForAndRemoteImagesAreNot() async throws {
         let id = UUID()
-        var asked: [UUID] = []
+        let asked = Asked()
         let markdown = "# Title\n\n![plot](attachment:\(id.uuidString.lowercased()))\n\n![remote](https://example.com/x.png)\n\n```json\n{\"a\": 1}\n```"
         let view = PreviewView(markdown: markdown, appearance: EditorAppearance()) { requested in
-            asked.append(requested)
+            await asked.add(requested)
             return NSImage(size: NSSize(width: 4, height: 4))
         }
         let host = NSHostingView(rootView: view)
@@ -23,12 +23,17 @@ struct PreviewTests {
         window.isReleasedWhenClosed = false
         window.contentView = host
         window.orderFront(nil)
-        for _ in 0..<150 where asked.isEmpty {
+        for _ in 0..<150 where await asked.ids.isEmpty {
             host.layoutSubtreeIfNeeded()
             try await Task.sleep(for: .milliseconds(20))
         }
-        #expect(Set(asked) == [id])
+        #expect(Set(await asked.ids) == [id])
         window.close()
+    }
+
+    actor Asked {
+        var ids: [UUID] = []
+        func add(_ id: UUID) { ids.append(id) }
     }
 
     @Test func thePaletteFollowsTheTheme() throws {

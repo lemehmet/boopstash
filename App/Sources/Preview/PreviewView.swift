@@ -7,8 +7,9 @@ import SwiftUI
 struct PreviewView: View {
     let markdown: String
     let appearance: EditorAppearance
-    /// An attachment's image, for `![](attachment:<id>)`.
-    var image: (UUID) -> NSImage? = { _ in nil }
+    /// An attachment's image, for `![](attachment:<id>)`. Called off the
+    /// main thread; results are cached, since attachments never change.
+    var image: @Sendable (UUID) async -> NSImage? = { _ in nil }
     @Environment(\.colorScheme) private var colorScheme
     @State private var blocks: [PreviewBlock] = []
 
@@ -45,6 +46,43 @@ struct PreviewView: View {
     }
 }
 
+/// An attachment's picture, loaded off the main thread once and cached:
+/// attachments never change, so re-rendering never re-reads the disk.
+struct AttachmentImage: View {
+    let id: UUID
+    let alt: String
+    let muted: Color
+    let load: @Sendable (UUID) async -> NSImage?
+    @State private var picture: NSImage?
+    @State private var missing = false
+
+    @MainActor static let cache = NSCache<NSUUID, NSImage>()
+
+    var body: some View {
+        Group {
+            if let picture {
+                Image(nsImage: picture).resizable().aspectRatio(contentMode: .fit)
+                    .frame(maxWidth: min(picture.size.width, 900))
+                    .accessibilityLabel(alt)
+            } else if missing {
+                Label(alt.isEmpty ? "Missing image" : "\(alt) (missing)", systemImage: "photo").foregroundStyle(muted)
+            } else {
+                ProgressView().controlSize(.small)
+            }
+        }
+        .task(id: id) {
+            if let cached = Self.cache.object(forKey: id as NSUUID) {
+                picture = cached
+                return
+            }
+            let loaded = await Task.detached(priority: .userInitiated) { await load(id) }.value
+            if let loaded { Self.cache.setObject(loaded, forKey: id as NSUUID) }
+            picture = loaded
+            missing = loaded == nil
+        }
+    }
+}
+
 /// Colours for the preview: the editor theme's, or the system's.
 struct PreviewPalette {
     let theme: Theme?
@@ -63,7 +101,7 @@ struct BlockView: View {
     let block: PreviewBlock
     let palette: PreviewPalette
     let appearance: EditorAppearance
-    let image: (UUID) -> NSImage?
+    let image: @Sendable (UUID) async -> NSImage?
 
     private var bodySize: CGFloat { CGFloat(appearance.fontSize) + 1 }
     private var mono: Font { Font(EditorSettings.font(for: appearance)) }
@@ -130,13 +168,7 @@ struct BlockView: View {
         case .rule:
             Divider()
         case .image(.attachment(let id, let alt)):
-            if let picture = image(id) {
-                Image(nsImage: picture).resizable().aspectRatio(contentMode: .fit)
-                    .frame(maxWidth: min(picture.size.width, 900))
-                    .accessibilityLabel(alt)
-            } else {
-                Label(alt.isEmpty ? "Missing image" : "\(alt) (missing)", systemImage: "photo").foregroundStyle(palette.muted)
-            }
+            AttachmentImage(id: id, alt: alt, muted: palette.muted, load: image)
         case .image(.blocked(_, let alt)):
             Label("\(alt.isEmpty ? "Image" : alt) (remote image not loaded)", systemImage: "network.slash")
                 .foregroundStyle(palette.muted)
