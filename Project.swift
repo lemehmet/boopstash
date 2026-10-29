@@ -172,6 +172,28 @@ let project = Project(
                 "ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME": "",
             ])
         ),
+        // The iOS companion (#65), sharing BoopstashCore. Sync and the share
+        // extension arrive with the developer-portal setup (#62).
+        .target(
+            name: "BoopStashMobile",
+            destinations: [.iPhone, .iPad],
+            product: .app,
+            productName: "BoopStash",
+            bundleId: appBundleId,
+            deploymentTargets: .iOS("26.0"),
+            infoPlist: .extendingDefault(with: [
+                "CFBundleDisplayName": "BoopStash",
+                "CFBundleShortVersionString": "$(MARKETING_VERSION)",
+                "CFBundleVersion": "$(CURRENT_PROJECT_VERSION)",
+                "UILaunchScreen": [:],
+                // One scene: two editors on one note would each save their own
+                // copy over the other's until editors sync live.
+                "UIApplicationSceneManifest": ["UIApplicationSupportsMultipleScenes": false],
+            ]),
+            sources: ["iOS/Sources/**"],
+            dependencies: [.target(name: "BoopstashCore")],
+            settings: .settings(base: ["PRODUCT_MODULE_NAME": "BoopStashMobile"])
+        ),
         // Runs scripts and JavaScript formatters in its own sandboxed
         // process, so a runaway script can be stopped (ADR 0007).
         .target(

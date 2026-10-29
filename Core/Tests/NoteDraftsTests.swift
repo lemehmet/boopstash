@@ -1,0 +1,59 @@
+import Foundation
+import Testing
+@testable import BoopstashCore
+
+@MainActor
+@Suite struct NoteDraftsTests {
+    let store: NoteStore
+    let drafts: NoteDrafts
+
+    init() throws {
+        store = try .inMemory()
+        drafts = NoteDrafts(store: store, saveDelay: .milliseconds(20))
+    }
+
+    func saved(_ body: String = "") throws -> Note {
+        let note = Note(body: body, createdAt: Date(timeIntervalSince1970: 0))
+        try store.save(note)
+        return note
+    }
+
+    @Test func editsAreDraftsUntilFlushed() throws {
+        let note = try saved()
+        drafts.edit(note.id, body: "{\"a\": 1}")
+        #expect(drafts.note(id: note.id)?.body == "{\"a\": 1}")
+        #expect(try store.note(id: note.id)?.body == "", "not written yet")
+        #expect(drafts.flush(note.id))
+        let stored = try #require(try store.note(id: note.id))
+        #expect(stored.body == "{\"a\": 1}")
+        #expect(stored.title == "JSON {a}", "titled by the rules when written")
+        #expect(!drafts.hasUnsavedEdits)
+    }
+
+    @Test func aPauseSavesOnItsOwn() async throws {
+        let note = try saved()
+        drafts.edit(note.id, body: "typed")
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(try store.note(id: note.id)?.body == "typed")
+    }
+
+    @Test func aUserTitleIsKeptAndAnEmptyOneHandsBack() throws {
+        let note = try saved("line one\nline two")
+        drafts.rename(note.id, to: "  Mine  ")
+        drafts.edit(note.id, body: "other text")
+        drafts.flushAll()
+        #expect(try store.note(id: note.id)?.title == "Mine")
+        drafts.rename(note.id, to: "")
+        drafts.flushAll()
+        let renamed = try #require(try store.note(id: note.id))
+        #expect(!renamed.titleIsUserSet && renamed.title == "other text")
+    }
+
+    @Test func discardingForgetsTheDraft() throws {
+        let note = try saved()
+        drafts.edit(note.id, body: "x")
+        drafts.discard(note.id)
+        #expect(!drafts.hasUnsavedEdits)
+        #expect(try store.note(id: note.id)?.body == "")
+    }
+}
