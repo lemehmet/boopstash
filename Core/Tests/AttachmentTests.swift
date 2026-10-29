@@ -45,6 +45,15 @@ import Testing
                 "a plain link is not an image reference")
     }
 
+    @Test func matchesGiveRangesIDsAndAltText() {
+        let a = UUID(), b = UUID()
+        let body = "x " + AttachmentReference.markdown(for: a, alt: "a]b") + " y " + AttachmentReference.markdown(for: b)
+        let found = AttachmentReference.matches(in: body)
+        #expect(found.map(\.id) == [a, b])
+        #expect(found.map(\.alt) == ["a]b", ""])
+        #expect((body as NSString).substring(with: found[1].range) == AttachmentReference.markdown(for: b))
+    }
+
     /// The preview shows `ATTACHMENT:` references, so clean-up must see
     /// them too, or it would delete an image a note still shows.
     @Test func uppercaseSchemesAreReferencesToo() throws {
@@ -54,6 +63,12 @@ import Testing
         #expect(AttachmentReference.ids(in: "![x](Attachment:\(image.id.uuidString))") == [image.id])
         try store.delete(id: owner.id)
         #expect(try store.attachment(id: image.id) != nil, "the other note still shows it")
+    }
+
+    @Test func matchesReadUppercaseSchemesToo() {
+        let id = UUID()
+        let found = AttachmentReference.matches(in: "![plot](ATTACHMENT:\(id.uuidString))")
+        #expect(found.map(\.id) == [id] && found.map(\.alt) == ["plot"])
     }
 
     @Test func rewritingReplacesOnlyKnownReferences() {
