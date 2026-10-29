@@ -152,4 +152,77 @@ struct ChipTests {
         view.updateChips()
         #expect(view.chipViews.isEmpty)
     }
+
+    /// Only references on screen get a chip; all keep their range, so
+    /// editing treats an off-screen one as a unit too (#95).
+    @Test func onlyVisibleReferencesGetChips() {
+        let far = String(repeating: "line\n", count: 2000)
+        let text = AttachmentReference.markdown(for: first, alt: "top") + "\n" + far + AttachmentReference.markdown(for: second, alt: "bottom")
+        let (window, view) = host(text)
+        #expect(view.chipRanges.count == 2)
+        #expect(view.chipViews.compactMap { $0.accessibilityLabel() } == ["top"])
+        window.close()
+    }
+
+    /// Scrolling to a reference gives it its chip.
+    @Test func scrollingBuildsChipsForWhatComesIntoView() async throws {
+        let far = String(repeating: "line\n", count: 2000)
+        let text = AttachmentReference.markdown(for: first, alt: "top") + "\n" + far + AttachmentReference.markdown(for: second, alt: "bottom")
+        let (window, view) = host(text)
+        // The rebuild that setting up schedules runs first, so only the
+        // scroll can bring the bottom chip.
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(view.chipViews.compactMap { $0.accessibilityLabel() } == ["top"])
+        view.scrollRangeToVisible(range(of: second, in: text))
+        for _ in 0..<50 where !view.chipViews.contains(where: { $0.accessibilityLabel() == "bottom" }) {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(view.chipViews.compactMap { $0.accessibilityLabel() } == ["bottom"])
+        window.close()
+    }
+
+    /// A chip's picture is a small thumbnail, never the full image.
+    @Test func thumbnailsAreDownsampled() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("chip-\(UUID().uuidString).png")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let big = NSImage(size: NSSize(width: 2000, height: 1000), flipped: false) { rect in
+            NSColor.systemBlue.setFill()
+            rect.fill()
+            return true
+        }
+        let tiff = try #require(big.tiffRepresentation)
+        let png = try #require(NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]))
+        try png.write(to: url)
+        let (image, cost) = try #require(BoopTextView.downsampled(url, maxPixels: 160))
+        #expect(max(image.size.width, image.size.height) <= 160)
+        #expect(cost < 160 * 160 * 4 + 1024)
+    }
+
+    /// Two editors showing the same image both get its thumbnail, though
+    /// only one decode runs.
+    @Test func everyWaitingEditorGetsTheThumbnail() async throws {
+        let id = UUID()
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(id).png")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let image = NSImage(size: NSSize(width: 400, height: 200), flipped: false) { rect in
+            NSColor.systemGreen.setFill()
+            rect.fill()
+            return true
+        }
+        let tiff = try #require(image.tiffRepresentation)
+        try #require(NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:])).write(to: url)
+        BoopTextView.thumbnails.removeObject(forKey: url as NSURL)
+        let text = AttachmentReference.markdown(for: id, alt: "shared") + " text"
+        let (one, first) = host(text)
+        let (two, second) = host(text)
+        func hasPicture(_ view: BoopTextView) -> Bool {
+            view.chipViews.first?.subviews.contains { ($0 as? NSImageView)?.image?.isTemplate == false } ?? false
+        }
+        for _ in 0..<100 where !(hasPicture(first) && hasPicture(second)) {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(hasPicture(first) && hasPicture(second))
+        one.close()
+        two.close()
+    }
 }
