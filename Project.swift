@@ -159,13 +159,21 @@ let project = Project(
                 // Boop's scripts (ADR 0005); the app lists and sends them.
                 .folderReference(path: "Vendor/Boop/scripts"),
             ],
-            entitlements: .file(path: "App/Boopstash.entitlements"),
             dependencies: [.target(name: "BoopstashCore"), .target(name: "BoopStashScripts")],
             // Notarization requires the hardened runtime; every build has it
             // so what is tested is what ships (ADR 0004).
             settings: .settings(base: [
                 "ENABLE_HARDENED_RUNTIME": "YES",
                 "PRODUCT_MODULE_NAME": "Boopstash",
+                // Without a profile only the entitlements without iCloud can
+                // launch; a provisioned build selects BoopstashCloud with its
+                // profile and environments (ADR 0008).
+                "BOOPSTASH_ENTITLEMENTS": "$(SRCROOT)/App/Boopstash.entitlements",
+                "CODE_SIGN_ENTITLEMENTS": "$(BOOPSTASH_ENTITLEMENTS)",
+                "BOOPSTASH_PROFILE": "",
+                "PROVISIONING_PROFILE_SPECIFIER": "$(BOOPSTASH_PROFILE)",
+                "BOOPSTASH_ICLOUD_ENVIRONMENT": "Production",
+                "BOOPSTASH_APS_ENVIRONMENT": "production",
                 // The icon is App/Resources' AppIcon; there is no accent colour,
                 // so the system's applies.
                 "ASSETCATALOG_COMPILER_APPICON_NAME": "AppIcon",

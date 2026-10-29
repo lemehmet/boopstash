@@ -58,10 +58,11 @@ jobs:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
           ASC_KEY_CONTENT: ${{ secrets.ASC_KEY_CONTENT }}
+          MACOS_DEVELOPER_ID_PROFILE_BASE64: ${{ secrets.MACOS_DEVELOPER_ID_PROFILE_BASE64 }}
           APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
         run: |
           missing=()
-          for name in DEVELOPER_ID_P12_BASE64 DEVELOPER_ID_P12_PASSWORD ASC_KEY_ID ASC_ISSUER_ID ASC_KEY_CONTENT APPLE_TEAM_ID; do
+          for name in DEVELOPER_ID_P12_BASE64 DEVELOPER_ID_P12_PASSWORD ASC_KEY_ID ASC_ISSUER_ID ASC_KEY_CONTENT MACOS_DEVELOPER_ID_PROFILE_BASE64 APPLE_TEAM_ID; do
             [ -z "${!name}" ] && missing+=("$name")
           done
           if [ ${#missing[@]} -gt 0 ]; then
@@ -97,10 +98,31 @@ jobs:
           security find-identity -v -p codesigning "$keychain" | grep -q "Developer ID Application" || {
             echo "::error::the certificate in DEVELOPER_ID_P12_BASE64 is not a Developer ID Application identity"; exit 1; }
 
+      # The Developer ID profile carries iCloud for the app's container; the
+      # app signs with BoopstashCloud.entitlements only with it (ADR 0008).
+      - name: Install the Developer ID provisioning profile
+        id: profile
+        env:
+          MACOS_DEVELOPER_ID_PROFILE_BASE64: ${{ secrets.MACOS_DEVELOPER_ID_PROFILE_BASE64 }}
+        run: |
+          profile="$RUNNER_TEMP/developer-id.provisionprofile"
+          echo "$MACOS_DEVELOPER_ID_PROFILE_BASE64" | base64 --decode > "$profile"
+          security cms -D -i "$profile" > "$RUNNER_TEMP/profile.plist"
+          uuid="$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$RUNNER_TEMP/profile.plist")"
+          name="$(/usr/libexec/PlistBuddy -c 'Print :Name' "$RUNNER_TEMP/profile.plist")"
+          containers="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.developer.icloud-container-identifiers' "$RUNNER_TEMP/profile.plist" 2>/dev/null || true)"
+          [[ "$containers" == *iCloud.com.lemehmet.boopstash* ]] || {
+            echo "::error::the profile in MACOS_DEVELOPER_ID_PROFILE_BASE64 has no iCloud.com.lemehmet.boopstash container; re-create it after linking the container to the App ID"; exit 1; }
+          for dir in "$HOME/Library/MobileDevice/Provisioning Profiles" "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"; do
+            mkdir -p "$dir" && cp "$profile" "$dir/$uuid.provisionprofile"
+          done
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+
       - name: Archive (universal, hardened runtime)
         env:
           VERSION: ${{ steps.version.outputs.version }}
           APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+          PROFILE_NAME: ${{ steps.profile.outputs.name }}
         run: |
           xcodebuild archive \
             -workspace Boopstash.xcworkspace -scheme Boopstash -configuration Release \
@@ -110,13 +132,20 @@ jobs:
             MARKETING_VERSION="$VERSION" CURRENT_PROJECT_VERSION="${{ github.run_number }}" \
             CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="Developer ID Application" \
             DEVELOPMENT_TEAM="$APPLE_TEAM_ID" OTHER_CODE_SIGN_FLAGS="--timestamp" \
+            BOOPSTASH_ENTITLEMENTS='$(SRCROOT)/App/BoopstashCloud.entitlements' \
+            BOOPSTASH_PROFILE="$PROFILE_NAME" \
             ENABLE_HARDENED_RUNTIME=YES | tail -5
 
       - name: Export with Developer ID
         env:
           APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+          PROFILE_NAME: ${{ steps.profile.outputs.name }}
         run: |
-          sed "s/__TEAM_ID__/$APPLE_TEAM_ID/" packaging/release/ExportOptions.plist > "$RUNNER_TEMP/ExportOptions.plist"
+          # PlistBuddy, not sed: the profile's name is free text.
+          options="$RUNNER_TEMP/ExportOptions.plist"
+          cp packaging/release/ExportOptions.plist "$options"
+          /usr/libexec/PlistBuddy -c "Set :teamID $APPLE_TEAM_ID" "$options"
+          /usr/libexec/PlistBuddy -c "Set :provisioningProfiles:com.lemehmet.boopstash $PROFILE_NAME" "$options"
           xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/BoopStash.xcarchive" \
             -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" -exportPath "$RUNNER_TEMP/export" | tail -3
 
@@ -126,6 +155,7 @@ jobs:
       - name: Check the version, signature, architectures and entitlements
         env:
           VERSION: ${{ steps.version.outputs.version }}
+          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
         run: |
           app="$RUNNER_TEMP/export/BoopStash.app"
           shown="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")"
@@ -141,12 +171,21 @@ jobs:
           codesign -d --entitlements - --xml "$app" 2>/dev/null | plutil -convert json -o - - > "$RUNNER_TEMP/entitlements.json"
           # Keys and values: app-sandbox=false must fail as loudly as a
           # missing or extra entitlement.
+          # iCloud for the app's own container (ADR 0008); the profile adds the
+          # app and team identifiers.
           python3 - "$RUNNER_TEMP/entitlements.json" <<'PY'
-          import json, sys
+          import json, os, sys
           actual = json.load(open(sys.argv[1]))
+          team = os.environ["APPLE_TEAM_ID"]
           expected = {
               "com.apple.security.app-sandbox": True,
               "com.apple.security.files.user-selected.read-write": True,
+              "com.apple.developer.icloud-container-identifiers": ["iCloud.com.lemehmet.boopstash"],
+              "com.apple.developer.icloud-services": ["CloudKit"],
+              "com.apple.developer.icloud-container-environment": "Production",
+              "com.apple.developer.aps-environment": "production",
+              "com.apple.application-identifier": f"{team}.com.lemehmet.boopstash",
+              "com.apple.developer.team-identifier": team,
           }
           if actual != expected:
               sys.exit(f"::error::entitlements are {actual}, expected {expected}")

@@ -5,7 +5,8 @@
   SECURITY.md; adding one needs an ADR (see docs/adr/0001).
   - user-selected read-write: export writes only into a folder the user picks
     in an open panel (ADR 0002).
-  iCloud (CloudKit) arrives with sync in milestone 5. There is deliberately no
+  Builds that embed a provisioning profile use BoopstashCloud.entitlements,
+  which adds iCloud for sync (ADR 0008). There is deliberately no
   network-client entitlement.
 -->
 <plist version="1.0">
