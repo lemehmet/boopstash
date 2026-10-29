@@ -6,19 +6,40 @@ breaking changes may land in a minor release.
 
 ## Unreleased
 
+## v0.1.1 — 2026-10-28
+
+### New
+
 - The app is now spelled BoopStash: BoopStash.app, its menus and the
   Services item "Save to BoopStash". Your notes and settings carry over, as
   the bundle identifier is unchanged; `brew upgrade` replaces Boopstash.app.
-
 - BoopStash has its own icon.
-
 - Settings ▸ Editor: the editor's font and size, and a theme for light and
   dark appearance from Solarized, GitHub, One, Gruvbox, Dracula and Nord, or
   the system's colours. A theme sets the background, text, selection and
   highlighting together. Settings are now in General, Editor and Keyboard tabs.
 
-- The app reports its real version (0.1.0 called itself 1.0 in About
-  BoopStash and Finder).
+### Fixes
+
+- The app reports its real version (0.1.0 called itself 1.0 in About and
+  Finder).
+- Line commands (move, duplicate, delete line) keep each line's own ending,
+  including Windows CRLF.
+- Paste as Markdown: link addresses with spaces, parentheses, backslashes or
+  control characters no longer break the link; brackets in link text are
+  escaped; spaces at a link's edges stay in the sentence; and the command is
+  available only while a note's editor has focus.
+- Dropped files: a file that grows, or comes from a pipe, is read in full up
+  to the 5 MB limit and no further, and a drop is credited to the app it came
+  from at the moment of the drop.
+- Titles: indented JSON is still recognised as JSON, a failed Apple
+  Intelligence title is retried rather than recorded, and turning that
+  setting off discards replies still on their way. Notes that start with a
+  very long run of blank lines are titled without reading all of them.
+- Export: titles with characters YAML cannot hold as written (such as
+  U+FFFE) are escaped in the front matter.
+- A save from ⌃⌥⌘V that fails brings the window forward so the reason is
+  visible.
 
 ## v0.1.0 — 2026-10-28
 
