@@ -143,6 +143,27 @@ public final class NoteStore: Sendable {
                 t.column("value", .blob)
             }
         }
+        migrator.registerMigration("v7-sync-stale") { db in
+            // Uploads built before a row had to go up as new (the server
+            // deleted it, or the keychain was reset) carry a version below
+            // this; their acknowledgements must not restore its metadata
+            // (#106). Versions only grow (v8), so it is never cleared.
+            for table in ["note", "attachment"] {
+                try db.alter(table: table) { t in
+                    t.add(column: "syncStaleBelow", .integer).notNull().defaults(to: 0)
+                }
+            }
+        }
+        migrator.registerMigration("v8-sync-acknowledged") { db in
+            // `syncPending` becomes a version that only grows; a row is
+            // pending while it is above the last version the server
+            // acknowledged. Rows in step today (0) stay in step.
+            for table in ["note", "attachment"] {
+                try db.alter(table: table) { t in
+                    t.add(column: "syncAcknowledged", .integer).notNull().defaults(to: 0)
+                }
+            }
+        }
         return migrator
     }
 
@@ -165,11 +186,20 @@ public final class NoteStore: Sendable {
             guard var attachment = try NoteAttachment.fetchOne(db, key: attachmentID) else { return }
             attachment.recognizedText = text
             try attachment.update(db)
-            let needle = attachmentID.uuidString.lowercased()
-            let rows = try Row.fetchAll(db, sql: "SELECT id, body FROM note WHERE instr(lower(body), ?) > 0", arguments: [needle])
-            for row in rows {
-                try Self.refreshImageText(of: row["id"], body: row["body"], db)
-            }
+            // The text travels with the attachment, so it is a change to send
+            // (#108).
+            try db.execute(sql: "UPDATE attachment SET syncPending = syncPending + 1 WHERE id = ?", arguments: [attachmentID])
+            try Self.refreshImageText(referencing: attachmentID, db)
+        }
+    }
+
+    /// Updates the `imageText` of every note whose body mentions the
+    /// attachment.
+    static func refreshImageText(referencing attachmentID: UUID, _ db: Database) throws {
+        let needle = attachmentID.uuidString.lowercased()
+        let rows = try Row.fetchAll(db, sql: "SELECT id, body FROM note WHERE instr(lower(body), ?) > 0", arguments: [needle])
+        for row in rows {
+            try refreshImageText(of: row["id"], body: row["body"], db)
         }
     }
 
@@ -274,8 +304,14 @@ public final class NoteStore: Sendable {
     /// not saved yet, and a reference that undo can still bring back; run
     /// this at launch, not while editing. Returns how many attachments and
     /// stray files were removed.
+    ///
+    /// Attachments already in iCloud are swept only with `includingSynced`:
+    /// another device may refer to one in a note not fetched yet, and the
+    /// tombstone would delete it there too (#107). Sync passes it once a
+    /// fetch has completed since launch; with sync off, nothing can arrive.
     @discardableResult
-    public func removeUnreferencedAttachments(olderThan grace: TimeInterval = 24 * 60 * 60, now: Date = Date()) throws -> Int {
+    public func removeUnreferencedAttachments(olderThan grace: TimeInterval = 24 * 60 * 60, now: Date = Date(),
+                                              includingSynced: Bool = false) throws -> Int {
         let cutoff = now.addingTimeInterval(-grace)
         let (orphans, known) = try writer.write { db -> ([NoteAttachment], Set<UUID>) in
             let referenced = try Self.referencedAttachmentIDs(db)
@@ -285,8 +321,9 @@ public final class NoteStore: Sendable {
                 SELECT id FROM attachment WHERE syncSystemFields IS NOT NULL AND noteID IS NOT NULL
                     AND noteID NOT IN (SELECT id FROM note)
                 """)
+            let synced = includingSynced ? [] : try UUID.fetchSet(db, sql: "SELECT id FROM attachment WHERE syncSystemFields IS NOT NULL")
             let orphans = try NoteAttachment.filter(Column("createdAt") < cutoff).fetchAll(db)
-                .filter { !referenced.contains($0.id) && !waiting.contains($0.id) }
+                .filter { !referenced.contains($0.id) && !waiting.contains($0.id) && !synced.contains($0.id) }
             for orphan in orphans { try Self.recordTombstone(kind: .attachment, id: orphan.id, table: "attachment", db) }
             try NoteAttachment.deleteAll(db, keys: orphans.map(\.id))
             let known = try UUID.fetchSet(db, sql: "SELECT id FROM attachment")
