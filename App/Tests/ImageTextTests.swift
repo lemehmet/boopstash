@@ -31,8 +31,18 @@ struct ImageTextTests {
     /// read by the rerun the request sets up (#91). Without the rerun it
     /// would wait for the next change or launch.
     @Test func aRequestAsTheWorkerFinishesIsRunAfterIt() async throws {
-        let model = AppModel(store: try .inMemory())
+        // The model's first list delivery also asks for recognition; let it
+        // come and go first, so the hook below is the only request left.
+        // (Attachments do not touch the observed note table, so adding them
+        // causes no further delivery.)
+        let store = try NoteStore.inMemory()
+        try store.save(Note(body: "seen", createdAt: Date()))
+        let model = AppModel(store: store)
         model.recognizeText = { _ in "text" }
+        let settled = ContinuousClock.now + .seconds(5)
+        while ContinuousClock.now < settled, model.notes.isEmpty { try await Task.sleep(for: .milliseconds(20)) }
+        try #require(model.notes.count == 1)
+        try await Task.sleep(for: .milliseconds(200))
         let first = try model.store.addAttachment(Data([1]), contentType: "public.png", noteID: nil)
         var second: NoteAttachment?
         model.recognitionWillFinish = {
