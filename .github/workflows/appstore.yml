@@ -65,9 +65,11 @@ jobs:
       - name: fastlane ${{ inputs.platform }} ${{ inputs.lane }}
         env:
           APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
-          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          # A key of its own, with the Admin role that creating distribution
+          # certificates needs; notarization keeps the narrower ASC_KEY_*.
+          ASC_KEY_ID: ${{ secrets.ASC_APPSTORE_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
-          ASC_KEY_CONTENT: ${{ secrets.ASC_KEY_CONTENT }}
+          ASC_KEY_CONTENT: ${{ secrets.ASC_APPSTORE_KEY_CONTENT }}
           MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
           MATCH_S3_BUCKET: ${{ secrets.MATCH_S3_BUCKET }}
           MATCH_S3_REGION: ${{ secrets.MATCH_S3_REGION }}
