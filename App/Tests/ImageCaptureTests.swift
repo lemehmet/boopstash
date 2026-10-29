@@ -134,6 +134,32 @@ struct ImageCaptureTests {
         #expect(model.banner?.contains("the limit for images is 20 MB") == true)
     }
 
+    /// An image type BoopStash does not keep is still an image: blank
+    /// text beside it does not replace the selection, and the reason shows.
+    @Test func anUnsupportedImageIsRefusedWithItsReason() throws {
+        let view = try editorWithSelection("keep this", NSRange(location: 5, length: 4))
+        var message: String?
+        view.showMessage = { message = $0 }
+        view.pastePlainText(from: pasteboard {
+            $0.setString("", forType: .string)
+            // SVG: an image type the pasteboard does not translate to TIFF
+            // (BMP it would, and that is then kept as a TIFF).
+            $0.setData(Data("<svg xmlns='http://www.w3.org/2000/svg'/>".utf8), forType: NSPasteboard.PasteboardType("public.svg-image"))
+        })
+        #expect(view.string == "keep this")
+        #expect(message?.contains("which BoopStash does not keep") == true, "got \(message ?? "nil")")
+    }
+
+    @Test func anUnreadableImageFileSaysSo() throws {
+        let view = try editorWithSelection("", NSRange(location: 0, length: 0))
+        var message: String?
+        view.showMessage = { message = $0 }
+        let missing = FileManager.default.temporaryDirectory.appendingPathComponent("gone-\(UUID().uuidString).png")
+        let board = pasteboard { $0.writeObjects([missing as NSURL]) }
+        #expect(view.insertImage(from: board) == .refused)
+        #expect(message == "Could not read \(missing.lastPathComponent).")
+    }
+
     /// Whitespace beside an image is no text, as for clipboard capture (#90).
     @Test func whitespaceBesideAnImagePastesTheImage() throws {
         let view = try editorWithSelection("", NSRange(location: 0, length: 0))

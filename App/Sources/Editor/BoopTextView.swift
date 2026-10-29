@@ -418,21 +418,36 @@ final class BoopTextView: NSTextView {
         var offered = false
         var references: [String] = []
         let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+        // Every refusal says why: storeImage reports what it refuses; the
+        // cases it never sees are reported here.
         for url in urls {
-            guard let type = UTType(filenameExtension: url.pathExtension), ImageImport.accepts(type) else { continue }
+            guard let type = UTType(filenameExtension: url.pathExtension), type.conforms(to: .image) else { continue }
             offered = true
-            guard let data = DropCapture.readPrefix(of: url, limit: ImageImport.sizeLimit + 1) else { continue }
+            guard ImageImport.accepts(type) else {
+                showMessage?(ImageImport.message(for: .unsupported(type: type.localizedDescription ?? type.identifier), name: url.lastPathComponent))
+                continue
+            }
+            guard let data = DropCapture.readPrefix(of: url, limit: ImageImport.sizeLimit + 1) else {
+                showMessage?("Could not read \(url.lastPathComponent).")
+                continue
+            }
             if let reference = storeImage(data, type) { references.append(reference) }
         }
-        if urls.isEmpty, let type = ImageImport.preferredType(among: pasteboard.types?.map(\.rawValue) ?? []) {
+        let types = pasteboard.types?.map(\.rawValue) ?? []
+        if urls.isEmpty, let type = ImageImport.preferredType(among: types) {
             offered = true
-            if let data = pasteboard.data(forType: NSPasteboard.PasteboardType(type.identifier)),
-               let reference = storeImage(data, type) {
-                references.append(reference)
+            if let data = pasteboard.data(forType: NSPasteboard.PasteboardType(type.identifier)) {
+                if let reference = storeImage(data, type) { references.append(reference) }
+            } else {
+                showMessage?("Could not read the image on the clipboard.")
             }
+        } else if urls.isEmpty, let other = types.compactMap(UTType.init).first(where: { $0.conforms(to: .image) }) {
+            // An image of a type not kept (BMP, say) is still an image: it
+            // outranks blank text, and is refused with its reason.
+            offered = true
+            showMessage?(ImageImport.message(for: .unsupported(type: other.localizedDescription ?? other.identifier)))
         }
         guard !references.isEmpty else {
-            // The reason is already in the banner (from storeImage).
             if offered { NSSound.beep() }
             return offered ? .refused : .none
         }
