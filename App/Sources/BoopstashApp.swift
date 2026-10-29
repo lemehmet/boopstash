@@ -27,6 +27,9 @@ struct BoopstashApp: App {
             if let model = delegate.model {
                 MainWindow(model: model, keymap: keymap, appearance: appearance)
                     .frame(minWidth: 720, minHeight: 420)
+                    #if DEBUG
+                    .modifier(DemoSettingsOpener(enabled: model.demoSync && UserDefaults.standard.bool(forKey: "BoopStashDemoSettings")))
+                    #endif
             } else {
                 ContentUnavailableView("BoopStash could not open its notes", systemImage: "exclamationmark.triangle",
                                        description: Text(delegate.openError ?? ""))
@@ -202,3 +205,27 @@ struct MainWindow: View {
         }
     }
 }
+
+#if DEBUG
+/// Screenshots (#69): opens Settings over the demo window, once it has its
+/// size.
+private struct DemoSettingsOpener: ViewModifier {
+    let enabled: Bool
+    @Environment(\.openSettings) private var openSettings
+
+    func body(content: Content) -> some View {
+        content.task {
+            guard enabled else { return }
+            try? await Task.sleep(for: .seconds(3))
+            openSettings()
+            // Tall enough to show every section, centred on the main window.
+            try? await Task.sleep(for: .seconds(1))
+            guard let settings = NSApp.windows.first(where: { ["General", "Editor", "Keyboard"].contains($0.title) }),
+                  let main = NSApp.windows.first(where: { $0.frame.width == 1440 && $0.frame.height == 900 })
+            else { return }
+            let size = NSSize(width: 560, height: 820)
+            settings.setFrame(NSRect(x: main.frame.midX - size.width / 2, y: main.frame.midY - size.height / 2, width: size.width, height: size.height), display: true)
+        }
+    }
+}
+#endif

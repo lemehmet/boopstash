@@ -65,7 +65,13 @@ struct NotesView: View {
             if let old { model.drafts.flush(old) }
         }
         .sheet(isPresented: $settingsShown) { SettingsView(model: model) }
-        .onAppear { if selection == nil { selection = model.initialSelection } }
+        .onAppear {
+            if selection == nil { selection = model.initialSelection }
+            #if DEBUG
+            // A shot of Settings (screenshots' demo mode).
+            if model.demoSync, UserDefaults.standard.bool(forKey: "BoopStashDemoSettings") { settingsShown = true }
+            #endif
+        }
         .safeAreaInset(edge: .bottom) {
             if let banner = model.banner {
                 HStack {
@@ -137,15 +143,15 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 Section {
-                    Toggle("Sync with iCloud", isOn: Binding(get: { enabled && LiveSyncEngine.isAvailable }, set: { model.setSyncEnabled($0) }))
-                        .disabled(!LiveSyncEngine.isAvailable)
-                    if !LiveSyncEngine.isAvailable {
+                    Toggle("Sync with iCloud", isOn: Binding(get: { (enabled || model.demoSync) && model.canSync }, set: { if !model.demoSync { model.setSyncEnabled($0) } }))
+                        .disabled(!model.canSync)
+                    if !model.canSync {
                         Text("This build of BoopStash was not signed for iCloud, so it cannot sync.")
                             .font(.caption).foregroundStyle(.secondary)
                     } else if enabled, let problem = model.syncAccountProblem ?? model.syncProblem {
                         Text(problem).font(.caption).foregroundStyle(.red)
                     }
-                    if LiveSyncEngine.isAvailable, model.isSyncing {
+                    if model.canSync, model.showsSyncing {
                         LabeledContent("Last synced", value: model.lastSynced.map { $0.formatted(date: .abbreviated, time: .shortened) } ?? "Not yet")
                         Button("Sync Now") { model.syncNow() }
                     }

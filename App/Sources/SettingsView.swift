@@ -5,12 +5,15 @@ struct SettingsView: View {
     let model: AppModel?
     @Binding var preset: KeymapPreset
     @Binding var linuxHabits: Bool
+    /// The tab last shown, kept between openings (and chosen by the
+    /// screenshots).
+    @AppStorage("settingsTab") private var tab = "general"
 
     var body: some View {
-        TabView {
-            Tab("General", systemImage: "gearshape") { GeneralSettings(model: model) }
-            Tab("Editor", systemImage: "textformat") { EditorSettingsView() }
-            Tab("Keyboard", systemImage: "keyboard") { KeyboardSettings(preset: $preset, linuxHabits: $linuxHabits) }
+        TabView(selection: $tab) {
+            Tab("General", systemImage: "gearshape", value: "general") { GeneralSettings(model: model) }
+            Tab("Editor", systemImage: "textformat", value: "editor") { EditorSettingsView() }
+            Tab("Keyboard", systemImage: "keyboard", value: "keyboard") { KeyboardSettings(preset: $preset, linuxHabits: $linuxHabits) }
         }
         .frame(width: 520)
     }
@@ -72,9 +75,9 @@ struct SyncSettings: View {
 
     var body: some View {
         Section("iCloud") {
-            Toggle("Sync with iCloud", isOn: Binding(get: { enabled && LiveSyncEngine.isAvailable }, set: { model.setSyncEnabled($0) }))
-                .disabled(!LiveSyncEngine.isAvailable)
-            if !LiveSyncEngine.isAvailable {
+            Toggle("Sync with iCloud", isOn: Binding(get: { (enabled || model.demoSync) && model.canSync }, set: { if !model.demoSync { model.setSyncEnabled($0) } }))
+                .disabled(!model.canSync)
+            if !model.canSync {
                 Text("This build of BoopStash was not signed for iCloud, so it cannot sync.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -84,7 +87,7 @@ struct SyncSettings: View {
                     Text(problem).font(.caption).foregroundStyle(.red)
                 }
             }
-            if LiveSyncEngine.isAvailable, model.isSyncing {
+            if model.canSync, model.showsSyncing {
                 LabeledContent("Last synced") {
                     HStack {
                         Text(model.lastSynced.map { $0.formatted(date: .abbreviated, time: .shortened) } ?? "Not yet")
