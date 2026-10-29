@@ -9,14 +9,14 @@ cask "boopstash" do
   version "__VERSION__"
   sha256 "__SHA256__"
 
-  url "https://github.com/lemehmet/boopstash/releases/download/v#{version}/Boopstash-#{version}.zip"
-  name "Boopstash"
+  url "https://github.com/lemehmet/boopstash/releases/download/v#{version}/BoopStash-#{version}.zip"
+  name "BoopStash"
   desc "Scratch pad that keeps what you paste: searchable, private, on-device"
   homepage "https://github.com/lemehmet/boopstash"
 
   depends_on macos: :tahoe
 
-  app "Boopstash.app"
+  app "BoopStash.app"
 
   # The sandbox keeps everything in the app's container.
   zap trash: [

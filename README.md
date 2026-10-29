@@ -1,4 +1,4 @@
-# Boopstash
+# BoopStash
 
 A scratch pad for macOS that remembers. Paste a snippet, an agent's output or a
 screenshot, and find it again next week by what it was about, when you copied
@@ -23,13 +23,13 @@ Gatekeeper prompt. Or download the `.zip` from
 SHA-256 checksum:
 
 ```sh
-shasum -a 256 -c Boopstash-0.1.0.zip.sha256
+shasum -a 256 -c BoopStash-0.1.1.zip.sha256
 ```
 
 ## What it is for
 
 [Boop](https://github.com/IvanMathy/Boop) is a superb scratch pad: a buffer to
-paste into, format and transform. Boopstash starts from the same idea and
+paste into, format and transform. BoopStash starts from the same idea and
 changes three things:
 
 - **Buffers persist.** Every note is kept, titled for you on-device, and
@@ -45,7 +45,7 @@ Boop's scripts keep working.
 ## Privacy
 
 - Your notes stay on your devices and in your own iCloud. There is no
-  Boopstash server.
+  BoopStash server.
 - No analytics, no crash reporting service, no update checks.
 - Any AI is Apple's on-device model. Nothing is sent to a cloud model.
 - The app never watches your clipboard. It reads it only when you paste or
@@ -82,7 +82,7 @@ mise exec -- tuist build Boopstash      # the macOS app
 
 ## Acknowledgements
 
-Boopstash is inspired by [Boop](https://github.com/IvanMathy/Boop) by Ivan
+BoopStash is inspired by [Boop](https://github.com/IvanMathy/Boop) by Ivan
 Mathy. It is a separate project, not affiliated with Boop.
 
 ## License

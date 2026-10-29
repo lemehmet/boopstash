@@ -9,7 +9,7 @@ and will agree a fix and disclosure timeline with you.
 
 ## Security model
 
-Boopstash keeps whatever its user chose to paste into it, which can include
+BoopStash keeps whatever its user chose to paste into it, which can include
 credentials, internal URLs and other people's data. The posture is shaped
 around that, and each point is enforceable rather than aspirational:
 

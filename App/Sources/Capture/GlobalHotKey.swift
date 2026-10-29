@@ -41,7 +41,7 @@ final class GlobalHotKey {
         if Self.current === self { Self.current = nil }
     }
 
-    /// ⌃⌥⌘V: "paste" into Boopstash from anywhere.
+    /// ⌃⌥⌘V: "paste" into BoopStash from anywhere.
     static func captureClipboard(action: @escaping @MainActor () -> Void) -> GlobalHotKey? {
         GlobalHotKey(keyCode: kVK_ANSI_V, modifiers: cmdKey | optionKey | controlKey, action: action)
     }

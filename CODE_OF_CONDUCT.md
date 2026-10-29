@@ -2,7 +2,7 @@
 
 ## Our pledge
 
-We want Boopstash to be a welcoming, harassment-free community for everyone,
+We want BoopStash to be a welcoming, harassment-free community for everyone,
 regardless of background or identity. We pledge to interact in ways that are
 respectful, considerate, and constructive, and to make participation a positive
 experience for all.

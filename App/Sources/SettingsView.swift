@@ -23,7 +23,7 @@ struct GeneralSettings: View {
         Form {
             Section("Capture") {
                 Toggle("⌃⌥⌘V saves the clipboard from any app", isOn: $globalShortcut)
-                Text("Also in every app's Services menu: select text, then Services ▸ Save to Boopstash.")
+                Text("Also in every app's Services menu: select text, then Services ▸ Save to BoopStash.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -37,7 +37,7 @@ struct GeneralSettings: View {
                     .foregroundStyle(.secondary)
             }
             Section("Clipboard history") {
-                Text("Boopstash never watches the clipboard. For a history of what you copied, macOS has one: turn on System Settings ▸ Spotlight ▸ Clipboard, then press ⌘Space and ⌘4.")
+                Text("BoopStash never watches the clipboard. For a history of what you copied, macOS has one: turn on System Settings ▸ Spotlight ▸ Clipboard, then press ⌘Space and ⌘4.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
@@ -153,7 +153,7 @@ struct KeyboardSettings: View {
                 }
                 Toggle("Linux habits (Ctrl+arrows move by word)", isOn: $linuxHabits)
                 if linuxHabits {
-                    Text("macOS gives Ctrl+← and Ctrl+→ to Mission Control. Change those in System Settings ▸ Keyboard ▸ Keyboard Shortcuts ▸ Mission Control for them to reach Boopstash.")
+                    Text("macOS gives Ctrl+← and Ctrl+→ to Mission Control. Change those in System Settings ▸ Keyboard ▸ Keyboard Shortcuts ▸ Mission Control for them to reach BoopStash.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -224,7 +224,7 @@ enum KeybindingsFile {
         if !FileManager.default.fileExists(atPath: url.path) {
             try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             let template = """
-            // Boopstash key bindings, in VS Code's keybindings.json format.
+            // BoopStash key bindings, in VS Code's keybindings.json format.
             // Commands are listed in docs/adr/0003; prefix one with "-" to remove a binding.
             [
               // { "key": "cmd+d", "command": "duplicateLineDown" },
