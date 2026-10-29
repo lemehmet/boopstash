@@ -1,0 +1,5 @@
+# Both apps are one universal-purchase record with the same bundle ID
+# (ADR 0004). The team and the App Store Connect key come from the
+# environment (APPLE_TEAM_ID, ASC_*), never from this file.
+app_identifier("com.lemehmet.boopstash")
+team_id(ENV["APPLE_TEAM_ID"]) if ENV["APPLE_TEAM_ID"]

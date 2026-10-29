@@ -1,0 +1,13 @@
+# fastlane match: App Store signing identities, encrypted (MATCH_PASSWORD),
+# in a private S3-compatible bucket of BoopStash's own. Every coordinate
+# and credential comes from the environment; see CONTRIBUTING.md.
+#
+# The bucket is DigitalOcean Spaces, which match's S3 backend reaches
+# through the SDK's endpoint variable, not a match option.
+ENV["AWS_ENDPOINT_URL_S3"] ||= ENV["MATCH_S3_ENDPOINT"]
+
+storage_mode("s3")
+s3_bucket(ENV["MATCH_S3_BUCKET"])
+s3_region(ENV["MATCH_S3_REGION"])
+type("appstore")
+app_identifier(["com.lemehmet.boopstash"])

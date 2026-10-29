@@ -1,0 +1,140 @@
+# App Store and TestFlight lanes (#68, ADR 0004). The Homebrew channel keeps
+# its own Developer ID signing in release.yml; these lanes build the same
+# sandboxed app with App Store signing from fastlane match.
+#
+# Every lane needs the App Store Connect API key (ASC_KEY_ID, ASC_ISSUER_ID,
+# ASC_KEY_CONTENT as base64) and the match storage (MATCH_PASSWORD,
+# MATCH_S3_*). `bootstrap` is the only lane that may create certificates or
+# profiles; the others read them.
+
+default_platform(:mac)
+
+APP_ID = "com.lemehmet.boopstash"
+REQUIRED = %w[ASC_KEY_ID ASC_ISSUER_ID ASC_KEY_CONTENT APPLE_TEAM_ID MATCH_PASSWORD
+              MATCH_S3_BUCKET MATCH_S3_REGION MATCH_S3_ENDPOINT MATCH_S3_ACCESS_KEY MATCH_S3_SECRET_ACCESS_KEY].freeze
+
+def require_environment!
+  missing = REQUIRED.select { |name| ENV[name].to_s.strip.empty? }
+  return if missing.empty?
+
+  UI.user_error!("missing: #{missing.join(', ')}. See CONTRIBUTING.md ▸ App Store.")
+end
+
+def api_key
+  @api_key ||= app_store_connect_api_key(
+    key_id: ENV["ASC_KEY_ID"], issuer_id: ENV["ASC_ISSUER_ID"],
+    key_content: ENV["ASC_KEY_CONTENT"], is_key_content_base64: true
+  )
+end
+
+def signing(platform, readonly:, **extra)
+  match(
+    type: "appstore", platform: platform, app_identifier: [APP_ID],
+    api_key: api_key, team_id: ENV["APPLE_TEAM_ID"], readonly: readonly,
+    s3_access_key: ENV["MATCH_S3_ACCESS_KEY"], s3_secret_access_key: ENV["MATCH_S3_SECRET_ACCESS_KEY"],
+    **extra
+  )
+  ENV["sigh_#{APP_ID}_appstore_profile-name"] ||
+    ENV["sigh_#{APP_ID}_appstore_#{platform}_profile-name"] ||
+    UI.user_error!("match did not report a profile for #{APP_ID} on #{platform}")
+end
+
+# The version is the changelog's newest release; the build number counts up
+# from the newest on TestFlight for that platform.
+def version
+  File.read("../CHANGELOG.md")[/^## v(\d+\.\d+\.\d+)/, 1] || UI.user_error!("no released version in CHANGELOG.md")
+end
+
+def build_number(platform)
+  latest_testflight_build_number(api_key: api_key, app_identifier: APP_ID, platform: platform == "macos" ? "osx" : "ios",
+                                 version: version, initial_build_number: 0) + 1
+end
+
+# What's new: the changelog section for this version, as plain text.
+def release_notes
+  section = File.read("../CHANGELOG.md")[/^## v#{Regexp.escape(version)}.*?\n(.*?)(?=^## |\z)/m, 1].to_s
+  section.gsub(/^### /, "").gsub(/\*\*(.+?)\*\*/, '\1').gsub(/`([^`]*)`/, '\1').strip[0, 4000]
+end
+
+def generate
+  sh("cd .. && mise exec -- tuist install && mise exec -- tuist generate --no-open")
+end
+
+platform :mac do
+  desc "Once, and after a capability changes: create or renew the App Store certificates and profiles in match"
+  lane :bootstrap do
+    require_environment!
+    signing("macos", readonly: false, force: true, additional_cert_types: ["mac_installer_distribution"])
+  end
+
+  desc "Build with App Store signing (no upload with upload:false)"
+  lane :beta do |options|
+    require_environment!
+    setup_ci
+    profile = signing("macos", readonly: true, additional_cert_types: ["mac_installer_distribution"])
+    generate
+    build_mac_app(
+      workspace: "Boopstash.xcworkspace", scheme: "Boopstash", configuration: "Release",
+      export_method: "app-store", installer_cert_name: "3rd Party Mac Developer Installer",
+      output_directory: "../build/appstore", clean: true,
+      export_options: { provisioningProfiles: { APP_ID => profile } },
+      xcargs: [
+        "CODE_SIGN_STYLE=Manual", "DEVELOPMENT_TEAM=#{ENV['APPLE_TEAM_ID']}", "CODE_SIGN_IDENTITY='Apple Distribution'",
+        "BOOPSTASH_ENTITLEMENTS='$(SRCROOT)/App/BoopstashCloud.entitlements'", "BOOPSTASH_PROFILE='#{profile}'",
+        "MARKETING_VERSION=#{version}", "CURRENT_PROJECT_VERSION=#{build_number('macos')}"
+      ].join(" ")
+    )
+    next if options[:upload] == false
+
+    upload_to_testflight(api_key: api_key, app_platform: "osx", skip_waiting_for_build_processing: true,
+                         changelog: release_notes)
+  end
+
+  desc "Submit the newest TestFlight build with the metadata for review"
+  lane :release do
+    require_environment!
+    deliver(api_key: api_key, platform: "osx", app_version: version, submit_for_review: true,
+            skip_binary_upload: true, skip_screenshots: true, force: true, precheck_include_in_app_purchases: false,
+            release_notes: { "en-US" => release_notes }, automatic_release: false,
+            submission_information: { add_id_info_uses_idfa: false, export_compliance_uses_encryption: false })
+  end
+end
+
+platform :ios do
+  desc "Once, and after a capability changes: create or renew the App Store certificate and profile in match"
+  lane :bootstrap do
+    require_environment!
+    signing("ios", readonly: false, force: true)
+  end
+
+  desc "Build with App Store signing (no upload with upload:false)"
+  lane :beta do |options|
+    require_environment!
+    setup_ci
+    profile = signing("ios", readonly: true)
+    generate
+    build_ios_app(
+      workspace: "Boopstash.xcworkspace", scheme: "BoopStashMobile", configuration: "Release",
+      export_method: "app-store", output_directory: "../build/appstore", clean: true,
+      export_options: { provisioningProfiles: { APP_ID => profile } },
+      xcargs: [
+        "CODE_SIGN_STYLE=Manual", "DEVELOPMENT_TEAM=#{ENV['APPLE_TEAM_ID']}", "CODE_SIGN_IDENTITY='Apple Distribution'",
+        "BOOPSTASH_PROFILE='#{profile}'",
+        "MARKETING_VERSION=#{version}", "CURRENT_PROJECT_VERSION=#{build_number('ios')}"
+      ].join(" ")
+    )
+    next if options[:upload] == false
+
+    upload_to_testflight(api_key: api_key, app_platform: "ios", skip_waiting_for_build_processing: true,
+                         changelog: release_notes)
+  end
+
+  desc "Submit the newest TestFlight build with the metadata for review"
+  lane :release do
+    require_environment!
+    deliver(api_key: api_key, platform: "ios", app_version: version, submit_for_review: true,
+            skip_binary_upload: true, skip_screenshots: true, force: true, precheck_include_in_app_purchases: false,
+            release_notes: { "en-US" => release_notes }, automatic_release: false,
+            submission_information: { add_id_info_uses_idfa: false, export_compliance_uses_encryption: false })
+  end
+end

@@ -141,6 +141,9 @@ let project = Project(
                 "CFBundleShortVersionString": "$(MARKETING_VERSION)",
                 "CFBundleVersion": "$(CURRENT_PROJECT_VERSION)",
                 "LSApplicationCategoryType": "public.app-category.developer-tools",
+                // Only the system's encryption (CloudKit, HTTPS of iCloud):
+                // nothing to declare for export (App Store Connect asks).
+                "ITSAppUsesNonExemptEncryption": false,
                 "NSHumanReadableCopyright": "Copyright © 2026 boopstash contributors. Apache-2.0.",
                 // Services ▸ Save to BoopStash (ServicesProvider.saveSelection).
                 "NSServices": [
@@ -197,10 +200,19 @@ let project = Project(
                 // One scene: two editors on one note would each save their own
                 // copy over the other's until editors sync live.
                 "UIApplicationSceneManifest": ["UIApplicationSupportsMultipleScenes": false],
+                "ITSAppUsesNonExemptEncryption": false,
             ]),
             sources: ["iOS/Sources/**"],
+            resources: ["iOS/Resources/**"],
             dependencies: [.target(name: "BoopstashCore")],
-            settings: .settings(base: ["PRODUCT_MODULE_NAME": "BoopStashMobile"])
+            settings: .settings(base: [
+                "PRODUCT_MODULE_NAME": "BoopStashMobile",
+                "ASSETCATALOG_COMPILER_APPICON_NAME": "AppIcon",
+                // The App Store profile, for this target only (fastlane's
+                // ios beta); Core is a framework and takes none.
+                "BOOPSTASH_PROFILE": "",
+                "PROVISIONING_PROFILE_SPECIFIER": "$(BOOPSTASH_PROFILE)",
+            ])
         ),
         // Runs scripts and JavaScript formatters in its own sandboxed
         // process, so a runaway script can be stopped (ADR 0007).
