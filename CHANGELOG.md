@@ -6,6 +6,44 @@ breaking changes may land in a minor release.
 
 ## Unreleased
 
+## v0.3.0 — 2026-10-29
+
+### New
+
+- **iCloud sync.** Settings ▸ General ▸ iCloud ▸ Sync with iCloud keeps your
+  notes and images the same on every Mac, iPhone and iPad signed in to your
+  Apple Account. It is off until you turn it on; until then BoopStash does
+  not contact iCloud at all, not even to check your account. Every field of
+  every note is encrypted on your device before it is uploaded; with
+  Advanced Data Protection that encryption is end to end. A note changed on
+  two devices at once keeps both versions: the other device's text, and
+  yours as a conflict copy. Sync Now and the last sync time are in Settings.
+- **BoopStash for iPhone and iPad.** The same notes, search and age filter,
+  syntax highlighting and light editing (plain text, no smart punctuation),
+  the Markdown preview, New Note from Clipboard, and text recognised in
+  images, all on the device.
+- **Share to BoopStash** on iPhone and iPad: share text, a link or up to ten
+  images from any app and they become a note. Anything it cannot keep (an
+  image over 20 MB, say) is named rather than dropped silently.
+- **On the Mac App Store** as well as Homebrew, as one free app for Mac,
+  iPhone and iPad.
+
+### Fixed
+
+- A note was not titled by Apple Intelligence when its text had only
+  reference-style images, and images referenced that way, or from inside
+  a quote, could be removed by the clean-up of unused images.
+- Detecting what kind of text was pasted no longer reads all of a very
+  large paste.
+
+### Privacy
+
+- The only network access is your own iCloud, and only with sync on. The
+  app has no network entitlement: iCloud is reached through the system
+  (ADR 0008).
+- The App Store listing says Data Not Collected, and the iOS app's privacy
+  manifest records the same.
+
 ## v0.2.0 — 2026-10-29
 
 ### New
