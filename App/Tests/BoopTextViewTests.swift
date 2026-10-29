@@ -237,6 +237,18 @@ struct BoopTextViewTests {
         host.close()
     }
 
+    /// #25: the editor reports focus, which disables editor-only commands
+    /// elsewhere.
+    @Test func editorReportsFocusChanges() {
+        let host = Host()
+        var focus: [Bool] = []
+        host.view.onFocusChange = { focus.append($0) }
+        host.window.makeFirstResponder(nil)
+        host.window.makeFirstResponder(host.view)
+        #expect(focus == [false, true])
+        host.close()
+    }
+
     static func renderingColor(in view: NSTextView, at offset: Int) -> NSColor? {
         guard let layout = view.textLayoutManager, let content = layout.textContentManager,
               let location = content.location(content.documentRange.location, offsetBy: offset) else { return nil }

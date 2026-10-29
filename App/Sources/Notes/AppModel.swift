@@ -13,12 +13,32 @@ final class AppModel {
     }
     /// A one-line message for the window, such as why a capture was refused.
     var banner: String?
+    /// Whether the key window's focus is a note editor; editor-only menu
+    /// commands are disabled otherwise (#25). It is worked out from the key
+    /// window rather than kept from editor reports: each window keeps its
+    /// own first responder, so an editor in a window that is no longer key
+    /// still holds focus there.
+    private(set) var editorHasFocus = false
+    /// The key window's first responder; replaceable for tests.
+    @ObservationIgnored var keyResponder: () -> NSResponder? = { NSApp.keyWindow?.firstResponder }
+
+    func refreshEditorFocus() {
+        editorHasFocus = keyResponder() is BoopTextView
+    }
+
+    /// An editor gained or lost focus, or went away. The window's first
+    /// responder settles only after the change, so look on the next turn.
+    func editorFocusMayHaveChanged() {
+        DispatchQueue.main.async { [weak self] in self?.refreshEditorFocus() }
+    }
 
     @ObservationIgnored private let sources = SourceAppTracker()
     @ObservationIgnored private var observation: Task<Void, Never>?
     @ObservationIgnored private var pendingSaves: [UUID: Task<Void, Never>] = [:]
     @ObservationIgnored private var drafts: [UUID: Note] = [:]
     @ObservationIgnored private var dayObserver: NSObjectProtocol?
+    @ObservationIgnored private var keyObservers: [NSObjectProtocol] = []
+    @ObservationIgnored private let notifications: NotificationCenter
     /// Requests in flight, so leaving and re-entering a note does not ask
     /// twice. What was titled is persisted on the note (`modelTitledHash`).
     @ObservationIgnored private var modelTitleRequests: Set<UUID> = []
@@ -44,18 +64,29 @@ final class AppModel {
     /// when the selection changes or the app quits.
     static let saveDelay: Duration = .milliseconds(400)
 
-    init(store: NoteStore) {
+    /// `notifications` carries the window-key changes; tests pass their own
+    /// so their posts never reach the rest of the app.
+    init(store: NoteStore, notifications: NotificationCenter = .default) {
         self.store = store
+        self.notifications = notifications
         observe()
         // The store re-evaluates "last N days" on every fetch, but with no
         // edits nothing fetches; at midnight, start over so "Today" is today.
         dayObserver = NotificationCenter.default.addObserver(forName: .NSCalendarDayChanged, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.observe() }
         }
+        // Another window becoming key (another note window, Settings) moves
+        // focus without any editor resigning.
+        keyObservers = [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification].map { name in
+            notifications.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.refreshEditorFocus() }
+            }
+        }
     }
 
     isolated deinit {
         if let dayObserver { NotificationCenter.default.removeObserver(dayObserver) }
+        keyObservers.forEach(notifications.removeObserver)
     }
 
     static func live() throws -> AppModel {

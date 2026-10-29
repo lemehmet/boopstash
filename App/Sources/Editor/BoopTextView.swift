@@ -9,6 +9,21 @@ final class BoopTextView: NSTextView {
     var indentUnit = "    "
     /// Shows a one-line message in the window (the app's banner).
     var showMessage: ((String) -> Void)?
+    /// Told when the editor gains or loses keyboard focus, so menu commands
+    /// that only make sense in an editor can be disabled elsewhere (#25).
+    var onFocusChange: ((Bool) -> Void)?
+
+    override func becomeFirstResponder() -> Bool {
+        let became = super.becomeFirstResponder()
+        if became { onFocusChange?(true) }
+        return became
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let resigned = super.resignFirstResponder()
+        if resigned { onFocusChange?(false) }
+        return resigned
+    }
     let syntax = SyntaxPainter()
 
     /// Always `init(usingTextLayoutManager: true)`: the frame-based

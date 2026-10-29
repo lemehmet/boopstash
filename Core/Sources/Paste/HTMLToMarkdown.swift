@@ -96,6 +96,11 @@ struct Writer {
     static let headings = ["h1": 1, "h2": 2, "h3": 3, "h4": 4, "h5": 5, "h6": 6]
     static let invisible: Set<String> = ["script", "style", "title", "template", "noscript", "head", "meta", "link"]
 
+    /// Inside a link's text, the page's own brackets and backslashes are
+    /// escaped as text, before any Markdown is generated around them; the
+    /// code spans and hard breaks the writer adds are left alone.
+    var inLinkLabel = false
+
     /// Renders a run of siblings as blocks. Consecutive inline content forms
     /// one paragraph.
     func blocks(_ nodes: [HTMLNode]) -> [String] {
@@ -244,8 +249,9 @@ struct Writer {
 
     func inline(_ node: HTMLNode) -> String {
         if node.isText {
-            return node.text.replacingOccurrences(of: "\u{00A0}", with: " ")
+            let text = node.text.replacingOccurrences(of: "\u{00A0}", with: " ")
                 .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            return inLinkLabel ? Self.escapedLabel(text) : text
         }
         if Self.invisible.contains(node.name) { return "" }
         let content = { inline(node.children) }
@@ -258,7 +264,7 @@ struct Writer {
         case "em", "i": return wrap(content(), "*")
         case "del", "s", "strike": return wrap(content(), "~~")
         case "code", "kbd", "samp": return inlineCode(node.rawText)
-        case "a": return link(node, text: content())
+        case "a": return link(node, text: Writer(inLinkLabel: true).inline(node.children))
         case "img": return image(node)
         case "span": return styled(node, content())
         case "input": return ""
@@ -314,17 +320,52 @@ struct Writer {
 
     func link(_ node: HTMLNode, text: String) -> String {
         let href = (node.attributes["href"] ?? "").trimmingCharacters(in: .whitespaces)
-        let label = text.trimmingCharacters(in: .whitespaces)
         guard !href.isEmpty, !href.lowercased().hasPrefix("javascript:"), !href.hasPrefix("#") else { return text }
-        if label.isEmpty { return "<\(href)>" }
-        if label == href || "mailto:" + label == href { return "<\(href)>" }
-        return "[\(label)](\(href.replacingOccurrences(of: " ", with: "%20")))"
+        // Spaces at the anchor's edges belong to the sentence around it, so
+        // they stay outside the link rather than vanish (#24).
+        // An anchor of nothing but spaces keeps them once, before the link.
+        let label = text.trimmingCharacters(in: .whitespaces)
+        let leading = label.isEmpty ? text : String(text.prefix(while: \.isWhitespace))
+        let trailing = label.isEmpty ? "" : String(text.reversed().prefix(while: \.isWhitespace).reversed())
+        let destination = Self.destination(href)
+        let link: String
+        if label.isEmpty || label == href || "mailto:" + label == href {
+            link = "<\(destination)>"
+        } else {
+            link = "[\(label)](\(destination))"
+        }
+        return leading + link + trailing
     }
 
     func image(_ node: HTMLNode) -> String {
         let alt = node.attributes["alt"] ?? ""
         let src = node.attributes["src"] ?? ""
         guard !src.isEmpty, !src.lowercased().hasPrefix("data:") else { return alt }
-        return "![\(alt)](\(src.replacingOccurrences(of: " ", with: "%20")))"
+        return "![\(Self.escapedLabel(alt))](\(Self.destination(src)))"
+    }
+
+    /// A link destination that cannot end early: spaces and every ASCII
+    /// control (which CommonMark does not allow in one), parentheses, angle
+    /// brackets and backslashes (which would escape a closing parenthesis)
+    /// are percent-encoded, which every URL reader accepts
+    /// (#23). Other characters are left as the page wrote them.
+    static func destination(_ url: String) -> String {
+        var out = ""
+        for scalar in url.unicodeScalars {
+            switch scalar {
+            case "(", ")", "<", ">", "\\", "\u{7F}", "\u{00}"..."\u{20}":
+                out += String(format: "%%%02X", scalar.value)
+            default:
+                out.unicodeScalars.append(scalar)
+            }
+        }
+        return out
+    }
+
+    /// Link text with brackets escaped, so a `]` cannot close the label.
+    static func escapedLabel(_ text: String) -> String {
+        text.replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "[", with: "\\[")
+            .replacingOccurrences(of: "]", with: "\\]")
     }
 }

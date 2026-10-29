@@ -22,6 +22,37 @@ import Testing
         #expect(md(##"<a href="#section">jump</a>"##) == "jump")
     }
 
+    @Test func destinationsCannotEndEarly() {
+        #expect(md(#"<a href="https://x.test/a)b">x</a>"#) == "[x](https://x.test/a%29b)")
+        #expect(md(#"<a href="https://x.test/wiki/Foo_(bar)">Foo</a>"#) == "[Foo](https://x.test/wiki/Foo_%28bar%29)")
+        #expect(md(#"<img src="https://x.test/a b).png" alt="pic">"#) == "![pic](https://x.test/a%20b%29.png)")
+        #expect(md(#"<a href="https://x.test/a<b>c">x</a>"#) == "[x](https://x.test/a%3Cb%3Ec)")
+        #expect(md(#"<a href="https://x.test/a\">x</a>"#) == "[x](https://x.test/a%5C)", "a trailing backslash would escape the )")
+        #expect(md(#"<a href="https://x.test/a&#11;b&#12;c">x</a>"#) == "[x](https://x.test/a%0Bb%0Cc)")
+        #expect(md(#"<a href="https://x.test/a&#1;b&#127;c">x</a>"#) == "[x](https://x.test/a%01b%7Fc)")
+        #expect(md(#"<a href="https://x.test/caf&#233;">x</a>"#) == "[x](https://x.test/café)", "non-ASCII is left as written")
+    }
+
+    @Test func labelsEscapeTheirBrackets() {
+        #expect(md(#"<a href="https://x.test">see [1] here</a>"#) == #"[see \[1\] here](https://x.test)"#)
+        #expect(md(#"<img src="https://x.test/i.png" alt="a]b">"#) == #"![a\]b](https://x.test/i.png)"#)
+        #expect(md(#"<a href="https://x.test">a\b</a>"#) == #"[a\\b](https://x.test)"#)
+    }
+
+    /// Escaping applies to the page's text, not to the code spans and hard
+    /// breaks generated inside the label.
+    @Test func labelEscapingLeavesGeneratedMarkdownAlone() {
+        #expect(md(#"<a href="https://x.test"><code>[1]</code></a>"#) == "[`[1]`](https://x.test)")
+        #expect(md(#"<a href="https://x.test">one<br>two</a>"#) == "[one\\\ntwo](https://x.test)")
+        #expect(md(#"<a href="https://x.test"><b>[x]</b></a>"#) == #"[**\[x\]**](https://x.test)"#)
+    }
+
+    @Test func linkEdgeWhitespaceStaysInTheSentence() {
+        #expect(md(#"<p>a<a href="https://x.test"> b</a>c</p>"#) == "a [b](https://x.test)c")
+        #expect(md(#"<p>see<a href="https://x.test">docs </a>now</p>"#) == "see[docs](https://x.test) now")
+        #expect(md(#"<p>a<a href="https://x.test"> </a>b</p>"#) == "a <https://x.test>b", "whitespace-only kept once")
+    }
+
     @Test func imagesAreReferencesNeverData() {
         #expect(md(#"<img src="https://x.y/i.png" alt="chart">"#) == "![chart](https://x.y/i.png)")
         #expect(md(#"<img src="data:image/png;base64,AAAA" alt="inline">"#) == "inline")
@@ -110,7 +141,7 @@ import Testing
     }
 
     @Test func quotedGreaterThanStaysInTheAttribute() {
-        #expect(md(#"<a href="https://e.test/?q=a>b">link</a>"#) == "[link](https://e.test/?q=a>b)")
+        #expect(md(#"<a href="https://e.test/?q=a>b">link</a>"#) == "[link](https://e.test/?q=a%3Eb)")
         #expect(md(#"<img alt='x > y' src="https://e.test/i.png">"#) == "![x > y](https://e.test/i.png)")
     }
 
