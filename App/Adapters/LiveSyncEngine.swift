@@ -131,6 +131,14 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
         }
     }
 
+    /// Gives the engine what another process (the share extension) wrote
+    /// to the store: the store's observation sees only this process's
+    /// writes. For the app's return to the foreground (#138).
+    func takeChangesFromElsewhere() {
+        guard let engine = state.withLock({ $0.engine }) else { return }
+        requeuePending(engine)
+    }
+
     /// Fetches and sends now, for Sync Now. Everything the store still has
     /// to send is given to the engine again first: a failed save (a full
     /// iCloud, say) leaves the engine without it.
@@ -441,7 +449,9 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
             incoming.append(Incoming(record: sync, systemFields: Self.systemFields(of: record), asset: asset))
         }
         let deleted = deletions.compactMap { id, type in SyncRecord.Kind(rawValue: type).map { Deletion(kind: $0, name: id.recordName) } }
-        let outcome = await apply(incoming, deletions: deleted, generation: generation)
+        // Every record that arrived, read or not, voids an older deletion of
+        // it waiting to be applied again (#138).
+        let outcome = await apply(incoming, deletions: deleted, generation: generation, arrived: records.map(\.recordID.recordName))
         let retry = unreadable + (outcome?.failedRecords ?? [])
         if !retry.isEmpty { refetch(retry, attempt: attempt, generation: generation) }
         if let failed = outcome?.failedDeletions, !failed.isEmpty { retryDeletions(failed, attempt: attempt, generation: generation) }
@@ -450,12 +460,14 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
     /// `retrying`: the deletions are retries, applied only if their record
     /// has not come back since; checked here, in the same main-actor step
     /// as any record that clears it, so none can land in between.
-    private func apply(_ incoming: [Incoming], deletions: [Deletion], generation: Int, retrying: Bool = false) async -> RemoteOutcome? {
+    private func apply(_ incoming: [Incoming], deletions: [Deletion], generation: Int, retrying: Bool = false,
+                       arrived: [String] = []) async -> RemoteOutcome? {
         let store = self.store
         return await applyRemote { [self] in
             var outcome = RemoteOutcome()
             // Fetched for an account this device no longer syncs with.
             guard state.withLock({ $0.generation }) == generation else { return outcome }
+            state.withLock { state in for name in arrived { state.retryingDeletions.remove(name) } }
             for item in incoming {
                 do {
                     let copy = try store.applyServerRecord(item.record, systemFields: item.systemFields, assetData: item.asset)
