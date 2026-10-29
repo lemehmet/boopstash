@@ -8,12 +8,15 @@ import UIKit
 struct PlainTextEditor: UIViewRepresentable {
     let text: String
     let choice: SyntaxChoice
+    /// Why a paste was refused, for the banner (ADR 0001).
+    var showMessage: (String) -> Void = { _ in }
     let onChange: (String) -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(onChange: onChange) }
 
     func makeUIView(context: Context) -> PlainTextView {
         let view = PlainTextView(usingTextLayoutManager: true)
+        view.showMessage = showMessage
         view.font = .monospacedSystemFont(ofSize: 15, weight: .regular)
         view.autocorrectionType = .no
         view.autocapitalizationType = .none
@@ -151,7 +154,10 @@ struct PlainTextEditor: UIViewRepresentable {
             let visible = visibleRange(in: view, layout: layout, content: content, length: length)
             guard let target = textRange(visible, in: content) else { return }
             layout.removeRenderingAttribute(.foregroundColor, for: target)
-            guard let engine else { return }
+            guard let engine else {
+                Self.redisplay(view)
+                return
+            }
             let text = view.text
             let highlights = await engine.highlights(in: visible).highlights
             guard !Task.isCancelled, view.text == text else { return }
@@ -159,6 +165,15 @@ struct PlainTextEditor: UIViewRepresentable {
                 guard let role = HighlightRole.role(for: highlight.name), let range = textRange(highlight.range, in: content) else { continue }
                 layout.addRenderingAttribute(.foregroundColor, value: Self.color(for: role), for: range)
             }
+            Self.redisplay(view)
+        }
+
+        /// Rendering attributes change no text, so nothing asks for a
+        /// redraw by itself: the text view and its layout fragment views are
+        /// told to draw again (#100), as on the Mac.
+        static func redisplay(_ view: UIView) {
+            view.setNeedsDisplay()
+            for subview in view.subviews { redisplay(subview) }
         }
 
         /// The viewport's characters plus a margin, clamped to the text.
@@ -198,10 +213,21 @@ struct PlainTextEditor: UIViewRepresentable {
 
 /// Paste is plain text, as on the Mac (ADR 0003).
 final class PlainTextView: UITextView {
+    var showMessage: (String) -> Void = { _ in }
+
     override func paste(_ sender: Any?) {
+        // A refusal says why rather than looking like a broken paste (#102).
+        switch CapturePolicy.decide(types: UIPasteboard.general.types) {
+        case .refuseConcealed:
+            showMessage("Not pasted: the clipboard holds a password manager item.")
+            return
+        case .refuseTransient:
+            showMessage("Not pasted: the app it came from marked it as not to be kept.")
+            return
+        case .accept:
+            break
+        }
         guard let text = UIPasteboard.general.string else { return }
-        let types = UIPasteboard.general.types
-        guard CapturePolicy.decide(types: types) == .accept else { return }
         insertText(text)
     }
 }

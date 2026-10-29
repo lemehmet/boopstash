@@ -27,6 +27,9 @@ public final class NoteDrafts {
 
     public var hasUnsavedEdits: Bool { !drafts.isEmpty }
 
+    /// The notes with unsaved edits.
+    public var draftIDs: [UUID] { Array(drafts.keys) }
+
     public func edit(_ id: UUID, body: String, now: Date = Date()) {
         guard var note = note(id: id), note.body != body else { return }
         note.body = body

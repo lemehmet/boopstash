@@ -92,7 +92,7 @@ struct NoteEditorView: View {
                     if changed { model.drafts.rename(note.id, to: title) }
                 }
             Divider()
-            PlainTextEditor(text: note.body, choice: note.syntaxChoice) { model.drafts.edit(note.id, body: $0) }
+            PlainTextEditor(text: note.body, choice: note.syntaxChoice, showMessage: { model.banner = $0 }) { model.drafts.edit(note.id, body: $0) }
         }
         .onAppear { title = note.titleIsUserSet ? note.title : "" }
         .onDisappear { model.drafts.flush(note.id) }
