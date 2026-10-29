@@ -91,7 +91,11 @@ final class AppModel {
 
     static func live() throws -> AppModel {
         let support = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
-        return AppModel(store: try NoteStore.open(at: support.appendingPathComponent("Boopstash/notes.sqlite")))
+        let store = try NoteStore.open(at: support.appendingPathComponent("Boopstash/notes.sqlite"))
+        // Attachments nothing refers to any more, after a day's grace so an
+        // undo can still bring a deleted image back within a session.
+        try? store.removeUnreferencedAttachments()
+        return AppModel(store: store)
     }
 
     private func observe() {

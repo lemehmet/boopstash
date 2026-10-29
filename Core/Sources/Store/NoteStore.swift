@@ -5,24 +5,31 @@ import GRDB
 /// triggers (ADR 0002). Every read and write goes through here.
 public final class NoteStore: Sendable {
     public let writer: any DatabaseWriter
+    /// Where attachment files live: `Attachments/` beside the database.
+    public let attachmentsDirectory: URL
 
     /// `writer` must have been made with `NoteStore.configuration`, which
     /// installs the SQL functions the queries use.
-    init(_ writer: any DatabaseWriter) throws {
+    init(_ writer: any DatabaseWriter, attachmentsDirectory: URL) throws {
         self.writer = writer
+        self.attachmentsDirectory = attachmentsDirectory
         try Self.migrator.migrate(writer)
     }
 
-    /// A store in memory, for tests and previews.
+    /// A store in memory, for tests and previews. Its attachments go in a
+    /// fresh temporary folder.
     public static func inMemory() throws -> NoteStore {
-        try NoteStore(DatabaseQueue(configuration: configuration))
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("boopstash-\(UUID().uuidString)", isDirectory: true)
+        return try NoteStore(DatabaseQueue(configuration: configuration), attachmentsDirectory: folder)
     }
 
     /// The store at `url`, created if missing. A pool lets the list read
     /// while the editor writes.
     public static func open(at url: URL) throws -> NoteStore {
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        return try NoteStore(DatabasePool(path: url.path, configuration: configuration))
+        let folder = url.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        return try NoteStore(DatabasePool(path: url.path, configuration: configuration),
+                             attachmentsDirectory: folder.appendingPathComponent("Attachments", isDirectory: true))
     }
 
     static var configuration: Configuration {
@@ -85,6 +92,18 @@ public final class NoteStore: Sendable {
                 t.add(column: "syntaxOverride", .text)
             }
         }
+        migrator.registerMigration("v4-attachments") { db in
+            // No foreign key to the note: a reference copied into another
+            // note keeps the file alive after its first note is deleted.
+            try db.create(table: "attachment") { t in
+                t.primaryKey("id", .blob)
+                t.column("noteID", .blob).indexed()
+                t.column("contentType", .text).notNull()
+                t.column("byteSize", .integer).notNull()
+                t.column("createdAt", .datetime).notNull()
+                t.column("recognizedText", .text)
+            }
+        }
         return migrator
     }
 
@@ -94,9 +113,89 @@ public final class NoteStore: Sendable {
         try writer.write { db in try note.save(db) }
     }
 
+    /// Deletes a note, and the attachments it owned that no other note
+    /// refers to.
     @discardableResult
     public func delete(id: UUID) throws -> Bool {
-        try writer.write { db in try Note.deleteOne(db, key: id) }
+        let (deleted, orphans) = try writer.write { db -> (Bool, [NoteAttachment]) in
+            guard try Note.deleteOne(db, key: id) else { return (false, []) }
+            let owned = try NoteAttachment.filter(Column("noteID") == id).fetchAll(db)
+            guard !owned.isEmpty else { return (true, []) }
+            let referenced = try Self.referencedAttachmentIDs(db)
+            let orphans = owned.filter { !referenced.contains($0.id) }
+            try NoteAttachment.deleteAll(db, keys: orphans.map(\.id))
+            return (true, orphans)
+        }
+        removeFiles(of: orphans)
+        return deleted
+    }
+
+    // MARK: Attachments
+
+    /// Stores `data` as a new attachment of `noteID` and returns it. The file
+    /// is written before the row, so a row never points at nothing.
+    public func addAttachment(_ data: Data, contentType: String, noteID: UUID?, now: Date = Date()) throws -> NoteAttachment {
+        let attachment = NoteAttachment(noteID: noteID, contentType: contentType, byteSize: data.count, createdAt: now)
+        try FileManager.default.createDirectory(at: attachmentsDirectory, withIntermediateDirectories: true)
+        let url = fileURL(for: attachment)
+        try data.write(to: url, options: .atomic)
+        do {
+            try writer.write { db in try attachment.insert(db) }
+        } catch {
+            try? FileManager.default.removeItem(at: url)
+            throw error
+        }
+        return attachment
+    }
+
+    public func attachment(id: UUID) throws -> NoteAttachment? {
+        try writer.read { db in try NoteAttachment.fetchOne(db, key: id) }
+    }
+
+    /// The attachments a body refers to that exist, in no particular order.
+    public func attachments(referencedBy body: String) throws -> [NoteAttachment] {
+        let ids = AttachmentReference.ids(in: body)
+        guard !ids.isEmpty else { return [] }
+        return try writer.read { db in try NoteAttachment.fetchAll(db, keys: Array(ids)) }
+    }
+
+    public func fileURL(for attachment: NoteAttachment) -> URL {
+        attachmentsDirectory.appendingPathComponent(attachment.fileName)
+    }
+
+    public func data(for attachment: NoteAttachment) throws -> Data {
+        try Data(contentsOf: fileURL(for: attachment))
+    }
+
+    /// Removes attachments no note refers to that are older than `grace`.
+    /// The grace period covers an image pasted into a note whose edit is
+    /// not saved yet, and a reference that undo can still bring back; run
+    /// this at launch, not while editing. Returns how many were removed.
+    @discardableResult
+    public func removeUnreferencedAttachments(olderThan grace: TimeInterval = 24 * 60 * 60, now: Date = Date()) throws -> Int {
+        let orphans = try writer.write { db -> [NoteAttachment] in
+            let referenced = try Self.referencedAttachmentIDs(db)
+            let cutoff = now.addingTimeInterval(-grace)
+            let orphans = try NoteAttachment.filter(Column("createdAt") < cutoff).fetchAll(db)
+                .filter { !referenced.contains($0.id) }
+            try NoteAttachment.deleteAll(db, keys: orphans.map(\.id))
+            return orphans
+        }
+        removeFiles(of: orphans)
+        return orphans.count
+    }
+
+    /// Every attachment ID any note body refers to. Only bodies that mention
+    /// the scheme are read.
+    static func referencedAttachmentIDs(_ db: Database) throws -> Set<UUID> {
+        let bodies = try String.fetchAll(db, sql: "SELECT body FROM note WHERE instr(body, ?) > 0", arguments: [AttachmentReference.scheme])
+        return bodies.reduce(into: Set<UUID>()) { $0.formUnion(AttachmentReference.ids(in: $1)) }
+    }
+
+    /// After the rows are gone; a file left behind by a failure here is
+    /// harmless, a row without its file is not.
+    private func removeFiles(of attachments: [NoteAttachment]) {
+        for attachment in attachments { try? FileManager.default.removeItem(at: fileURL(for: attachment)) }
     }
 
     public func note(id: UUID) throws -> Note? {
