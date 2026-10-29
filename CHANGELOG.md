@@ -6,6 +6,11 @@ breaking changes may land in a minor release.
 
 ## Unreleased
 
+- Text in images is searchable: BoopStash reads the text of each image
+  with Apple's on-device text recognition, so a word in a screenshot finds
+  its note. Nothing leaves the Mac. A note found that way is marked "in
+  image" in the list.
+
 ## v0.1.1 — 2026-10-28
 
 ### New

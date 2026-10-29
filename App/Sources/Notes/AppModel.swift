@@ -105,10 +105,40 @@ final class AppModel {
             do {
                 for try await notes in values {
                     self?.notes = notes
+                    // A change may have added an image to read.
+                    self?.recognizePendingImages()
                 }
             } catch {
                 self?.banner = "Could not read notes: \(error.localizedDescription)"
             }
+        }
+    }
+
+    // MARK: Image text
+
+    /// Reads an image's text on device (#53); replaceable for tests.
+    @ObservationIgnored var recognizeText: @Sendable (Data) async -> String? = { await LiveTextRecognizer.text(in: $0) }
+    @ObservationIgnored private var recognition: Task<Void, Never>?
+
+    /// Reads the text of images not read yet, one at a time at low
+    /// priority, so screenshots become searchable. Images from before this
+    /// existed are read too. An image deleted meanwhile is skipped.
+    func recognizePendingImages() {
+        guard recognition == nil else { return }
+        recognition = Task(priority: .utility) { [weak self] in
+            while let self, let next = try? self.store.attachmentsAwaitingRecognition(limit: 1).first {
+                let data = try? self.store.data(for: next)
+                // Unreadable (a missing file, say): recorded as empty, so it
+                // is not tried on every change.
+                let text = if let data { await self.recognizeText(data) ?? "" } else { "" }
+                guard (try? self.store.attachment(id: next.id)) != nil else { continue }
+                do {
+                    try self.store.setRecognizedText(text, for: next.id)
+                } catch {
+                    break
+                }
+            }
+            self?.recognition = nil
         }
     }
 
