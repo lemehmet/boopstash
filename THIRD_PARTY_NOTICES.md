@@ -31,8 +31,8 @@ unmodified, pinned in `Vendor/`:
 
 | Project | Version | Licence |
 |---|---|---|
-| [Prettier](https://prettier.io) (standalone and its babel, estree, typescript, postcss, html, yaml and markdown plugins) | 3.9.9 | MIT (`Vendor/Prettier/LICENSE`, which also lists the licences of the code Prettier bundles) |
-| [sql-formatter](https://github.com/sql-formatter-org/sql-formatter) | 15.9.0 | MIT (`Vendor/SQLFormatter/LICENSE`) |
+| [Prettier](https://prettier.io) (standalone and its babel, estree, typescript, postcss, html, yaml and markdown plugins) | 3.9.9 | MIT (`Vendor/Prettier/LICENSE`); the code Prettier bundles is listed with its licences in `Vendor/Prettier/THIRD-PARTY-NOTICES.md`, as Prettier ships it |
+| [sql-formatter](https://github.com/sql-formatter-org/sql-formatter) | 15.9.0 | MIT (`Vendor/SQLFormatter/LICENSE`); its bundle includes [nearley](https://github.com/kach/nearley) (MIT) |
 
 ## Boop scripts
 

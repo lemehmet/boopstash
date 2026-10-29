@@ -73,6 +73,18 @@ struct JSFormatTests {
         #expect(second == .success("let a = 1;\n"))
     }
 
+    /// A format cancelled while it waits behind another is never sent.
+    @Test func aCancelledQueuedFormatIsSkipped() async throws {
+        let huge = "const a = [" + Array(repeating: "{ b: 1 }", count: 100_000).joined(separator: ", ") + "];"
+        let slow = try #require(JSFormatting.request(for: huge, as: .javascript))
+        let small = try #require(JSFormatting.request(for: "let a=1", as: .javascript))
+        async let first = runner.format(slow)
+        let queued = Task { await runner.format(small) }
+        queued.cancel()
+        _ = await first
+        #expect(await queued.value == .failure(FormatError(message: "cancelled", line: nil, column: nil)))
+    }
+
     /// The service's watchdog stops a format that runs too long, and the
     /// next one works in a fresh process.
     @Test func aRunawayFormatIsStopped() async throws {

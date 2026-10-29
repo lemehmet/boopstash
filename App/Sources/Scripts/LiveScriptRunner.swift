@@ -14,22 +14,25 @@ final class LiveScriptRunner {
     /// fail whatever request was in flight beside it.
     private var queue: Task<Void, Never>?
 
-    private func serialized<T: Sendable>(_ work: @escaping @MainActor () async -> T) async -> T {
+    /// A request whose caller was cancelled while it waited its turn (a
+    /// superseded format) is skipped, never sent, and answers `cancelled`.
+    private func serialized<T: Sendable>(cancelled: T, _ work: @escaping @MainActor () async -> T) async -> T {
         let previous = queue
-        let task = Task { @MainActor in
+        let task = Task { @MainActor () -> T in
             await previous?.value
+            if Task.isCancelled { return cancelled }
             return await work()
         }
         queue = Task { _ = await task.value }
-        return await task.value
+        return await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
     }
 
     func run(_ request: ScriptRequest) async -> ScriptResponse {
-        await serialized { await self.send(request) }
+        await serialized(cancelled: ScriptResponse(outputs: [], errors: [])) { await self.send(request) }
     }
 
     func format(_ request: JSFormatRequest) async -> Result<String, FormatError> {
-        await serialized { await self.send(request) }
+        await serialized(cancelled: .failure(FormatError(message: "cancelled", line: nil, column: nil))) { await self.send(request) }
     }
 
     private func send(_ request: ScriptRequest) async -> ScriptResponse {
