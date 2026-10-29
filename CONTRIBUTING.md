@@ -74,6 +74,7 @@ It needs, in this repository's Actions settings:
 | `ASC_KEY_ID`, `ASC_ISSUER_ID` | secrets | An App Store Connect API key (Users and Access ▸ Integrations), used by `notarytool` |
 | `ASC_KEY_CONTENT` | secret | That key's `.p8` file, `base64 -i AuthKey_XXXX.p8` |
 | `HOMEBREW_TAP_DEPLOY_KEY` | secret | The private half of a write deploy key on the tap repository |
+| `MACOS_DEVELOPER_ID_PROFILE_BASE64` | secret | The Developer ID provisioning profile for `com.lemehmet.boopstash`, made after the App ID has iCloud with the container `iCloud.com.lemehmet.boopstash` (ADR 0008), then `base64 -i profile.provisionprofile`. Changing the App ID's capabilities invalidates it: make a new one and replace the secret |
 
 To cut a release: move **Unreleased** in `CHANGELOG.md` under the new version,
 merge that, then `git tag vX.Y.Z && git push origin vX.Y.Z`.
