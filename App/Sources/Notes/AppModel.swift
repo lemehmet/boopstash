@@ -479,7 +479,9 @@ final class AppModel {
     /// Called on every keystroke, so it only records the text; the title
     /// is regenerated once typing pauses, when the draft is saved.
     func updateBody(_ id: UUID, to body: String) {
-        drafts.edit(id, body: body)
+        // The listed note, if the store cannot be read just now: the typing
+        // is kept either way.
+        drafts.edit(id, body: body, fallback: notes.first { $0.id == id })
     }
 
     /// The note's highlighting setting. Not an edit: saved at once, and the
@@ -493,7 +495,7 @@ final class AppModel {
 
     /// An empty title hands naming back to the generator.
     func rename(_ id: UUID, to title: String) {
-        drafts.rename(id, to: title)
+        drafts.rename(id, to: title, fallback: notes.first { $0.id == id })
     }
 
     /// Saves a note's pending edits. The draft is dropped only once the

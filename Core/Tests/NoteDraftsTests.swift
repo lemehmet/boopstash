@@ -82,4 +82,18 @@ import Testing
         drafts.flush(note.id)
         #expect(try store.note(id: note.id)?.syntaxOverride == "json")
     }
+
+    /// A note the store does not have (cannot read) is still drafted from
+    /// what the caller last saw.
+    @Test func editsFallBackToTheCallersNote() throws {
+        let store = try NoteStore.inMemory()
+        let drafts = NoteDrafts(store: store, saveDelay: .seconds(60))
+        let seen = Note(body: "a", createdAt: Date())
+        drafts.edit(seen.id, body: "ab")
+        #expect(drafts.note(id: seen.id) == nil, "nothing to edit without one")
+        drafts.edit(seen.id, body: "ab", fallback: seen)
+        #expect(drafts.note(id: seen.id)?.body == "ab")
+        drafts.rename(seen.id, to: "Named", fallback: seen)
+        #expect(drafts.note(id: seen.id)?.title == "Named")
+    }
 }
