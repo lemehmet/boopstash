@@ -83,11 +83,15 @@ struct ChipTests {
     /// Loading another note replaces the chip ranges at once: a delete
     /// straight after the load acts on the new text (#94).
     @Test func loadingANoteReplacesItsRangesAtOnce() {
-        let (window, view) = host(AttachmentReference.markdown(for: first) + " old note")
-        view.load("short")
+        // The old note starts with a long reference; the new one with a
+        // different reference: only ranges recomputed for the new text make
+        // one Forward Delete remove exactly its reference.
+        let (window, view) = host(AttachmentReference.markdown(for: first, alt: "a much longer alt text here") + " old note")
+        let next = AttachmentReference.markdown(for: second) + "tail"
+        view.load(next)
         view.setSelectedRange(NSRange(location: 0, length: 0))
         view.deleteForward(nil)
-        #expect(view.string == "hort")
+        #expect(view.string == "tail")
         #expect(view.chipViews.isEmpty)
         window.close()
     }

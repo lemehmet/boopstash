@@ -57,18 +57,36 @@ public enum AttachmentReference {
     /// Every destination form CommonMark (and so the preview) reads: bare
     /// or in angle brackets, with or without a title (#88). Group 1 is the
     /// alt text, group 2 the ID.
+    /// `.` crosses lines, so an escaped line break inside an alt text or
+    /// title is still an escape (#104).
     static let pattern = try! NSRegularExpression(
-        pattern: #"!\[((?:[^\]\\]|\\.)*)\]\(\s*<?(?i:attachment):([0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12})>?(?:\s+(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|\((?:[^)\\]|\\.)*\)))?\s*\)"#
+        pattern: #"!\[((?:[^\]\\]|\\.)*)\]\(\s*<?(?i:attachment):([0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12})>?(?:\s+(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|\((?:[^)\\]|\\.)*\)))?\s*\)"#,
+        options: [.dotMatchesLineSeparators]
     )
+
+    /// A link reference definition naming an attachment (`[img]: attachment:<uuid>`),
+    /// which reference-style images (`![plot][img]`) use (#104). Group 1 is
+    /// the ID.
+    static let definitionPattern = try! NSRegularExpression(
+        pattern: #"^ {0,3}\[(?:[^\]\\]|\\.)+\]:[ \t]*\n?[ \t]*<?(?i:attachment):([0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12})>?"#,
+        options: [.anchorsMatchLines, .dotMatchesLineSeparators]
+    )
+
+    /// Where each attachment ID sits, inline images and definitions both,
+    /// in order.
+    static func idRanges(in body: String) -> [NSRange] {
+        let whole = NSRange(location: 0, length: (body as NSString).length)
+        let inline = pattern.matches(in: body, range: whole).map { $0.range(at: 2) }
+        let defined = definitionPattern.matches(in: body, range: whole).map { $0.range(at: 1) }
+        return (inline + defined).sorted { $0.location < $1.location }
+    }
 
     /// Every attachment a body refers to. A reference inside a code span
     /// still counts: keeping a file too long is harmless, deleting one a note
     /// shows is not.
     public static func ids(in body: String) -> Set<UUID> {
-        let range = NSRange(body.startIndex..., in: body)
-        return Set(pattern.matches(in: body, range: range).compactMap { match in
-            Range(match.range(at: 2), in: body).flatMap { UUID(uuidString: String(body[$0])) }
-        })
+        let ns = body as NSString
+        return Set(idRanges(in: body).compactMap { UUID(uuidString: ns.substring(with: $0)) })
     }
 
     /// Each reference with where it is (UTF-16, as the editor counts), its
@@ -85,7 +103,8 @@ public enum AttachmentReference {
     /// The body without its image references: its text alone, for deciding
     /// whether there is anything to read beyond the images.
     public static func removingReferences(from body: String) -> String {
-        pattern.stringByReplacingMatches(in: body, range: NSRange(location: 0, length: (body as NSString).length), withTemplate: "")
+        let inline = pattern.stringByReplacingMatches(in: body, range: NSRange(location: 0, length: (body as NSString).length), withTemplate: "")
+        return definitionPattern.stringByReplacingMatches(in: inline, range: NSRange(location: 0, length: (inline as NSString).length), withTemplate: "")
     }
 
     /// The body with each reference's destination replaced by `destination`
@@ -94,8 +113,7 @@ public enum AttachmentReference {
         let ns = body as NSString
         var result = ""
         var last = 0
-        for match in pattern.matches(in: body, range: NSRange(location: 0, length: ns.length)) {
-            let idRange = match.range(at: 2)
+        for idRange in idRanges(in: body) {
             guard let id = UUID(uuidString: ns.substring(with: idRange)), let target = destination(id) else { continue }
             // Replace "attachment:<uuid>" (the scheme sits just before the ID).
             let start = idRange.location - scheme.utf16.count

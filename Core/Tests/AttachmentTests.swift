@@ -85,6 +85,25 @@ import Testing
         #expect(try store.attachment(id: image.id) != nil, "\(body) still shows it")
     }
 
+    /// Reference-style images and escaped line breaks in titles (#104).
+    @Test(arguments: ["![plot][img]\n\n[img]: attachment:%@", "![plot][img]\n\n[img]:\n  <attachment:%@> \"t\"",
+                      "![x](attachment:%@ \"a\\\nb\")"])
+    func otherFormsAreReferencesToo(_ form: String) throws {
+        let owner = try note("")
+        let image = try store.addAttachment(png, contentType: "public.png", noteID: owner.id)
+        let body = String(format: form, image.id.uuidString)
+        #expect(AttachmentReference.ids(in: body) == [image.id], "\(body)")
+        _ = try note(body)
+        try store.delete(id: owner.id)
+        #expect(try store.attachment(id: image.id) != nil)
+    }
+
+    @Test func exportRewritesDefinitionsToo() {
+        let id = UUID()
+        let body = "![x][a]\n\n[a]: attachment:\(id.uuidString)"
+        #expect(AttachmentReference.rewriting(body) { _ in "attachments/a.png" } == "![x][a]\n\n[a]: attachments/a.png")
+    }
+
     @Test func rewritingKeepsTheFormAroundTheDestination() {
         let id = UUID()
         let body = "![x](<attachment:\(id.uuidString)> \"t\")"
