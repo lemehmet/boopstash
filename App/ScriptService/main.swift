@@ -1,7 +1,8 @@
 import Foundation
 
 /// The script service's entry point (ADR 0007). Each connection gets a
-/// `ScriptHost`; runs are serial, one at a time.
+/// `ScriptHost`; requests run one at a time across all of them
+/// (`ScriptHost.inTurn`).
 final class ServiceDelegate: NSObject, NSXPCListenerDelegate {
     func listener(_ listener: NSXPCListener, shouldAcceptNewConnection connection: NSXPCConnection) -> Bool {
         connection.exportedInterface = NSXPCInterface(with: ScriptServiceProtocol.self)
