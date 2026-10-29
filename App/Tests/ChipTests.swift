@@ -180,4 +180,32 @@ struct ChipTests {
         #expect(max(image.size.width, image.size.height) <= 160)
         #expect(cost < 160 * 160 * 4 + 1024)
     }
+
+    /// Two editors showing the same image both get its thumbnail, though
+    /// only one decode runs.
+    @Test func everyWaitingEditorGetsTheThumbnail() async throws {
+        let id = UUID()
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(id).png")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let image = NSImage(size: NSSize(width: 400, height: 200), flipped: false) { rect in
+            NSColor.systemGreen.setFill()
+            rect.fill()
+            return true
+        }
+        let tiff = try #require(image.tiffRepresentation)
+        try #require(NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:])).write(to: url)
+        BoopTextView.thumbnails.removeObject(forKey: url as NSURL)
+        let text = AttachmentReference.markdown(for: id, alt: "shared") + " text"
+        let (one, first) = host(text)
+        let (two, second) = host(text)
+        func hasPicture(_ view: BoopTextView) -> Bool {
+            view.chipViews.first?.subviews.contains { ($0 as? NSImageView)?.image?.isTemplate == false } ?? false
+        }
+        for _ in 0..<100 where !(hasPicture(first) && hasPicture(second)) {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(hasPicture(first) && hasPicture(second))
+        one.close()
+        two.close()
+    }
 }

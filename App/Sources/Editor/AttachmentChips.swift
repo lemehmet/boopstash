@@ -146,14 +146,19 @@ extension BoopTextView {
     /// The full image is never loaded for a chip.
     private func thumbnail(_ url: URL) -> NSImage? {
         if let cached = Self.thumbnails.object(forKey: url as NSURL) { return cached }
-        guard !Self.decoding.contains(url) else { return nil }
-        Self.decoding.insert(url)
-        Task { [weak self] in
+        if let waiting = Self.decoding[url] {
+            waiting.add(self)
+            return nil
+        }
+        let waiting = NSHashTable<BoopTextView>.weakObjects()
+        waiting.add(self)
+        Self.decoding[url] = waiting
+        Task {
             let decoded = await Task.detached(priority: .utility) { Self.downsampled(url, maxPixels: 160) }.value
-            Self.decoding.remove(url)
+            let views = Self.decoding.removeValue(forKey: url)?.allObjects ?? []
             guard let (image, cost) = decoded else { return }
             Self.thumbnails.setObject(image, forKey: url as NSURL, cost: cost)
-            self?.scheduleChipUpdate()
+            for view in views { view.scheduleChipUpdate() }
         }
         return nil
     }

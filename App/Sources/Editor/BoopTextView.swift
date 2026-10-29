@@ -35,8 +35,14 @@ final class BoopTextView: NSTextView {
         cache.totalCostLimit = 32 * 1024 * 1024
         return cache
     }()
-    /// Thumbnails being decoded, so a rebuild does not start another.
-    @MainActor static var decoding: Set<URL> = []
+    /// Thumbnails being decoded, with every editor waiting for each: all
+    /// of them rebuild their chips when it is ready, and a rebuild does not
+    /// start another decode.
+    @MainActor static var decoding: [URL: NSHashTable<BoopTextView>] = [:]
+
+    isolated deinit {
+        if let chipScrollObserver { NotificationCenter.default.removeObserver(chipScrollObserver) }
+    }
 
     override func didChangeText() {
         super.didChangeText()
