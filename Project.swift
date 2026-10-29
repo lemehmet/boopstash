@@ -188,6 +188,7 @@ let project = Project(
             sources: ["iOS/Sources/**"],
             dependencies: [.target(name: "BoopstashCore")],
             settings: .settings(base: ["PRODUCT_MODULE_NAME": "BoopStashMobile"])
+        ),
         // Runs scripts and JavaScript formatters in its own sandboxed
         // process, so a runaway script can be stopped (ADR 0007).
         .target(
