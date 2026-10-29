@@ -8,14 +8,41 @@ import Foundation
 final class LiveScriptRunner {
     private var connection: NSXPCConnection?
 
+    /// Requests go to the service one at a time, each after the previous
+    /// one has finished: a superseded format still runs to its end or its
+    /// watchdog, and a watchdog ends the whole service process, which would
+    /// fail whatever request was in flight beside it.
+    private var queue: Task<Void, Never>?
+
+    /// A request whose caller was cancelled while it waited its turn (a
+    /// superseded format) is skipped, never sent, and answers `cancelled`.
+    private func serialized<T: Sendable>(cancelled: T, _ work: @escaping @MainActor () async -> T) async -> T {
+        let previous = queue
+        let task = Task { @MainActor () -> T in
+            await previous?.value
+            if Task.isCancelled { return cancelled }
+            return await work()
+        }
+        queue = Task { _ = await task.value }
+        return await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
+    }
+
     func run(_ request: ScriptRequest) async -> ScriptResponse {
+        await serialized(cancelled: ScriptResponse(outputs: [], errors: [])) { await self.send(request) }
+    }
+
+    func format(_ request: JSFormatRequest) async -> Result<String, FormatError> {
+        await serialized(cancelled: .failure(FormatError(message: "cancelled", line: nil, column: nil))) { await self.send(request) }
+    }
+
+    private func send(_ request: ScriptRequest) async -> ScriptResponse {
         guard let data = try? JSONEncoder().encode(request) else {
             return ScriptResponse(outputs: [], errors: ["The script could not be sent."])
         }
         let connection = connect()
         let stopped = "\(request.scriptName) took longer than \(Int(request.timeLimit)) seconds and was stopped."
         return await withCheckedContinuation { continuation in
-            let once = Once(continuation)
+            let once = Once<ScriptResponse>(continuation)
             // Both handlers run on XPC's queue, not the main actor: @Sendable
             // keeps them nonisolated, or Swift's isolation check traps.
             let proxy = connection.remoteObjectProxyWithErrorHandler { @Sendable error in
@@ -35,6 +62,32 @@ final class LiveScriptRunner {
         }
     }
 
+    /// Formats with Prettier or sql-formatter in the service.
+    private func send(_ request: JSFormatRequest) async -> Result<String, FormatError> {
+        guard let data = try? JSONEncoder().encode(request) else {
+            return .failure(FormatError(message: "The text could not be sent to the formatter.", line: nil, column: nil))
+        }
+        let connection = connect()
+        let stopped = FormatError(message: "Formatting took longer than \(Int(request.timeLimit)) seconds and was stopped.", line: nil, column: nil)
+        let response: JSFormatResponse = await withCheckedContinuation { continuation in
+            let once = Once<JSFormatResponse>(continuation)
+            let proxy = connection.remoteObjectProxyWithErrorHandler { @Sendable error in
+                once.resume(JSFormatResponse(error: (error as NSError).code == NSXPCConnectionInterrupted
+                    ? stopped : FormatError(message: "The formatter failed: \(error.localizedDescription)", line: nil, column: nil)))
+            } as? ScriptServiceProtocol
+            guard let proxy else {
+                once.resume(JSFormatResponse(error: FormatError(message: "The formatter is not available.", line: nil, column: nil)))
+                return
+            }
+            proxy.format(data) { reply in
+                once.resume((try? JSONDecoder().decode(JSFormatResponse.self, from: reply))
+                    ?? JSFormatResponse(error: FormatError(message: "The formatter's answer could not be read.", line: nil, column: nil)))
+            }
+        }
+        if let formatted = response.formatted { return .success(formatted) }
+        return .failure(response.error ?? FormatError(message: "Formatting failed.", line: nil, column: nil))
+    }
+
     private func connect() -> NSXPCConnection {
         if let connection { return connection }
         let connection = NSXPCConnection(serviceName: ScriptService.name)
@@ -48,15 +101,15 @@ final class LiveScriptRunner {
     }
 
     /// The reply and the error handler can both fire; the first one wins.
-    private final class Once: @unchecked Sendable {
+    private final class Once<Response: Sendable>: @unchecked Sendable {
         private let lock = NSLock()
-        private var continuation: CheckedContinuation<ScriptResponse, Never>?
+        private var continuation: CheckedContinuation<Response, Never>?
 
-        init(_ continuation: CheckedContinuation<ScriptResponse, Never>) {
+        init(_ continuation: CheckedContinuation<Response, Never>) {
             self.continuation = continuation
         }
 
-        func resume(_ response: ScriptResponse) {
+        func resume(_ response: Response) {
             lock.lock()
             let pending = continuation
             continuation = nil

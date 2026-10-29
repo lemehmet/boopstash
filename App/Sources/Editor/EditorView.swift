@@ -13,6 +13,8 @@ struct EditorView: NSViewRepresentable {
     var syntax: SyntaxChoice = .automatic
     var appearance = EditorAppearance()
     var showMessage: (String) -> Void = { _ in }
+    /// Prettier and sql-formatter, in the script service.
+    var jsFormat: (@Sendable (JSFormatRequest) async -> Result<String, FormatError>)?
     /// An attachment's file for its chip, nil when missing.
     var attachmentURL: ((UUID) -> URL?)?
     /// Stores a pasted or dropped image for this note; returns its markdown.
@@ -37,6 +39,7 @@ struct EditorView: NSViewRepresentable {
         view.showMessage = showMessage
         if view.attachmentURL == nil { view.attachmentURL = attachmentURL }
         view.storeImage = storeImage
+        view.jsFormat = jsFormat
         view.onFocusChange = { _ in onFocusChange() }
         view.syntax.onLanguageChange = onFocusChange
         context.coordinator.onFocusChange = onFocusChange

@@ -309,13 +309,22 @@ final class BoopTextView: NSTextView {
         let source = (snapshot as NSString).substring(with: range)
         let choice = syntax.choice
         let formatter = self.formatter
+        let jsFormat = self.jsFormat
+        let settings = EditorSettings.formatSettings()
         let generation = documentGeneration
         formatting?.cancel()
         let task = Task { [weak self] in
             // The worker is cancelled with this task, so a superseded format
             // stops parsing instead of running to the end.
-            let worker = Task.detached(priority: .userInitiated) {
-                formatter(source, choice.resolve(for: snapshot), style)
+            let worker = Task.detached(priority: .userInitiated) { () -> Result<String, FormatError> in
+                let language = choice.resolve(for: snapshot)
+                // Prettier and sql-formatter run in the script service (#56,
+                // #57); JSON and XML natively.
+                if !DocumentFormatter.canFormatNatively(language, style: style), let jsFormat,
+                   let request = JSFormatting.request(for: source, as: language, settings: settings) {
+                    return await jsFormat(request)
+                }
+                return await formatter(source, language, style)
             }
             let result = await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
             guard let self, !Task.isCancelled else { return }
@@ -331,10 +340,13 @@ final class BoopTextView: NSTextView {
         return task
     }
 
-    /// The formatter Format Document uses; replaceable for tests.
-    var formatter: @Sendable (String, SyntaxLanguage?, DocumentFormatter.Style) -> Result<String, FormatError> = {
+    /// The native formatter Format Document uses; replaceable for tests.
+    var formatter: @Sendable (String, SyntaxLanguage?, DocumentFormatter.Style) async -> Result<String, FormatError> = {
         DocumentFormatter.format($0, as: $1, style: $2)
     }
+    /// The script service's formatters, set by the host; nil leaves only
+    /// the native ones.
+    var jsFormat: (@Sendable (JSFormatRequest) async -> Result<String, FormatError>)?
     private var formatting: Task<Void, Never>?
     /// Counts loaded documents, so work started for one is not applied to
     /// the next.

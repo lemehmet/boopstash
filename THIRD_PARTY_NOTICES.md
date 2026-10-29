@@ -24,6 +24,16 @@ Java from [tree-sitter](https://github.com/tree-sitter) and
 [tree-sitter-sql](https://github.com/DerekStride/tree-sitter-sql) (MIT);
 [tree-sitter-diff](https://github.com/the-mikedavis/tree-sitter-diff) (MIT).
 
+## Formatters
+
+Format Document runs these in the sandboxed script service (ADR 0007),
+unmodified, pinned in `Vendor/`:
+
+| Project | Version | Licence |
+|---|---|---|
+| [Prettier](https://prettier.io) (standalone and its babel, estree, typescript, postcss, html, yaml and markdown plugins) | 3.9.9 | MIT (`Vendor/Prettier/LICENSE`); the code Prettier bundles is listed with its licences in `Vendor/Prettier/THIRD-PARTY-NOTICES.md`, as Prettier ships it |
+| [sql-formatter](https://github.com/sql-formatter-org/sql-formatter) | 15.9.0 | MIT (`Vendor/SQLFormatter/LICENSE`); its bundle includes [nearley](https://github.com/kach/nearley) (MIT) |
+
 ## Boop scripts
 
 The bundled scripts in `Vendor/Boop/scripts` come from

@@ -208,7 +208,12 @@ let project = Project(
                 "XPCService": ["ServiceType": "Application"],
             ]),
             sources: ["App/ScriptService/**", "App/Shared/**"],
-            resources: [.folderReference(path: "Vendor/Boop/lib")],
+            resources: [
+                .folderReference(path: "Vendor/Boop/lib"),
+                // Prettier 3.9.9 and sql-formatter 15.9.0 (#56, #57).
+                .folderReference(path: "Vendor/Prettier"),
+                .folderReference(path: "Vendor/SQLFormatter"),
+            ],
             entitlements: .file(path: "App/ScriptService.entitlements"),
             dependencies: [.target(name: "BoopstashCore")],
             settings: .settings(base: [

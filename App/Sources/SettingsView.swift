@@ -70,6 +70,10 @@ struct EditorSettingsView: View {
     @AppStorage(EditorSettings.fontSizeKey) private var fontSize = 13.0
     @AppStorage(EditorSettings.lightThemeKey) private var lightTheme = Theme.systemID
     @AppStorage(EditorSettings.darkThemeKey) private var darkTheme = Theme.systemID
+    @AppStorage(EditorSettings.tabWidthKey) private var tabWidth = 2
+    @AppStorage(EditorSettings.singleQuoteKey) private var singleQuote = false
+    @AppStorage(EditorSettings.sqlDialectKey) private var sqlDialect = "sql"
+    @AppStorage(EditorSettings.keywordCaseKey) private var keywordCase = FormatSettings.KeywordCase.preserve.rawValue
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
@@ -92,6 +96,23 @@ struct EditorSettingsView: View {
                     .foregroundStyle(.secondary)
             } header: {
                 Text("Theme")
+            }
+            Section("Formatting") {
+                Stepper(value: $tabWidth, in: 1...8) {
+                    LabeledContent("Indent width", value: "\(tabWidth) spaces")
+                }
+                Toggle("Prefer single quotes in JavaScript and TypeScript", isOn: $singleQuote)
+                Picker("SQL dialect", selection: $sqlDialect) {
+                    ForEach(FormatSettings.sqlDialects, id: \.id) { Text($0.name).tag($0.id) }
+                }
+                Picker("SQL keywords", selection: $keywordCase) {
+                    Text("As written").tag(FormatSettings.KeywordCase.preserve.rawValue)
+                    Text("UPPER CASE").tag(FormatSettings.KeywordCase.upper.rawValue)
+                    Text("lower case").tag(FormatSettings.KeywordCase.lower.rawValue)
+                }
+                Text("Edit ▸ Format Document formats JSON and XML natively; JavaScript, TypeScript, CSS, HTML, YAML and Markdown with Prettier, and SQL with sql-formatter, in BoopStash's sandboxed script process.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
             Section("Preview") {
                 ThemePreview(appearance: EditorAppearance(fontFamily: fontFamily, fontSize: fontSize,
@@ -196,6 +217,18 @@ enum EditorSettings {
     static let fontSizeKey = "editorFontSize"
     static let lightThemeKey = "editorLightTheme"
     static let darkThemeKey = "editorDarkTheme"
+    static let tabWidthKey = "formatTabWidth"
+    static let singleQuoteKey = "formatSingleQuote"
+    static let sqlDialectKey = "formatSQLDialect"
+    static let keywordCaseKey = "formatSQLKeywordCase"
+
+    /// Format Document's options, as Settings ▸ Editor ▸ Formatting has them.
+    nonisolated static func formatSettings(_ defaults: UserDefaults = .standard) -> FormatSettings {
+        FormatSettings(tabWidth: defaults.object(forKey: tabWidthKey) as? Int ?? 2,
+                       singleQuote: defaults.bool(forKey: singleQuoteKey),
+                       sqlDialect: defaults.string(forKey: sqlDialectKey) ?? "sql",
+                       keywordCase: defaults.string(forKey: keywordCaseKey).flatMap(FormatSettings.KeywordCase.init) ?? .preserve)
+    }
 
     /// Installed families whose regular face is fixed-pitch.
     static func monospacedFamilies() -> [String] {
