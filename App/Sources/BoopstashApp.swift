@@ -77,7 +77,7 @@ struct BoopstashApp: App {
         }
 
         Settings {
-            SettingsView(preset: $preset, linuxHabits: $linuxHabits)
+            SettingsView(model: delegate.model, preset: $preset, linuxHabits: $linuxHabits)
         }
     }
 }

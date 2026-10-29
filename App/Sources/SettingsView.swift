@@ -2,12 +2,13 @@ import BoopstashCore
 import SwiftUI
 
 struct SettingsView: View {
+    let model: AppModel?
     @Binding var preset: KeymapPreset
     @Binding var linuxHabits: Bool
 
     var body: some View {
         TabView {
-            Tab("General", systemImage: "gearshape") { GeneralSettings() }
+            Tab("General", systemImage: "gearshape") { GeneralSettings(model: model) }
             Tab("Editor", systemImage: "textformat") { EditorSettingsView() }
             Tab("Keyboard", systemImage: "keyboard") { KeyboardSettings(preset: $preset, linuxHabits: $linuxHabits) }
         }
@@ -16,6 +17,8 @@ struct SettingsView: View {
 }
 
 struct GeneralSettings: View {
+    /// Observed, so script problems update as the folder changes.
+    let model: AppModel?
     @AppStorage(AppModel.modelTitlesKey) private var modelTitles = true
     @AppStorage(AppDelegate.hotKeyKey) private var globalShortcut = true
 
@@ -35,6 +38,20 @@ struct GeneralSettings: View {
                      : "Apple Intelligence is not available on this Mac, so titles come from each note's first meaningful line.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            }
+            Section("Scripts") {
+                LabeledContent("Your scripts") {
+                    Button("Show Scripts Folder") { UserScriptsFolder.reveal() }
+                }
+                Text("Boop scripts dropped in this folder appear in Scripts ▸ Run Script… (⌘B). One named like a built-in script replaces it.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                let problems = (model?.scriptLibrary ?? ScriptLibrary.all()).problems.filter { $0.scriptID.hasPrefix("user/") }
+                if !problems.isEmpty {
+                    Text(problems.map { "\($0.scriptID.dropFirst("user/".count)): \($0.message)" }.joined(separator: "\n"))
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
             }
             Section("Clipboard history") {
                 Text("BoopStash never watches the clipboard. For a history of what you copied, macOS has one: turn on System Settings ▸ Spotlight ▸ Clipboard, then press ⌘Space and ⌘4.")

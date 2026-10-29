@@ -46,6 +46,17 @@ import Testing
         #expect(BoopScript.parse(source, id: "user/x.js", bundled: false) == .failure(ScriptProblem(scriptID: "user/x.js", message: message)))
     }
 
+    // MARK: Catalog
+
+    @Test func aUserScriptReplacesTheBundledOneOfTheSameName() {
+        let bundled = [script("Base64 Encode"), script("Sort Lines")]
+        var mine = script("Sort Lines", description: "my way")
+        mine.isBundled = false
+        let merged = ScriptCatalog.merge(bundled: bundled, user: [mine])
+        #expect(merged.map(\.name) == ["Base64 Encode", "Sort Lines"])
+        #expect(merged.last?.description == "my way" && merged.last?.isBundled == false)
+    }
+
     // MARK: Search
 
     @Test func nameMatchesBeatTagsBeatDescriptions() {
