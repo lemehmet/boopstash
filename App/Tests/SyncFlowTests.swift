@@ -25,7 +25,7 @@ struct SyncFlowTests {
         let server = SyncMapping.record(for: note)
         model.applyRemote {
             _ = try? self.model.store.applyServerRecord(server, systemFields: Data("g".utf8))
-            return [note.id]
+            return LiveSyncEngine.RemoteOutcome(changed: [note.id])
         }
         #expect(try model.store.note(id: note.id)?.body == "changed elsewhere")
         let bodies = try model.store.notes(matching: NoteQuery()).map(\.body)

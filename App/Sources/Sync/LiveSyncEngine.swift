@@ -45,8 +45,20 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
     /// Runs the application of fetched changes where edits happen (the
     /// main actor): unsaved drafts are saved first, so changed notes merge
     /// instead of being overwritten, and open editors reload what changed.
-    /// The work returns the IDs of the notes it changed.
-    typealias ApplyRemote = @Sendable (_ work: @escaping @Sendable () -> Set<UUID>) async -> Void
+    typealias ApplyRemote = @Sendable (_ work: @escaping @Sendable () -> RemoteOutcome) async -> RemoteOutcome?
+
+    /// What applying fetched changes did: the notes it changed, for editors
+    /// to reload, and what failed, to try again (#127).
+    struct RemoteOutcome: Sendable {
+        var changed: Set<UUID> = []
+        var failedRecords: [CKRecord.ID] = []
+        var failedDeletions: [Deletion] = []
+    }
+
+    struct Deletion: Sendable {
+        var kind: SyncRecord.Kind
+        var name: String
+    }
     private let applyRemote: ApplyRemote
     private let container: CKContainer
     private let state = Mutex(State())
@@ -192,9 +204,11 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
             // to the new account as new records.
             try? store.resetSyncForReupload()
             engine.state.add(pendingDatabaseChanges: [.saveZone(CKRecordZone(zoneID: Self.zoneID))])
+            requeuePending(engine)
             report(.account(Self.describe(.available)))
         case .signOut:
             try? store.resetSyncForReupload()
+            requeuePending(engine)
             report(.account(Self.describe(.noAccount)))
         @unknown default:
             break
@@ -208,6 +222,7 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
             // be read, so everything goes up again (ADR 0002).
             try? store.resetSyncForReupload()
             engine.state.add(pendingDatabaseChanges: [.saveZone(CKRecordZone(zoneID: Self.zoneID))])
+            requeuePending(engine)
         case .deleted, .purged:
             // Deleted from iCloud on purpose: notes here stay, and sync stops
             // rather than putting them back.
@@ -235,6 +250,8 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
                 // (ADR 0002): everything goes up again, not just this record.
                 try? store.resetSyncForReupload()
                 engine.state.add(pendingDatabaseChanges: [.saveZone(CKRecordZone(zoneID: Self.zoneID))])
+                engine.state.add(pendingRecordZoneChanges: [.saveRecord(record.recordID)])
+                requeuePending(engine)
             case .serverRecordChanged:
                 // Changed elsewhere first: merge the server's version in; the
                 // store marks what is still to send, and the watcher re-adds it.
@@ -258,8 +275,16 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
             case .networkFailure, .networkUnavailable, .zoneBusy, .serviceUnavailable, .requestRateLimited, .notAuthenticated, .operationCancelled:
                 // The engine tries again by itself.
                 state.withLock { $0.sendFailed = true }
-            default:
+            case .batchRequestFailed, .limitExceeded:
+                // Failed with another record of the batch, or with a batch too
+                // big: nothing wrong with this one, so it goes again.
                 state.withLock { $0.sendFailed = true }
+                engine.state.add(pendingRecordZoneChanges: [.saveRecord(record.recordID)])
+            default:
+                // Not one to retry blindly; it stays pending in the store, so
+                // Sync Now tries it again, and the problem stays shown.
+                state.withLock { $0.sendFailed = true }
+                report(.problem("A change could not be saved to iCloud: \(failure.error.localizedDescription)"))
                 Self.log.error("save of \(record.recordID.recordName, privacy: .public) failed: \(failure.error.localizedDescription, privacy: .public)")
             }
         }
@@ -267,9 +292,29 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
             acknowledgeDelete(id)
         }
         for (id, error) in sent.failedRecordDeletes {
-            // Never on the server, or gone already: nothing left to delete.
-            if error.code == .unknownItem { acknowledgeDelete(id) }
+            switch error.code {
+            case .unknownItem:
+                // Never on the server, or gone already: nothing left to delete.
+                acknowledgeDelete(id)
+            case .networkFailure, .networkUnavailable, .zoneBusy, .serviceUnavailable, .requestRateLimited, .notAuthenticated,
+                 .operationCancelled, .batchRequestFailed, .limitExceeded:
+                state.withLock { $0.sendFailed = true }
+                engine.state.add(pendingRecordZoneChanges: [.deleteRecord(id)])
+            default:
+                state.withLock { $0.sendFailed = true }
+                report(.problem("A deletion could not be sent to iCloud: \(error.localizedDescription)"))
+                Self.log.error("delete of \(id.recordName, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
+            }
         }
+        // An edit saved while its record was on the way is still pending in
+        // the store, but the engine's change for it is spent; the names did
+        // not change, so the watcher says nothing (#126).
+        requeuePending(engine)
+    }
+
+    /// Gives the engine everything the store still has to send.
+    private func requeuePending(_ engine: CKSyncEngine) {
+        if let pending = try? store.currentPendingSyncNames() { add(pending, to: engine) }
     }
 
     private func acknowledgeDelete(_ id: CKRecord.ID) {
@@ -335,33 +380,60 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
             }
             incoming.append(Incoming(record: sync, systemFields: Self.systemFields(of: record), asset: asset))
         }
-        let deleted = deletions.compactMap { id, type in SyncRecord.Kind(rawValue: type).map { ($0, id.recordName) } }
-        let store = self.store, ready = incoming
-        await applyRemote {
-            var changed = Set<UUID>()
-            for item in ready {
+        let deleted = deletions.compactMap { id, type in SyncRecord.Kind(rawValue: type).map { Deletion(kind: $0, name: id.recordName) } }
+        let outcome = await apply(incoming, deletions: deleted)
+        let retry = unreadable + (outcome?.failedRecords ?? [])
+        if !retry.isEmpty { refetch(retry, attempt: attempt) }
+        if let failed = outcome?.failedDeletions, !failed.isEmpty { retryDeletions(failed, attempt: attempt) }
+    }
+
+    private func apply(_ incoming: [Incoming], deletions: [Deletion]) async -> RemoteOutcome? {
+        let store = self.store
+        return await applyRemote {
+            var outcome = RemoteOutcome()
+            for item in incoming {
                 do {
                     let copy = try store.applyServerRecord(item.record, systemFields: item.systemFields, assetData: item.asset)
-                    if item.record.kind == .note, let id = UUID(uuidString: item.record.name) { changed.insert(id) }
-                    if let copy { changed.insert(copy.id) }
+                    if item.record.kind == .note, let id = UUID(uuidString: item.record.name) { outcome.changed.insert(id) }
+                    if let copy { outcome.changed.insert(copy.id) }
                 } catch {
+                    outcome.failedRecords.append(Self.recordID(item.record.name))
                     Self.log.error("applying \(item.record.name, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
                 }
             }
-            for (kind, name) in deleted {
-                try? store.applyServerDeletion(kind: kind, name: name)
-                if kind == .note, let id = UUID(uuidString: name) { changed.insert(id) }
+            for deletion in deletions {
+                do {
+                    try store.applyServerDeletion(kind: deletion.kind, name: deletion.name)
+                    if deletion.kind == .note, let id = UUID(uuidString: deletion.name) { outcome.changed.insert(id) }
+                } catch {
+                    outcome.failedDeletions.append(deletion)
+                }
             }
-            return changed
+            return outcome
         }
-        if !unreadable.isEmpty { refetch(unreadable, attempt: attempt) }
     }
 
-    /// Fetches records again whose files could not be read, a few times with
-    /// a growing pause.
+    /// Applies again deletions from the server that failed here: the
+    /// engine will not send them again.
+    private func retryDeletions(_ deletions: [Deletion], attempt: Int) {
+        guard attempt <= 3 else {
+            report(.problem("Some deletions from iCloud could not be applied on this Mac."))
+            return
+        }
+        Task {
+            try? await Task.sleep(for: .seconds(5 * attempt))
+            guard state.withLock({ $0.engine != nil }) else { return }
+            if let failed = await apply([], deletions: deletions)?.failedDeletions, !failed.isEmpty {
+                retryDeletions(failed, attempt: attempt + 1)
+            }
+        }
+    }
+
+    /// Fetches records again whose files could not be read, or that could
+    /// not be applied, a few times with a growing pause.
     private func refetch(_ ids: [CKRecord.ID], attempt: Int) {
         guard attempt <= 3 else {
-            report(.problem("Some images from iCloud could not be read; they will come with the next change to them."))
+            report(.problem("Some changes from iCloud could not be applied on this Mac; they will come with the next change to them."))
             return
         }
         Task { [container] in
