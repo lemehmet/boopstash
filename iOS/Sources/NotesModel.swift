@@ -42,6 +42,9 @@ final class NotesModel {
     static func live() throws -> NotesModel {
         let support = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
         let store = try NoteStore.open(at: support.appendingPathComponent("Boopstash/notes.sqlite"))
+        // Images nothing refers to, after a day's grace, as on the Mac: also
+        // the clean-up a delete leaves when a draft would not save.
+        try? store.removeUnreferencedAttachments()
         return NotesModel(store: store)
     }
 
@@ -63,6 +66,9 @@ final class NotesModel {
         note.title = RuleTitler.title(for: body, kind: ContentKind.detect(body))
         do {
             try store.save(note)
+            // A filter that would hide the new note is cleared, as on the
+            // Mac, so it does not seem to vanish (#101).
+            if query.text != "" || query.days != nil { query = NoteQuery(scope: query.scope) }
             return note
         } catch {
             banner = "Could not save: \(error.localizedDescription)"
@@ -95,8 +101,13 @@ final class NotesModel {
     /// The draft goes only once the row is gone, so a failed delete leaves
     /// the note exactly as it was, unsaved edits included.
     func delete(_ id: UUID) {
+        // Other notes' unsaved edits may refer to this note's images, and
+        // the store sees only saved text: save them first, and if any will
+        // not save, leave the images to the launch sweep (#99), as the Mac
+        // does.
+        let othersSaved = drafts.draftIDs.filter { $0 != id }.allSatisfy { drafts.flush($0) }
         do {
-            try store.delete(id: id)
+            try store.delete(id: id, removingOrphanedAttachments: othersSaved)
         } catch {
             banner = "Could not delete: \(error.localizedDescription)"
             return

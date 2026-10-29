@@ -49,6 +49,15 @@ import Testing
         #expect(!renamed.titleIsUserSet && renamed.title == "other text")
     }
 
+    @Test func draftsListTheNotesWithUnsavedEdits() throws {
+        let a = try saved(), b = try saved()
+        drafts.edit(a.id, body: "x")
+        drafts.edit(b.id, body: "y")
+        #expect(Set(drafts.draftIDs) == [a.id, b.id])
+        drafts.flush(a.id)
+        #expect(drafts.draftIDs == [b.id])
+    }
+
     @Test func discardingForgetsTheDraft() throws {
         let note = try saved()
         drafts.edit(note.id, body: "x")
