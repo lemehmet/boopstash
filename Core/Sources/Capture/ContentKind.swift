@@ -44,7 +44,12 @@ public enum ContentKind: String, CaseIterable, Codable, Sendable {
             scalars.formIndex(after: &start)
             skipped += 1
         }
-        return String(String(String.UnicodeScalarView(scalars[start...])).prefix(sampleLimit))
+        // Cut the scalars before copying: copying the rest of a 20 MB buffer
+        // to take its first characters made detection scale with the
+        // buffer. A character is rarely more than a few scalars; a cluster
+        // cut at the end only shortens the sample.
+        let end = scalars.index(start, offsetBy: sampleLimit * 4, limitedBy: scalars.endIndex) ?? scalars.endIndex
+        return String(String(String.UnicodeScalarView(scalars[start..<end])).prefix(sampleLimit))
     }
 
     public static func detect(_ text: String) -> ContentKind {

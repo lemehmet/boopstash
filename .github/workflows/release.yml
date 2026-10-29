@@ -122,6 +122,7 @@ jobs:
         env:
           VERSION: ${{ steps.version.outputs.version }}
           APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+          PROFILE_NAME: ${{ steps.profile.outputs.name }}
         run: |
           xcodebuild archive \
             -workspace Boopstash.xcworkspace -scheme Boopstash -configuration Release \
@@ -132,14 +133,19 @@ jobs:
             CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="Developer ID Application" \
             DEVELOPMENT_TEAM="$APPLE_TEAM_ID" OTHER_CODE_SIGN_FLAGS="--timestamp" \
             BOOPSTASH_ENTITLEMENTS='$(SRCROOT)/App/BoopstashCloud.entitlements' \
-            BOOPSTASH_PROFILE="${{ steps.profile.outputs.name }}" \
+            BOOPSTASH_PROFILE="$PROFILE_NAME" \
             ENABLE_HARDENED_RUNTIME=YES | tail -5
 
       - name: Export with Developer ID
         env:
           APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+          PROFILE_NAME: ${{ steps.profile.outputs.name }}
         run: |
-          sed -e "s/__TEAM_ID__/$APPLE_TEAM_ID/" -e "s/__PROFILE__/${{ steps.profile.outputs.name }}/" packaging/release/ExportOptions.plist > "$RUNNER_TEMP/ExportOptions.plist"
+          # PlistBuddy, not sed: the profile's name is free text.
+          options="$RUNNER_TEMP/ExportOptions.plist"
+          cp packaging/release/ExportOptions.plist "$options"
+          /usr/libexec/PlistBuddy -c "Set :teamID $APPLE_TEAM_ID" "$options"
+          /usr/libexec/PlistBuddy -c "Set :provisioningProfiles:com.lemehmet.boopstash $PROFILE_NAME" "$options"
           xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/BoopStash.xcarchive" \
             -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" -exportPath "$RUNNER_TEMP/export" | tail -3
 
