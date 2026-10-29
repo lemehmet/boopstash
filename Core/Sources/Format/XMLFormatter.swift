@@ -20,6 +20,13 @@ public enum XMLFormatter {
         do {
             // External entities and DTDs are never loaded: formatting must not
             // reach the network or the disk (ADR 0001).
+            // The parser drops whitespace-only text, which a document using
+            // xml:space="preserve" asks to keep; such a document is left as
+            // it is rather than changed (#149). (Parsing with whitespace kept
+            // makes libxml2 write stray whitespace inside tags.)
+            if text.contains("xml:space") {
+                return .failure(FormatError(message: #"The document keeps its whitespace (xml:space="preserve"), so it is left as it is"#, line: nil, column: nil))
+            }
             let document = try XMLDocument(xmlString: text, options: [.nodePreserveCDATA, .nodeLoadExternalEntitiesNever])
             return .success(render(document, source: text, width: indent))
         } catch let error as NSError {
@@ -60,14 +67,16 @@ public enum XMLFormatter {
     static func render(_ node: XMLNode, depth: Int, width: Int, into out: inout [String]) {
         let pad = String(repeating: " ", count: depth * width)
         guard let element = node as? XMLElement else {
-            // Comments and processing instructions, word for word.
-            if node.kind == .text, (node.stringValue ?? "").allSatisfy(\.isWhitespace) { return }
+            // Comments and processing instructions, word for word; whitespace
+            // between elements is the formatter's to replace.
+            if node.kind == .text, !isCharacterData(node) { return }
             out.append(pad + node.xmlString(options: [.nodePreserveCDATA]))
             return
         }
         let children = element.children ?? []
-        let hasText = children.contains { $0.kind == .text && !($0.stringValue ?? "").allSatisfy(\.isWhitespace) }
-        guard !children.isEmpty, !hasText else {
+        // Text or CDATA in it, even CDATA of only whitespace (#149): written
+        // exactly as it is.
+        guard !children.isEmpty, !children.contains(where: isCharacterData) else {
             out.append(pad + element.xmlString(options: [.nodePreserveCDATA, .nodeCompactEmptyElement]))
             return
         }
@@ -79,6 +88,12 @@ public enum XMLFormatter {
         out.append(pad + String(empty.dropLast(2)) + ">")
         for child in children { render(child, depth: depth + 1, width: width, into: &out) }
         out.append(pad + "</\(element.name ?? "")>")
+    }
+    /// Text that is content, not layout: any CDATA section, and any text
+    /// that is not only whitespace.
+    static func isCharacterData(_ node: XMLNode) -> Bool {
+        guard node.kind == .text else { return false }
+        return node.xmlString.hasPrefix("<![CDATA[") || !(node.stringValue ?? "").allSatisfy(\.isWhitespace)
     }
     #endif
 
