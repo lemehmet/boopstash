@@ -71,6 +71,25 @@ import Testing
         #expect(found.map(\.id) == [id] && found.map(\.alt) == ["plot"])
     }
 
+    /// Every form the preview shows is a reference clean-up keeps (#88).
+    @Test(arguments: ["![x](<attachment:%@>)", "![x](attachment:%@ \"title\")", "![x]( attachment:%@ )", "![x](<attachment:%@> 'title')"])
+    func everyDestinationFormIsAReference(_ form: String) throws {
+        let owner = try note("")
+        let image = try store.addAttachment(png, contentType: "public.png", noteID: owner.id)
+        let body = String(format: form, image.id.uuidString)
+        #expect(AttachmentReference.ids(in: body) == [image.id])
+        #expect(AttachmentReference.matches(in: body).first?.alt == "x")
+        _ = try note(body)
+        try store.delete(id: owner.id)
+        #expect(try store.attachment(id: image.id) != nil, "\(body) still shows it")
+    }
+
+    @Test func rewritingKeepsTheFormAroundTheDestination() {
+        let id = UUID()
+        let body = "![x](<attachment:\(id.uuidString)> \"t\")"
+        #expect(AttachmentReference.rewriting(body) { _ in "attachments/a.png" } == #"![x](<attachments/a.png> "t")"#)
+    }
+
     @Test func rewritingReplacesOnlyKnownReferences() {
         let known = UUID(), unknown = UUID()
         let body = "\(AttachmentReference.markdown(for: known, alt: "k")) \(AttachmentReference.markdown(for: unknown))"

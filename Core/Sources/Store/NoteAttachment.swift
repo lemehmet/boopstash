@@ -54,8 +54,11 @@ public enum AttachmentReference {
     /// `![…](attachment:<uuid>)`; the alt text may hold escaped brackets.
     /// The scheme matches in any case, as the preview reads it, so a
     /// reference the preview shows is never one clean-up overlooks.
+    /// Every destination form CommonMark (and so the preview) reads: bare
+    /// or in angle brackets, with or without a title (#88). Group 1 is the
+    /// alt text, group 2 the ID.
     static let pattern = try! NSRegularExpression(
-        pattern: #"!\[(?:[^\]\\]|\\.)*\]\((?i:attachment):([0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12})\)"#
+        pattern: #"!\[((?:[^\]\\]|\\.)*)\]\(\s*<?(?i:attachment):([0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12})>?(?:\s+(?:"[^"]*"|'[^']*'|\([^)]*\)))?\s*\)"#
     )
 
     /// Every attachment a body refers to. A reference inside a code span
@@ -64,7 +67,7 @@ public enum AttachmentReference {
     public static func ids(in body: String) -> Set<UUID> {
         let range = NSRange(body.startIndex..., in: body)
         return Set(pattern.matches(in: body, range: range).compactMap { match in
-            Range(match.range(at: 1), in: body).flatMap { UUID(uuidString: String(body[$0])) }
+            Range(match.range(at: 2), in: body).flatMap { UUID(uuidString: String(body[$0])) }
         })
     }
 
@@ -73,11 +76,8 @@ public enum AttachmentReference {
     public static func matches(in body: String) -> [(range: NSRange, id: UUID, alt: String)] {
         let ns = body as NSString
         return pattern.matches(in: body, range: NSRange(location: 0, length: ns.length)).compactMap { match in
-            guard let id = UUID(uuidString: ns.substring(with: match.range(at: 1))) else { return nil }
-            let whole = ns.substring(with: match.range)
-            let altEnd = (whole as NSString).range(of: "](attachment:", options: [.backwards, .caseInsensitive]).location
-            let escaped = (whole as NSString).substring(with: NSRange(location: 2, length: max(0, altEnd - 2)))
-            let alt = escaped.replacingOccurrences(of: #"\\(.)"#, with: "$1", options: .regularExpression)
+            guard let id = UUID(uuidString: ns.substring(with: match.range(at: 2))) else { return nil }
+            let alt = ns.substring(with: match.range(at: 1)).replacingOccurrences(of: #"\\(.)"#, with: "$1", options: .regularExpression)
             return (match.range, id, alt)
         }
     }
@@ -95,7 +95,7 @@ public enum AttachmentReference {
         var result = ""
         var last = 0
         for match in pattern.matches(in: body, range: NSRange(location: 0, length: ns.length)) {
-            let idRange = match.range(at: 1)
+            let idRange = match.range(at: 2)
             guard let id = UUID(uuidString: ns.substring(with: idRange)), let target = destination(id) else { continue }
             // Replace "attachment:<uuid>" (the scheme sits just before the ID).
             let start = idRange.location - scheme.utf16.count
