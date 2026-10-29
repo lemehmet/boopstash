@@ -113,14 +113,19 @@ enum DropCapture {
                         sourceBundleID: source?.bundleID, sourceAppName: source?.name)
     }
 
+    /// The item as a file, read no further than the image limit plus one
+    /// byte, so a huge drag cannot be loaded into memory before it is
+    /// refused. The file only exists during the callback.
     private static func loadData(_ type: UTType, from provider: NSItemProvider) async -> Data? {
         await withCheckedContinuation { continuation in
-            _ = provider.loadDataRepresentation(for: type) { data, _ in continuation.resume(returning: data) }
+            _ = provider.loadFileRepresentation(for: type, openInPlace: false) { url, _, _ in
+                continuation.resume(returning: url.flatMap { readPrefix(of: $0, limit: ImageImport.sizeLimit + 1) })
+            }
         }
     }
 
     /// Up to `limit` bytes from the start of the file.
-    static func readPrefix(of url: URL, limit: Int) -> Data? {
+    nonisolated static func readPrefix(of url: URL, limit: Int) -> Data? {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
         defer { try? handle.close() }
         return try? TextFileImport.readPrefix(limit: limit) { try handle.read(upToCount: $0) }

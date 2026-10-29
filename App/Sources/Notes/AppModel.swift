@@ -219,8 +219,9 @@ final class AppModel {
             return banner
         }
         var note = Note(body: "", createdAt: Date(), sourceBundleID: sourceBundleID, sourceAppName: sourceAppName)
+        let attachment: NoteAttachment
         do {
-            let attachment = try store.addAttachment(data, contentType: type.identifier, noteID: note.id)
+            attachment = try store.addAttachment(data, contentType: type.identifier, noteID: note.id)
             note.body = AttachmentReference.markdown(for: attachment.id) + "\n"
         } catch {
             banner = "Could not save the image: \(error.localizedDescription)"
@@ -233,7 +234,10 @@ final class AppModel {
         } else {
             note.title = RuleTitler.title(for: note.body, kind: .plain)
         }
-        return finishCapture(note, origin: origin)
+        let failure = finishCapture(note, origin: origin)
+        // No note to show it: the image goes too, not just at the next sweep.
+        if failure != nil { try? store.deleteAttachment(id: attachment.id) }
+        return failure
     }
 
     /// An image added to an open note (paste or drop into the editor):
@@ -269,11 +273,14 @@ final class AppModel {
         return nil
     }
 
+    /// Writes a new note; replaceable so tests can make it fail.
+    @ObservationIgnored lazy var writeNote: (Note) throws -> Void = { [store] in try store.save($0) }
+
     /// False when the note could not be saved; the banner says why.
     @discardableResult
     private func insert(_ note: Note) -> Bool {
         do {
-            try store.save(note)
+            try writeNote(note)
             // A filter that would hide the new note is cleared, so the
             // capture is visible where the user expects it: at the top.
             if !query.text.isEmpty || query.days != nil {

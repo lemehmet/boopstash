@@ -126,6 +126,17 @@ struct ImageCaptureTests {
         #expect(asked == 1, "only the note with text was sent")
     }
 
+    /// When the note cannot be written, its image is removed at once.
+    @Test func aFailedNoteWriteRemovesItsImage() throws {
+        struct DiskFull: Error {}
+        model.writeNote = { _ in throw DiskFull() }
+        let board = pasteboard { $0.setData(png, forType: .png) }
+        #expect(model.capture(from: board, origin: .menu) != nil)
+        #expect(try model.store.removeUnreferencedAttachments(olderThan: 0) == 0, "nothing was left to sweep")
+        let files = (try? FileManager.default.contentsOfDirectory(atPath: model.store.attachmentsDirectory.path)) ?? []
+        #expect(files.isEmpty)
+    }
+
     @Test func aDroppedImageFileBecomesANoteTitledByItsName() async throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("drop-\(UUID().uuidString)-chart.png")
         try png.write(to: url)
