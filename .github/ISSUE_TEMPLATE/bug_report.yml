@@ -48,5 +48,5 @@ body:
     attributes:
       label: Crash report, if it crashed
       description: >-
-        Console.app ▸ Crash Reports, the `Boopstash-*.ips` file. Paste it or attach it.
+        Console.app ▸ Crash Reports, the `BoopStash-*.ips` file. Paste it or attach it.
       render: text

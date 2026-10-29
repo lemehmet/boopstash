@@ -23,7 +23,7 @@ struct GeneralSettings: View {
         Form {
             Section("Capture") {
                 Toggle("⌃⌥⌘V saves the clipboard from any app", isOn: $globalShortcut)
-                Text("Also in every app's Services menu: select text, then Services ▸ Save to Boopstash.")
+                Text("Also in every app's Services menu: select text, then Services ▸ Save to BoopStash.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -153,7 +153,7 @@ struct KeyboardSettings: View {
                 }
                 Toggle("Linux habits (Ctrl+arrows move by word)", isOn: $linuxHabits)
                 if linuxHabits {
-                    Text("macOS gives Ctrl+← and Ctrl+→ to Mission Control. Change those in System Settings ▸ Keyboard ▸ Keyboard Shortcuts ▸ Mission Control for them to reach Boopstash.")
+                    Text("macOS gives Ctrl+← and Ctrl+→ to Mission Control. Change those in System Settings ▸ Keyboard ▸ Keyboard Shortcuts ▸ Mission Control for them to reach BoopStash.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
