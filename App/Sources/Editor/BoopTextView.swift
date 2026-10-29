@@ -189,7 +189,9 @@ final class BoopTextView: NSTextView {
             // A selection keeps its own trailing newline, or lack of one.
             if !whole, !source.hasSuffix("\n"), formatted.hasSuffix("\n") { formatted.removeLast() }
             guard formatted != source else { return }
-            let caret = DocumentFormatter.caret(selectedRange().location, from: string, to: formatted)
+            // Sorting moves keys, so no character keeps its place; the caret
+            // goes to the start rather than onto some other key.
+            let caret = style == .sortedKeys ? 0 : DocumentFormatter.caret(selectedRange().location, from: string, to: formatted)
             guard shouldChangeText(in: range, replacementString: formatted) else { return }
             textStorage?.replaceCharacters(in: range, with: formatted)
             didChangeText()

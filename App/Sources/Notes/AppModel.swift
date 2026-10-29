@@ -22,8 +22,18 @@ final class AppModel {
     /// The key window's first responder; replaceable for tests.
     @ObservationIgnored var keyResponder: () -> NSResponder? = { NSApp.keyWindow?.firstResponder }
 
+    /// The focused editor's language, for the commands that depend on it.
+    /// SwiftUI commands are not validated through the responder chain, so
+    /// this is observable state they read.
+    private(set) var editorLanguage: SyntaxLanguage?
+
+    var canFormatDocument: Bool { editorHasFocus && DocumentFormatter.canFormat(editorLanguage) }
+    var canSortJSONKeys: Bool { editorHasFocus && DocumentFormatter.canFormat(editorLanguage, style: .sortedKeys) }
+
     func refreshEditorFocus() {
-        editorHasFocus = keyResponder() is BoopTextView
+        let editor = keyResponder() as? BoopTextView
+        editorHasFocus = editor != nil
+        editorLanguage = editor?.syntax.currentLanguage
     }
 
     /// An editor gained or lost focus, or went away. The window's first

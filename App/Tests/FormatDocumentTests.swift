@@ -65,9 +65,43 @@ struct FormatDocumentTests {
     }
 
     @Test func sortingKeysFormatsJSONInKeyOrder() {
-        let (window, view) = host(#"{"b":1,"a":2}"#, .json)
+        let source = #"{"b":1,"a":2}"#
+        let (window, view) = host(source, .json)
+        view.setSelectedRange(NSRange(location: (source as NSString).range(of: #""a""#).location, length: 0))
         view.formatJSONSortingKeys(nil)
         #expect(view.string == "{\n  \"a\": 2,\n  \"b\": 1\n}\n")
+        #expect(view.selectedRange() == NSRange(location: 0, length: 0), "keys moved, so the caret goes to the start")
+        window.close()
+    }
+
+    /// The menu items are SwiftUI commands, which AppKit does not validate:
+    /// they read the model, which follows the key editor's language.
+    @Test func theCommandsFollowTheKeyEditorsLanguage() {
+        let model = AppModel(store: try! .inMemory())
+        let (window, view) = host("x = 1", .python)
+        model.keyResponder = { view }
+        model.refreshEditorFocus()
+        #expect(model.editorHasFocus && !model.canFormatDocument && !model.canSortJSONKeys)
+        view.load("{}", syntax: .language(.xml))
+        model.refreshEditorFocus()
+        #expect(model.canFormatDocument && !model.canSortJSONKeys)
+        view.load("{}", syntax: .language(.json))
+        model.refreshEditorFocus()
+        #expect(model.canFormatDocument && model.canSortJSONKeys)
+        model.keyResponder = { nil }
+        model.refreshEditorFocus()
+        #expect(!model.canFormatDocument)
+        window.close()
+    }
+
+    /// Switching to Automatic re-detects at once, not after the background
+    /// parse: XML text formats as XML even if the note was just JSON.
+    @Test func automaticLanguageIsReadFromTheTextNow() {
+        let (window, view) = host("<a><b>1</b></a>", .json)
+        view.load(view.string, syntax: .automatic)
+        #expect(view.syntax.currentLanguage == .xml)
+        view.formatDocument(nil)
+        #expect(view.string.contains("\n    <b>1</b>"))
         window.close()
     }
 }

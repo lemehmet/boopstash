@@ -96,15 +96,18 @@ final class SyntaxPainter {
         }
     }
 
-    /// The note's language as of now, for commands such as Format Document:
-    /// `language` follows a parse on another task, so just after a load or a
-    /// change of choice it can still be the old one. A forced choice is
-    /// known at once; otherwise the last detection, or a fresh one.
+    /// The note's language as of now, for commands such as Format Document.
+    /// `language` follows a parse on another task and re-detection waits for
+    /// a pause in typing, so either can still be the previous language; this
+    /// resolves from the current choice and text instead (detection reads at
+    /// most a 64 KB sample).
     var currentLanguage: SyntaxLanguage? {
-        let text = view?.string ?? ""
-        if choice != .automatic { return choice.resolve(for: text) }
-        return language ?? SyntaxLanguage.detect(text)
+        choice.resolve(for: view?.string ?? "")
     }
+
+    /// Called when the highlighting language changes, so menus that depend
+    /// on it can update.
+    var onLanguageChange: (() -> Void)?
 
     /// A new document: resolve its language and parse it from scratch. Call
     /// after setting the view's text.
@@ -161,6 +164,7 @@ final class SyntaxPainter {
             if language != self.language || engine == nil {
                 self.language = language
                 engine = language.flatMap { try? SyntaxEngine(language: $0) }
+                onLanguageChange?()
             }
             if let engine { _ = await engine.reset(text) }
             appliedVersion = version
