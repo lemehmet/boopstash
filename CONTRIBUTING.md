@@ -97,6 +97,11 @@ The Mac App Store and TestFlight builds go through fastlane (`fastlane/Fastfile`
   only what the iOS app does) and the changelog's section for the version as
   What's New. It never releases automatically.
 
+Screenshots come from `scripts/screenshots/take.sh`, which runs the debug build's
+demo mode (made-up notes in memory, never a real store) on the Mac and in the
+6.9-inch iPhone and 13-inch iPad simulators, and writes `fastlane/screenshots/`
+and `fastlane/screenshots-ios/`; `release` uploads them.
+
 The version is the newest `## vX.Y.Z` in `CHANGELOG.md`; the build number
 counts up from TestFlight's newest. The lanes need:
 

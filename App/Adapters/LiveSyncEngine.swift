@@ -16,12 +16,23 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
 
     /// Whether this build was signed with iCloud: only a build with its
     /// provisioning profile is (ADR 0008), and without the entitlement
-    /// CloudKit would stop the app.
+    /// CloudKit would stop the app. The Mac reads its own entitlements;
+    /// iOS cannot, so the provisioned build says so in its Info.plist.
     static var isAvailable: Bool {
+        #if os(macOS)
         guard let task = SecTaskCreateFromSelf(nil),
               let value = SecTaskCopyValueForEntitlement(task, "com.apple.developer.icloud-container-identifiers" as CFString, nil)
         else { return false }
         return (value as? [String])?.contains(containerID) ?? false
+        #else
+        return Bundle.main.object(forInfoDictionaryKey: "BoopStashICloud") as? String == "YES"
+        #endif
+    }
+
+    /// The iCloud environment this build was signed for, as its Info.plist
+    /// records it: a store that synced with the other one starts over.
+    static var environment: String {
+        Bundle.main.object(forInfoDictionaryKey: "BoopStashICloudEnvironment") as? String ?? "Production"
     }
 
     /// What the app shows about sync.
@@ -80,6 +91,9 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
         /// Moves on with every account change and reset, so a retry started
         /// for the previous account never applies to the new one.
         var generation = 0
+        /// Deletions from the server waiting to be applied again; one whose
+        /// record arrives again meanwhile is dropped, not applied over it.
+        var retryingDeletions: Set<String> = []
         var watcher: Task<Void, Never>?
     }
 
@@ -89,6 +103,10 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
         self.applyRemote = applyRemote
         let container = CKContainer(identifier: Self.containerID)
         self.container = container
+        // Synced with the other environment before (a development build's
+        // store, opened by a release): start afresh rather than fetch with a
+        // change token that means nothing here.
+        try store.prepareSync(environment: Self.environment)
         let saved = try store.syncEngineState().flatMap { try? JSONDecoder().decode(CKSyncEngine.State.Serialization.self, from: $0) }
         let configuration = CKSyncEngine.Configuration(database: container.privateCloudDatabase, stateSerialization: saved, delegate: self)
         let engine = CKSyncEngine(configuration)
@@ -120,7 +138,13 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
         guard let engine = state.withLock({ $0.engine }) else { return }
         // Sync Now tries everything again, failed for good or not.
         state.withLock { $0.heldBack = [] }
-        if let pending = try? store.currentPendingSyncNames() { add(pending, to: engine) }
+        do {
+            add(try store.currentPendingSyncNames(), to: engine)
+        } catch {
+            // Sending now would report success over changes it never saw.
+            report(.problem("Changes waiting to sync could not be read: \(error.localizedDescription)"))
+            return
+        }
         do {
             try await engine.fetchChanges()
             try await engine.sendChanges()
@@ -260,7 +284,10 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
             case .serverRecordChanged:
                 // Changed elsewhere first: merge the server's version in; the
                 // store marks what is still to send, and the watcher re-adds it.
-                if let server = failure.error.serverRecord { Task { await self.applyFetched([server], deletions: []) } }
+                // The generation now, not when the task runs: an account switch
+                // in between must not take this account's record.
+                let generation = state.withLock { $0.generation }
+                if let server = failure.error.serverRecord { Task { await self.applyFetched([server], deletions: [], generation: generation) } }
                 engine.state.add(pendingRecordZoneChanges: [.saveRecord(record.recordID)])
             case .zoneNotFound:
                 engine.state.add(pendingDatabaseChanges: [.saveZone(CKRecordZone(zoneID: Self.zoneID))])
@@ -338,8 +365,14 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
 
     /// Gives the engine everything the store still has to send.
     private func requeuePending(_ engine: CKSyncEngine) {
-        guard let pending = try? store.currentPendingSyncNames() else { return }
-        add(pending, to: engine, except: state.withLock { $0.heldBack })
+        do {
+            add(try store.currentPendingSyncNames(), to: engine, except: state.withLock { $0.heldBack })
+        } catch {
+            // Changes may be waiting that the engine no longer knows of; the
+            // problem stays shown until Sync Now gives them back.
+            state.withLock { $0.sendFailed = true }
+            report(.problem("Changes waiting to sync could not be read: \(error.localizedDescription)"))
+        }
     }
 
     private func acknowledgeDelete(_ id: CKRecord.ID) {
@@ -414,7 +447,10 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
         if let failed = outcome?.failedDeletions, !failed.isEmpty { retryDeletions(failed, attempt: attempt, generation: generation) }
     }
 
-    private func apply(_ incoming: [Incoming], deletions: [Deletion], generation: Int) async -> RemoteOutcome? {
+    /// `retrying`: the deletions are retries, applied only if their record
+    /// has not come back since; checked here, in the same main-actor step
+    /// as any record that clears it, so none can land in between.
+    private func apply(_ incoming: [Incoming], deletions: [Deletion], generation: Int, retrying: Bool = false) async -> RemoteOutcome? {
         let store = self.store
         return await applyRemote { [self] in
             var outcome = RemoteOutcome()
@@ -423,6 +459,9 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
             for item in incoming {
                 do {
                     let copy = try store.applyServerRecord(item.record, systemFields: item.systemFields, assetData: item.asset)
+                    // A newer version arrived: an older deletion waiting to be
+                    // applied again no longer holds.
+                    _ = state.withLock { $0.retryingDeletions.remove(item.record.name) }
                     if item.record.kind == .note, let id = UUID(uuidString: item.record.name) { outcome.changed.insert(id) }
                     if let copy { outcome.changed.insert(copy.id) }
                 } catch {
@@ -431,10 +470,14 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
                 }
             }
             for deletion in deletions {
+                if retrying, state.withLock({ $0.retryingDeletions.remove(deletion.name) }) == nil { continue }
                 do {
                     try store.applyServerDeletion(kind: deletion.kind, name: deletion.name)
                     if deletion.kind == .note, let id = UUID(uuidString: deletion.name) { outcome.changed.insert(id) }
                 } catch {
+                    // Armed here, in the same main-actor step: a newer record
+                    // applied after this clears it before the retry runs.
+                    state.withLock { _ = $0.retryingDeletions.insert(deletion.name) }
                     outcome.failedDeletions.append(deletion)
                 }
             }
@@ -452,7 +495,7 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
         Task {
             try? await Task.sleep(for: .seconds(5 * attempt))
             guard state.withLock({ $0.engine != nil && $0.generation == generation }) else { return }
-            if let failed = await apply([], deletions: deletions, generation: generation)?.failedDeletions, !failed.isEmpty {
+            if let failed = await apply([], deletions: deletions, generation: generation, retrying: true)?.failedDeletions, !failed.isEmpty {
                 retryDeletions(failed, attempt: attempt + 1, generation: generation)
             }
         }

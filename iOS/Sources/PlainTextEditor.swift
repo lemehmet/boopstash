@@ -16,6 +16,8 @@ struct PlainTextEditor: UIViewRepresentable {
 
     func makeUIView(context: Context) -> PlainTextView {
         let view = PlainTextView(usingTextLayoutManager: true)
+        // Text off the screen's edges, as the title field above it.
+        view.textContainerInset = UIEdgeInsets(top: 8, left: 12, bottom: 8, right: 12)
         view.showMessage = showMessage
         view.font = .monospacedSystemFont(ofSize: 15, weight: .regular)
         view.autocorrectionType = .no

@@ -227,6 +227,16 @@ final class AppModel {
     }
 
     static func live() throws -> AppModel {
+        #if DEBUG
+        // Screenshots (#69): made-up notes in memory; the real store, sync
+        // and the Scripts folder are never touched.
+        if UserDefaults.standard.bool(forKey: "BoopStashDemo") {
+            let model = AppModel(store: try DemoNotes.store())
+            let index = UserDefaults.standard.integer(forKey: "BoopStashDemoNote")
+            model.selection = try model.store.notes(matching: NoteQuery()).dropFirst(index).first?.id
+            return model
+        }
+        #endif
         let support = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
         let store = try NoteStore.open(at: support.appendingPathComponent("Boopstash/notes.sqlite"))
         // Attachments nothing refers to any more, after a day's grace so an
@@ -279,18 +289,7 @@ final class AppModel {
             // Reading a file of up to 20 MB and recognising its text both
             // happen off the main actor; the store is safe from any thread.
             await Task.detached(priority: .utility) {
-                while let next = try? store.attachmentsAwaitingRecognition(limit: 1).first {
-                    let data = try? store.data(for: next)
-                    // Unreadable (a missing file, say): recorded as empty,
-                    // so it is not tried on every change.
-                    let text = if let data { await recognize(data) ?? "" } else { "" }
-                    guard (try? store.attachment(id: next.id)) != nil else { continue }
-                    do {
-                        try store.setRecognizedText(text, for: next.id)
-                    } catch {
-                        break
-                    }
-                }
+                await store.recognizePendingImages(with: recognize)
             }.value
             guard let self else { return }
             // The worker has found nothing left and is about to finish: the

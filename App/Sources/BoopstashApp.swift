@@ -111,6 +111,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var services: ServicesProvider?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        #if DEBUG
+        // Screenshots (#69): a window of 1440 × 900 points, which is the App
+        // Store's 2880 × 1800 on a Retina display, centred on the screen.
+        if UserDefaults.standard.bool(forKey: "BoopStashDemo") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                guard let window = NSApp.windows.first(where: { $0.isVisible && $0.canBecomeMain }) else { return }
+                window.setFrame(NSRect(x: 0, y: 0, width: 1440, height: 900), display: true)
+                window.center()
+            }
+        }
+        #endif
         guard let model else { return }
         let provider = ServicesProvider(model: model)
         services = provider

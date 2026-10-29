@@ -24,12 +24,99 @@ public final class NoteStore: Sendable {
     }
 
     /// The store at `url`, created if missing. A pool lets the list read
-    /// while the editor writes.
-    public static func open(at url: URL) throws -> NoteStore {
+    /// while the editor writes. `shared` is for a store that another process
+    /// writes too (the iOS app and its share extension, #66): writers wait
+    /// for each other, and the database lets go of its locks while the app
+    /// is suspended (post `Database.suspendNotification` then), or iOS would
+    /// end it.
+    public static func open(at url: URL, shared: Bool = false) throws -> NoteStore {
         let folder = url.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        var configuration = configuration
+        if shared {
+            configuration.observesSuspensionNotifications = true
+            configuration.busyMode = .timeout(5)
+        }
         return try NoteStore(DatabasePool(path: url.path, configuration: configuration),
                              attachmentsDirectory: folder.appendingPathComponent("Attachments", isDirectory: true))
+    }
+
+    /// Lets every shared store give up its locks while the app is suspended,
+    /// and take them again when it is back (see `open(at:shared:)`).
+    public static func suspendSharedStores() {
+        NotificationCenter.default.post(name: Database.suspendNotification, object: nil)
+    }
+
+    public static func resumeSharedStores() {
+        NotificationCenter.default.post(name: Database.resumeNotification, object: nil)
+    }
+
+    /// Moves a store's whole folder (the database, its WAL and SHM files,
+    /// and Attachments) to `destination`, once: only when `source` holds a
+    /// store and `destination` does not. One rename on the same volume, never
+    /// a copy then a delete, so there is no moment with two stores or none.
+    /// Returns whether it moved. For the iOS store's move into the App Group
+    /// the share extension can reach (#66).
+    @discardableResult
+    public static func moveStoreFolder(from source: URL, to destination: URL, storeName: String = "notes.sqlite") throws -> Bool {
+        let files = FileManager.default
+        guard files.fileExists(atPath: source.appendingPathComponent(storeName).path),
+              !files.fileExists(atPath: destination.appendingPathComponent(storeName).path)
+        else { return false }
+        // An empty folder there (a launch that made it, then failed) would
+        // stop the rename; anything in it means someone else's data.
+        if files.fileExists(atPath: destination.path) {
+            guard (try files.contentsOfDirectory(atPath: destination.path)).isEmpty else { return false }
+            try files.removeItem(at: destination)
+        }
+        try files.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try files.moveItem(at: source, to: destination)
+        return true
+    }
+
+    /// Where a store shared with an extension lives: moved into `group`
+    /// when it can be (`moveStoreFolder`), and otherwise left at `own` while
+    /// a store is there, so a refused move never opens a new, empty store
+    /// in place of the notes. A new store goes in the group. With a store in
+    /// both (builds with and without the group, alternating), the group's is
+    /// used and every note and image only in the other is copied into it;
+    /// the other folder is then renamed, kept as a backup, never deleted.
+    /// Returns the folder, whether it is the group's, and how many notes
+    /// came over.
+    public static func sharedStoreFolder(own: URL, group: URL, storeName: String = "notes.sqlite",
+                                         now: Date = Date()) throws -> (folder: URL, inGroup: Bool, merged: Int) {
+        try moveStoreFolder(from: own, to: group, storeName: storeName)
+        let files = FileManager.default
+        let ownStore = own.appendingPathComponent(storeName), groupStore = group.appendingPathComponent(storeName)
+        switch (files.fileExists(atPath: groupStore.path), files.fileExists(atPath: ownStore.path)) {
+        case (true, true):
+            let merged = try open(at: groupStore).copyMissing(from: open(at: ownStore))
+            let stamp = ISO8601DateFormatter.string(from: now, timeZone: .gmt, formatOptions: [.withYear, .withMonth, .withDay, .withTime])
+            try files.moveItem(at: own, to: own.deletingLastPathComponent().appendingPathComponent("\(own.lastPathComponent)-merged-\(stamp)"))
+            return (group, true, merged)
+        case (true, false): return (group, true, 0)
+        case (false, true): return (own, false, 0)
+        case (false, false): return (group, true, 0)
+        }
+    }
+
+    /// Copies every note and attachment of `other` this store does not have
+    /// (by ID), files first, as new local changes to send. Returns how many
+    /// notes came over.
+    func copyMissing(from other: NoteStore) throws -> Int {
+        let attachments = try other.writer.read { db in try NoteAttachment.fetchAll(db) }
+        for attachment in attachments where try self.attachment(id: attachment.id) == nil {
+            guard let data = try? other.data(for: attachment) else { continue }
+            try FileManager.default.createDirectory(at: attachmentsDirectory, withIntermediateDirectories: true)
+            try data.write(to: fileURL(for: attachment), options: .atomic)
+            try writer.write { db in try attachment.insert(db) }
+        }
+        var count = 0
+        for note in try other.writer.read({ db in try Note.fetchAll(db) }) where try self.note(id: note.id) == nil {
+            try save(note)
+            count += 1
+        }
+        return count
     }
 
     static var configuration: Configuration {
@@ -200,6 +287,25 @@ public final class NoteStore: Sendable {
         let rows = try Row.fetchAll(db, sql: "SELECT id, body FROM note WHERE instr(lower(body), ?) > 0", arguments: [needle])
         for row in rows {
             try refreshImageText(of: row["id"], body: row["body"], db)
+        }
+    }
+
+    /// Reads the text of every image still waiting, oldest first and one at
+    /// a time, with `recognize` (Vision, in the app; on device). An image
+    /// that cannot be read, or whose text cannot be, is recorded as having
+    /// none, so it is not tried on every change. Returns when nothing is
+    /// left. Run it off the main actor: files are up to 20 MB.
+    public func recognizePendingImages(with recognize: @Sendable (Data) async -> String?) async {
+        while let next = try? attachmentsAwaitingRecognition(limit: 1).first {
+            let data = try? self.data(for: next)
+            let text = if let data { await recognize(data) ?? "" } else { "" }
+            // Deleted while it was read.
+            guard (try? attachment(id: next.id)) != nil else { continue }
+            do {
+                try setRecognizedText(text, for: next.id)
+            } catch {
+                return
+            }
         }
     }
 

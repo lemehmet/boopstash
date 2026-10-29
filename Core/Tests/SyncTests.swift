@@ -465,6 +465,40 @@ import Testing
         #expect(try store.pendingSave(kind: .attachment, name: name) == nil)
     }
 
+    /// A store synced with one iCloud environment starts over in another:
+    /// everything goes up again as new, and the engine state goes.
+    @Test func anotherEnvironmentStartsOver() throws {
+        #expect(try store.prepareSync(environment: "Development") == false, "nothing synced yet")
+        let mine = note("synced in development")
+        try store.applyServerRecord(SyncMapping.record(for: mine), systemFields: fields)
+        try store.setSyncEngineState(Data("token".utf8))
+        #expect(try store.prepareSync(environment: "Development") == false, "same environment")
+        #expect(try pendingNames().isEmpty)
+        #expect(try store.prepareSync(environment: "Production"))
+        guard case .save(_, let systemFields, _)? = try store.pendingSyncChanges().first else {
+            Issue.record("not pending")
+            return
+        }
+        #expect(systemFields == nil, "sent as new")
+        #expect(try store.syncEngineState() == nil)
+        #expect(try store.prepareSync(environment: "Production") == false, "recorded")
+    }
+
+    /// A store that synced before environments were recorded is treated as
+    /// from another one.
+    @Test func anUnrecordedEnvironmentStartsOver() throws {
+        try store.applyServerRecord(SyncMapping.record(for: note("x")), systemFields: fields)
+        #expect(try store.prepareSync(environment: "Production"))
+        #expect(try pendingNames().count == 1)
+    }
+
+    /// A keychain reset keeps the environment recorded.
+    @Test func aResetKeepsTheEnvironment() throws {
+        try store.prepareSync(environment: "Production")
+        try store.resetSyncForReupload()
+        #expect(try store.prepareSync(environment: "Production") == false)
+    }
+
     @Test func theEngineStateIsKept() throws {
         #expect(try store.syncEngineState() == nil)
         try store.setSyncEngineState(Data([1, 2]))

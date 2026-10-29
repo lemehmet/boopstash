@@ -53,8 +53,18 @@ still has no network entitlement.
   sync off, the app contacts nothing. A build without the iCloud
   entitlements (any build without a profile) shows sync as unavailable
   instead of failing.
-- **iOS** gets the same keys with the App Group for the share extension in
-  its own change (#66).
+- **iOS** has the same arrangement in `iOS/BoopStashMobileCloud.entitlements`:
+  iCloud with CloudKit for the same container, `aps-environment` (the iOS
+  key), and the App Group the share extension writes into (#66). iOS
+  cannot read its own entitlements, so the provisioned build also sets
+  `BOOPSTASH_ICLOUD=YES`, which reaches the Info.plist, and the app shows
+  sync as unavailable without it. Changes from other devices arrive in the
+  background through the `remote-notification` background mode.
+- **A store remembers its environment.** Each build records the
+  environment it is signed for in its Info.plist. A store that last synced
+  with the other one (a development build's store opened by a release, say)
+  sends everything again as new and drops the engine's state, rather than
+  fetching with a change token from another database.
 
 ## Consequences
 

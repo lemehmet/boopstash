@@ -14,6 +14,8 @@ final class NotesModel {
     }
     private(set) var notes: [Note] = []
     var banner: String?
+    /// The note to open at launch (the screenshots' demo mode only).
+    @ObservationIgnored var initialSelection: UUID?
     @ObservationIgnored private var observation: Task<Void, Never>?
     @ObservationIgnored private var dayObserver: NSObjectProtocol?
 
@@ -39,13 +41,139 @@ final class NotesModel {
         observe()
     }
 
+    // MARK: Sync
+
+    /// Settings ▸ iCloud; off until the user turns it on (ADR 0008).
+    static let syncKey = "syncWithICloud"
+    private(set) var syncAccountProblem: String?
+    private(set) var syncProblem: String?
+    private(set) var lastSynced: Date?
+    /// Counts changes from iCloud per note, so an open editor reloads.
+    private(set) var remoteRevisions: [UUID: Int] = [:]
+    @ObservationIgnored private var syncEngine: LiveSyncEngine?
+
+    var isSyncing: Bool { syncEngine != nil }
+
+    /// Starts or stops sync. Starting is the first contact with CloudKit;
+    /// stopping keeps everything here and the engine's place.
+    func setSyncEnabled(_ enabled: Bool) {
+        UserDefaults.standard.set(enabled, forKey: Self.syncKey)
+        guard enabled, LiveSyncEngine.isAvailable else {
+            syncEngine?.stop()
+            syncEngine = nil
+            syncAccountProblem = nil
+            syncProblem = nil
+            return
+        }
+        guard syncEngine == nil else { return }
+        do {
+            syncEngine = try LiveSyncEngine(store: store, report: { [weak self] event in
+                Task { @MainActor in self?.handle(event) }
+            }, applyRemote: { [weak self] work in
+                await MainActor.run { self?.applyRemote(work) }
+            })
+            UIApplication.shared.registerForRemoteNotifications()
+        } catch {
+            syncProblem = "Could not start sync: \(error.localizedDescription)"
+        }
+    }
+
+    func syncNow() {
+        guard let syncEngine else { return }
+        Task { await syncEngine.syncNow() }
+    }
+
+    /// Applies changes from iCloud between edits, as on the Mac: drafts are
+    /// saved first, so a note being edited merges instead of being
+    /// overwritten, then the open editor reloads.
+    @discardableResult
+    func applyRemote(_ work: () -> LiveSyncEngine.RemoteOutcome) -> LiveSyncEngine.RemoteOutcome {
+        _ = drafts.flushAll()
+        let outcome = work()
+        for id in outcome.changed { remoteRevisions[id, default: 0] += 1 }
+        return outcome
+    }
+
+    private func handle(_ event: LiveSyncEngine.Event) {
+        switch event {
+        case .fetched(let date, let first):
+            lastSynced = date
+            if first, drafts.flushAll() { _ = try? store.removeUnreferencedAttachments(includingSynced: true) }
+        case .sent(let date, let failed):
+            lastSynced = date
+            if !failed { syncProblem = nil }
+        case .account(let problem):
+            syncAccountProblem = problem
+        case .problem(let message):
+            syncProblem = message
+        case .stoppedByServer(let message):
+            setSyncEnabled(false)
+            banner = message
+        }
+    }
+
     static func live() throws -> NotesModel {
+        #if DEBUG
+        // Screenshots (#69): made-up notes in memory; the real store and
+        // sync are never touched.
+        if UserDefaults.standard.bool(forKey: "BoopStashDemo") {
+            let model = NotesModel(store: try DemoNotes.store())
+            let index = UserDefaults.standard.integer(forKey: "BoopStashDemoNote")
+            model.initialSelection = UserDefaults.standard.object(forKey: "BoopStashDemoNote") == nil
+                ? nil : try model.store.notes(matching: NoteQuery()).dropFirst(index).first?.id
+            return model
+        }
+        #endif
         let support = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
-        let store = try NoteStore.open(at: support.appendingPathComponent("Boopstash/notes.sqlite"))
+        let own = support.appendingPathComponent("Boopstash", isDirectory: true)
+        // In the App Group, where the share extension writes too (#66); the
+        // store there moves once from the app's own container, and stays
+        // there if the move cannot happen. A build without the group (the
+        // simulator, unsigned) keeps it at home.
+        var folder = own, shared = false, merged = 0
+        if let group = SharedStore.folder {
+            (folder, shared, merged) = try NoteStore.sharedStoreFolder(own: own, group: group)
+        }
+        let store = try NoteStore.open(at: folder.appendingPathComponent(SharedStore.fileName), shared: shared)
         // Images nothing refers to, after a day's grace, as on the Mac: also
         // the clean-up a delete leaves when a draft would not save.
-        try? store.removeUnreferencedAttachments()
-        return NotesModel(store: store)
+        _ = try? store.removeUnreferencedAttachments()
+        let model = NotesModel(store: store)
+        if merged > 0 {
+            model.banner = "\(merged) notes from an earlier copy of BoopStash on this device were added to your notes."
+        } else if SharedStore.folder != nil, !shared {
+            model.banner = "Sharing to BoopStash is off: its notes could not be moved where the share extension can reach them."
+        }
+        if UserDefaults.standard.bool(forKey: syncKey) { model.setSyncEnabled(true) }
+        return model
+    }
+
+    // MARK: Image text
+
+    /// Reads an image's text on device (#53), as on the Mac; images shared
+    /// from other apps arrive without it (#66).
+    @ObservationIgnored var recognizeText: @Sendable (Data) async -> String? = { await LiveTextRecognizer.text(in: $0) }
+    @ObservationIgnored private var recognition: Task<Void, Never>?
+    @ObservationIgnored private var recognitionRequested = false
+
+    /// Starts reading the text of images still waiting, unless that is
+    /// under way; a request while it is runs it once more afterwards.
+    func recognizePendingImages() {
+        guard recognition == nil else {
+            recognitionRequested = true
+            return
+        }
+        recognitionRequested = false
+        let store = self.store
+        let recognize = recognizeText
+        recognition = Task { [weak self] in
+            await Task.detached(priority: .utility) {
+                await store.recognizePendingImages(with: recognize)
+            }.value
+            guard let self else { return }
+            self.recognition = nil
+            if self.recognitionRequested { self.recognizePendingImages() }
+        }
     }
 
     private func observe() {
@@ -53,7 +181,11 @@ final class NotesModel {
         let values = store.results(query)
         observation = Task { [weak self] in
             do {
-                for try await notes in values { self?.notes = notes }
+                for try await notes in values {
+                    self?.notes = notes
+                    // A change may have brought an image to read.
+                    self?.recognizePendingImages()
+                }
             } catch {
                 self?.banner = "Could not read notes: \(error.localizedDescription)"
             }
