@@ -184,6 +184,12 @@ import Testing
                 == ContentKind.sampleLimit)
     }
 
+    @Test func aByteOrderMarkDoesNotHideTheKind() {
+        #expect(ContentKind.detect("\u{FEFF}{\"a\":1}") == .json)
+        #expect(SyntaxLanguage.detect("\u{FEFF}{\"a\":1}") == .json)
+        #expect(SyntaxChoice.automatic.resolve(for: "\u{FEFF}<a><b/></a>") == .xml)
+    }
+
     @Test func stackTracesNameTheFailure() {
         #expect(title("Traceback (most recent call last):\n  File \"x.py\", line 3\nKeyError: 'id'") == "KeyError: 'id'")
         #expect(title("java.lang.IllegalStateException: closed\n\tat a.B.c(B.java:1)\n\tat a.B.d(B.java:2)")

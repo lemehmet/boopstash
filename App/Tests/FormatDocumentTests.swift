@@ -20,11 +20,11 @@ struct FormatDocumentTests {
         return (window, view)
     }
 
-    @Test func theWholeNoteIsFormattedAndUndoesInOneStep() {
+    @Test func theWholeNoteIsFormattedAndUndoesInOneStep() async {
         let source = #"{"a":[1,2],"bc":3}"#
         let (window, view) = host(source, .json)
         view.setSelectedRange(NSRange(location: (source as NSString).range(of: #""bc""#).location, length: 0))
-        view.formatDocument(nil)
+        await view.format(style: .standard).value
         #expect(view.string == "{\n  \"a\": [\n    1,\n    2\n  ],\n  \"bc\": 3\n}\n")
         #expect((view.string as NSString).substring(from: view.selectedRange().location).hasPrefix(#""bc""#),
                 "the caret stays before \"bc\"")
@@ -33,21 +33,21 @@ struct FormatDocumentTests {
         window.close()
     }
 
-    @Test func aSelectionIsFormattedOnItsOwn() {
+    @Test func aSelectionIsFormattedOnItsOwn() async {
         let source = #"before {"k":1} after"#
         let (window, view) = host(source, .json)
         view.setSelectedRange((source as NSString).range(of: #"{"k":1}"#))
-        view.formatDocument(nil)
+        await view.format(style: .standard).value
         #expect(view.string == "before {\n  \"k\": 1\n} after")
         #expect((view.string as NSString).substring(with: view.selectedRange()) == "{\n  \"k\": 1\n}")
         window.close()
     }
 
-    @Test func invalidTextIsLeftAloneWithTheReason() {
+    @Test func invalidTextIsLeftAloneWithTheReason() async {
         var message: String?
         let (window, view) = host("{\"a\": }", .json)
         view.showMessage = { message = $0 }
-        view.formatDocument(nil)
+        await view.format(style: .standard).value
         #expect(view.string == "{\"a\": }")
         #expect(message == "Not formatted. Line 1, column 7: expected a value")
         window.close()
@@ -64,11 +64,29 @@ struct FormatDocumentTests {
         window.close()
     }
 
-    @Test func sortingKeysFormatsJSONInKeyOrder() {
+    /// An edit made while a slow format runs wins: the stale result is
+    /// dropped, with a message (#81).
+    @Test func anEditDuringFormattingIsKept() async {
+        let (window, view) = host(#"{"a":1}"#, .json)
+        var message: String?
+        view.showMessage = { message = $0 }
+        view.formatter = { source, language, style in
+            Thread.sleep(forTimeInterval: 0.3)
+            return DocumentFormatter.format(source, as: language, style: style)
+        }
+        let running = view.format(style: .standard)
+        view.insertText(" ", replacementRange: NSRange(location: 7, length: 0))
+        await running.value
+        #expect(view.string == #"{"a":1} "#)
+        #expect(message == "The note changed while it was being formatted, so it was left as it is.")
+        window.close()
+    }
+
+    @Test func sortingKeysFormatsJSONInKeyOrder() async {
         let source = #"{"b":1,"a":2}"#
         let (window, view) = host(source, .json)
         view.setSelectedRange(NSRange(location: (source as NSString).range(of: #""a""#).location, length: 0))
-        view.formatJSONSortingKeys(nil)
+        await view.format(style: .sortedKeys).value
         #expect(view.string == "{\n  \"a\": 2,\n  \"b\": 1\n}\n")
         #expect(view.selectedRange() == NSRange(location: 0, length: 0), "keys moved, so the caret goes to the start")
         window.close()
@@ -96,11 +114,11 @@ struct FormatDocumentTests {
 
     /// Switching to Automatic re-detects at once, not after the background
     /// parse: XML text formats as XML even if the note was just JSON.
-    @Test func automaticLanguageIsReadFromTheTextNow() {
+    @Test func automaticLanguageIsReadFromTheTextNow() async {
         let (window, view) = host("<a><b>1</b></a>", .json)
         view.load(view.string, syntax: .automatic)
         #expect(view.syntax.currentLanguage == .xml)
-        view.formatDocument(nil)
+        await view.format(style: .standard).value
         #expect(view.string.contains("\n    <b>1</b>"))
         window.close()
     }
