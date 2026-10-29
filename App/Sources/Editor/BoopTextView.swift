@@ -394,8 +394,11 @@ final class BoopTextView: NSTextView {
     func pastePlainText(from pasteboard: NSPasteboard) {
         guard !refusesSecret(on: pasteboard) else { return }
         // No text but an image: stored with the note, referenced here (#51).
-        // An empty string, which some apps add beside an image, is no text.
-        if isEditable, pasteboard.string(forType: .string)?.isEmpty ?? true, insertImage(from: pasteboard) { return }
+        // Blank text, which some apps add beside an image, is no text, as
+        // for clipboard capture (#90). An image that was refused stops the
+        // paste too, rather than pasting the blank text over the selection
+        // (#89).
+        if isEditable, Self.isBlank(pasteboard.string(forType: .string)), insertImage(from: pasteboard) != .none { return }
         guard isEditable, let text = pasteboard.string(forType: .string) else {
             NSSound.beep()
             // macOS's paste privacy can deny every read; say so instead of
@@ -414,24 +417,54 @@ final class BoopTextView: NSTextView {
 
     /// Inserts references for the images on `pasteboard`: image files (a
     /// Finder drag) or image data. False when there were none.
-    func insertImage(from pasteboard: NSPasteboard) -> Bool {
-        guard let storeImage else { return false }
+    enum ImageInsertion { case none, inserted, refused }
+
+    /// Text that is missing or only whitespace, which an image beside it
+    /// outranks.
+    static func isBlank(_ text: String?) -> Bool {
+        text?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true
+    }
+
+    func insertImage(from pasteboard: NSPasteboard) -> ImageInsertion {
+        guard let storeImage else { return .none }
+        var offered = false
         var references: [String] = []
         let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+        // Every refusal says why: storeImage reports what it refuses; the
+        // cases it never sees are reported here.
         for url in urls {
-            guard let type = UTType(filenameExtension: url.pathExtension), ImageImport.accepts(type),
-                  let data = DropCapture.readPrefix(of: url, limit: ImageImport.sizeLimit + 1)
-            else { continue }
+            guard let type = UTType(filenameExtension: url.pathExtension), type.conforms(to: .image) else { continue }
+            offered = true
+            guard ImageImport.accepts(type) else {
+                showMessage?(ImageImport.message(for: .unsupported(type: type.localizedDescription ?? type.identifier), name: url.lastPathComponent))
+                continue
+            }
+            guard let data = DropCapture.readPrefix(of: url, limit: ImageImport.sizeLimit + 1) else {
+                showMessage?("Could not read \(url.lastPathComponent).")
+                continue
+            }
             if let reference = storeImage(data, type) { references.append(reference) }
         }
-        if urls.isEmpty, let type = ImageImport.preferredType(among: pasteboard.types?.map(\.rawValue) ?? []),
-           let data = pasteboard.data(forType: NSPasteboard.PasteboardType(type.identifier)),
-           let reference = storeImage(data, type) {
-            references.append(reference)
+        let types = pasteboard.types?.map(\.rawValue) ?? []
+        if urls.isEmpty, let type = ImageImport.preferredType(among: types) {
+            offered = true
+            if let data = pasteboard.data(forType: NSPasteboard.PasteboardType(type.identifier)) {
+                if let reference = storeImage(data, type) { references.append(reference) }
+            } else {
+                showMessage?("Could not read the image on the clipboard.")
+            }
+        } else if urls.isEmpty, let other = types.compactMap(UTType.init).first(where: { $0.conforms(to: .image) }) {
+            // An image of a type not kept (BMP, say) is still an image: it
+            // outranks blank text, and is refused with its reason.
+            offered = true
+            showMessage?(ImageImport.message(for: .unsupported(type: other.localizedDescription ?? other.identifier)))
         }
-        guard !references.isEmpty else { return false }
+        guard !references.isEmpty else {
+            if offered { NSSound.beep() }
+            return offered ? .refused : .none
+        }
         insertText(references.joined(separator: "\n"), replacementRange: selectedRange())
-        return true
+        return .inserted
     }
 
     override var readablePasteboardTypes: [NSPasteboard.PasteboardType] {
@@ -443,7 +476,7 @@ final class BoopTextView: NSTextView {
     /// Images, as files or data, are stored with the note and referenced.
     override func readSelection(from pboard: NSPasteboard, type: NSPasteboard.PasteboardType) -> Bool {
         guard !refusesSecret(on: pboard) else { return false }
-        if pboard.string(forType: .string)?.isEmpty ?? true || type == .fileURL, insertImage(from: pboard) { return true }
+        if Self.isBlank(pboard.string(forType: .string)) || type == .fileURL, insertImage(from: pboard) != .none { return true }
         return super.readSelection(from: pboard, type: type)
     }
 

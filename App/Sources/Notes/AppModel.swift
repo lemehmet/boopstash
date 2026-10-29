@@ -25,8 +25,25 @@ final class AppModel {
 
     // MARK: Scripts
 
-    /// The scripts the picker offers (ADR 0005).
-    @ObservationIgnored lazy var scriptLibrary = ScriptLibrary.bundled()
+    /// The scripts the picker offers (ADR 0005), bundled and the user's own
+    /// (#59), reloaded when the Scripts folder changes.
+    private(set) var scriptLibrary = ScriptLibrary.all()
+    @ObservationIgnored private var scriptsWatcher: FolderWatcher?
+    /// The user's Scripts folder; replaceable for tests.
+    @ObservationIgnored var scriptsFolder: URL? = UserScriptsFolder.url
+
+    /// Reads the scripts again. The folder watch sees files added, removed
+    /// and renamed, but not a script edited in place, so opening the picker
+    /// reloads too.
+    func reloadScripts() {
+        scriptLibrary = ScriptLibrary.all(userFolder: scriptsFolder)
+    }
+
+    /// Starts watching the user's Scripts folder.
+    func watchScripts() {
+        guard scriptsWatcher == nil, let url = scriptsFolder else { return }
+        scriptsWatcher = FolderWatcher(url) { [weak self] in self?.reloadScripts() }
+    }
     @ObservationIgnored let scriptRunner = LiveScriptRunner()
     private(set) var lastScript: BoopScript?
 
@@ -134,7 +151,9 @@ final class AppModel {
         // Attachments nothing refers to any more, after a day's grace so an
         // undo can still bring a deleted image back within a session.
         try? store.removeUnreferencedAttachments()
-        return AppModel(store: store)
+        let model = AppModel(store: store)
+        model.watchScripts()
+        return model
     }
 
     private func observe() {
@@ -160,6 +179,8 @@ final class AppModel {
     @ObservationIgnored private var recognition: Task<Void, Never>?
     /// A request that came while the worker was finishing: run again.
     @ObservationIgnored private var recognitionRequested = false
+    /// Called between the worker's last empty query and its end; for tests.
+    @ObservationIgnored var recognitionWillFinish: () -> Void = {}
 
     /// Reads the text of images not read yet, one at a time at low
     /// priority, so screenshots become searchable. Images from before this
@@ -190,6 +211,9 @@ final class AppModel {
                 }
             }.value
             guard let self else { return }
+            // The worker has found nothing left and is about to finish: the
+            // window the rerun flag covers. Tests add an image here.
+            self.recognitionWillFinish()
             self.recognition = nil
             // An image added after the worker's last look would otherwise
             // wait for the next change or launch.
