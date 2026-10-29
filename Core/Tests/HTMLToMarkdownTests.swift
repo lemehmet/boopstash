@@ -58,6 +58,15 @@ import Testing
         #expect(md(#"<img src="data:image/png;base64,AAAA" alt="inline">"#) == "inline")
     }
 
+    /// An image with no usable source, inside a link, falls back to its alt
+    /// text, which must not close the label (#46).
+    @Test func fallbackAltTextInsideALinkIsEscaped() {
+        #expect(md(#"<a href="https://x.test"><img src="data:image/png;base64,AA" alt="a]b"></a>"#)
+            == #"[a\]b](https://x.test)"#)
+        #expect(md(#"<a href="https://x.test"><img alt="[x]"> more</a>"#) == #"[\[x\] more](https://x.test)"#)
+        #expect(md(#"<p><img src="data:image/png;base64,AA" alt="a]b"></p>"#) == "a]b", "outside a link it is left alone")
+    }
+
     @Test func inlineCodeAndCodeBlocks() {
         #expect(md("<p>run <code>make test</code></p>") == "run `make test`")
         #expect(md("<p><code>a`b</code></p>") == "``a`b``")
