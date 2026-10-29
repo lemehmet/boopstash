@@ -184,6 +184,19 @@ import Testing
                 == ContentKind.sampleLimit)
     }
 
+    @Test func aByteOrderMarkDoesNotChangeTheTitle() {
+        let array = "\u{FEFF}[" + Array(repeating: "{\"k\": 1}", count: 150_000).joined(separator: ",") + "]"
+        #expect(array.utf8.count > ContentKind.jsonParseLimit)
+        let title = RuleTitler.title(for: array, kind: ContentKind.detect(array))
+        #expect(title.hasPrefix("JSON array"), "got \(title)")
+    }
+
+    @Test func aByteOrderMarkDoesNotHideTheKind() {
+        #expect(ContentKind.detect("\u{FEFF}{\"a\":1}") == .json)
+        #expect(SyntaxLanguage.detect("\u{FEFF}{\"a\":1}") == .json)
+        #expect(SyntaxChoice.automatic.resolve(for: "\u{FEFF}<a><b/></a>") == .xml)
+    }
+
     @Test func stackTracesNameTheFailure() {
         #expect(title("Traceback (most recent call last):\n  File \"x.py\", line 3\nKeyError: 'id'") == "KeyError: 'id'")
         #expect(title("java.lang.IllegalStateException: closed\n\tat a.B.c(B.java:1)\n\tat a.B.d(B.java:2)")

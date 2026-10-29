@@ -137,6 +137,37 @@ struct ScriptServiceTests {
         window.close()
     }
 
+    /// Two windows' pickers each run in their own editor (#85): the model
+    /// keeps no shared target for one to overwrite.
+    @Test func eachPickerRunsInItsOwnEditor() async throws {
+        let model = AppModel(store: try .inMemory())
+        func editor(_ text: String) -> (NSWindow, BoopTextView) {
+            let (scroll, view) = BoopTextView.makeScrollable()
+            scroll.frame = NSRect(x: 0, y: 0, width: 300, height: 200)
+            let window = NSWindow(contentRect: scroll.frame, styleMask: [.titled], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.contentView = scroll
+            view.string = text
+            return (window, view)
+        }
+        let (windowA, a) = editor("first")
+        let (windowB, b) = editor("second")
+        let pickerA = PickerTarget(editor: a)
+        let pickerB = PickerTarget(editor: b)  // opened later in the other window
+        // The other window is key now: a picker that looked up the key
+        // editor instead of its own would run in B.
+        model.keyResponder = { b }
+        let upper = try BoopScript.parse(script("function main(state) { state.text = state.text.toUpperCase() }"), id: "t/u.js", bundled: false).get()
+        pickerA.run(upper, with: model)
+        let deadline = ContinuousClock.now + .seconds(5)
+        while ContinuousClock.now < deadline, a.string != "FIRST" { try await Task.sleep(for: .milliseconds(20)) }
+        #expect(a.string == "FIRST")
+        #expect(b.string == "second")
+        _ = pickerB
+        windowA.close()
+        windowB.close()
+    }
+
     @Test func theEditorAppliesARunAsOneUndoableEdit() async {
         let (scroll, view) = BoopTextView.makeScrollable()
         scroll.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
