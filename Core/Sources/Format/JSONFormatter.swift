@@ -77,6 +77,8 @@ public enum JSONFormatter {
         let bytes: [UInt8]
         var index = 0
         var depth = 0
+        /// Where the next check for cancellation is due.
+        var nextCheck = 1 << 16
 
         init(_ text: String) { bytes = Array(text.utf8) }
 
@@ -231,9 +233,13 @@ public enum JSONFormatter {
         }
 
         /// Every 64 KiB of input, whether the format was superseded (#98):
-        /// a check per byte would cost more than the scan.
-        func checkCancellation() throws {
-            if index & 0xFFFF == 0, Task.isCancelled { throw FormatError.cancelled }
+        /// a check per byte would cost more than the scan. Due once that much
+        /// has been passed, however far each step moves (escapes are two to
+        /// six bytes).
+        mutating func checkCancellation() throws {
+            guard index >= nextCheck else { return }
+            nextCheck = index + (1 << 16)
+            if Task.isCancelled { throw FormatError.cancelled }
         }
 
         func peek(_ character: Unicode.Scalar) -> Bool {

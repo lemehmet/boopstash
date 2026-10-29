@@ -250,6 +250,23 @@ extension Result where Success == String, Failure == FormatError {
         #expect((try? parser.string())?.count == (1 << 20) + 2)
     }
 
+    /// Escapes move two to six bytes a step; the check still comes due.
+    @Test func cancellationStopsInsideAnEscapedString() async {
+        let huge = "\"" + String(repeating: "\\n", count: 1 << 19) + "\""
+        let task = Task { () -> String? in
+            withUnsafeCurrentTask { $0?.cancel() }
+            var parser = JSONFormatter.Parser(huge)
+            return try? parser.string()
+        }
+        #expect(await task.value == nil)
+    }
+
+    /// Processing instructions keep their data's whitespace.
+    @Test func reindentingLeavesProcessingInstructionsAlone() {
+        let pretty = "<r>\n    <?p data\n        <kept>?>\n    <c/>\n</r>"
+        #expect(XMLFormatter.reindent(pretty, to: 2) == "<r>\n  <?p data\n        <kept>?>\n  <c/>\n</r>")
+    }
+
     @Test func cancellationStopsWhileWriting() async {
         let wide = "[" + Array(repeating: "1", count: JSONFormatter.checkEvery * 2).joined(separator: ",") + "]"
         let task = Task { () -> Result<String, FormatError> in

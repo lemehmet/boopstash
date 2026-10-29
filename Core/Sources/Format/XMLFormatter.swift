@@ -33,7 +33,8 @@ public enum XMLFormatter {
 
     /// `XMLDocument` always indents by four spaces; this scales the
     /// indentation of lines that start with markup to `width`. Lines inside
-    /// CDATA, comments or text keep their own whitespace, which may matter.
+    /// CDATA sections, comments, processing instructions and declarations
+    /// keep their own whitespace, which may matter.
     static func reindent(_ xml: String, to width: Int) -> String {
         guard width != 4 else { return xml }
         // Inside a CDATA section or comment, and what ends it.
@@ -51,6 +52,11 @@ public enum XMLFormatter {
         return lines.joined(separator: "\n")
     }
 
+    /// What opens a section whose contents are data, and what closes it.
+    /// A DOCTYPE counts up to its first ">": the declarations of an
+    /// internal subset are markup, where whitespace carries no meaning.
+    static let sections = [("<![CDATA[", "]]>"), ("<!--", "-->"), ("<?", "?>"), ("<!DOCTYPE", ">")]
+
     /// Whether `line` leaves a CDATA section or comment open, given the one
     /// open before it: returns what still has to close it.
     static func openSection(after line: Substring, inside: String?) -> String? {
@@ -62,7 +68,7 @@ public enum XMLFormatter {
                 rest = rest[end.upperBound...]
                 closer = nil
             } else {
-                let starts = [("<![CDATA[", "]]>"), ("<!--", "-->")].compactMap { pair in rest.range(of: pair.0).map { ($0, pair.1) } }
+                let starts = sections.compactMap { pair in rest.range(of: pair.0).map { ($0, pair.1) } }
                 guard let first = starts.min(by: { $0.0.lowerBound < $1.0.lowerBound }) else { return nil }
                 rest = rest[first.0.upperBound...]
                 closer = first.1
