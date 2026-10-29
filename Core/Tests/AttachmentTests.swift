@@ -72,7 +72,8 @@ import Testing
     }
 
     /// Every form the preview shows is a reference clean-up keeps (#88).
-    @Test(arguments: ["![x](<attachment:%@>)", "![x](attachment:%@ \"title\")", "![x]( attachment:%@ )", "![x](<attachment:%@> 'title')"])
+    @Test(arguments: ["![x](<attachment:%@>)", "![x](attachment:%@ \"title\")", "![x]( attachment:%@ )", "![x](<attachment:%@> 'title')",
+                      #"![x](attachment:%@ "a \"quoted\" title")"#, #"![x](attachment:%@ 'it\'s')"#, #"![x](attachment:%@ (a \) paren))"#])
     func everyDestinationFormIsAReference(_ form: String) throws {
         let owner = try note("")
         let image = try store.addAttachment(png, contentType: "public.png", noteID: owner.id)

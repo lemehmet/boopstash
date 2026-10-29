@@ -58,7 +58,7 @@ public enum AttachmentReference {
     /// or in angle brackets, with or without a title (#88). Group 1 is the
     /// alt text, group 2 the ID.
     static let pattern = try! NSRegularExpression(
-        pattern: #"!\[((?:[^\]\\]|\\.)*)\]\(\s*<?(?i:attachment):([0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12})>?(?:\s+(?:"[^"]*"|'[^']*'|\([^)]*\)))?\s*\)"#
+        pattern: #"!\[((?:[^\]\\]|\\.)*)\]\(\s*<?(?i:attachment):([0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12})>?(?:\s+(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|\((?:[^)\\]|\\.)*\)))?\s*\)"#
     )
 
     /// Every attachment a body refers to. A reference inside a code span
