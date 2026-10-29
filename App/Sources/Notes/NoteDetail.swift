@@ -13,6 +13,13 @@ struct NoteDetail: View {
     /// The text as typed, for the preview; drafts are not observed, so the
     /// editor reports here while a preview shows.
     @State private var liveText: String?
+    /// The language the editor highlights now: what the toolbar shows and
+    /// what decides whether the preview renders (#151, #152).
+    @State private var language: SyntaxLanguage?
+
+    private var canPreview: Bool { MarkdownPreview.canPreview(language) }
+    /// This window's script picker, for the toolbar's Run Script.
+    @FocusedValue(\.scriptPicker) private var picker
 
     var body: some View {
         VStack(spacing: 0) {
@@ -26,10 +33,21 @@ struct NoteDetail: View {
             if previewShown && sideBySide {
                 HSplitView {
                     editor.frame(minWidth: 240)
-                    preview.frame(minWidth: 240)
+                    Group {
+                        if canPreview { preview } else { notPreviewable }
+                    }
+                    .frame(minWidth: 240)
                 }
-            } else if previewShown {
+            } else if previewShown && canPreview {
                 preview
+            } else if previewShown {
+                // In place of the editor, but nothing to render: the editor,
+                // and a strip saying why (#152).
+                VStack(spacing: 0) {
+                    notPreviewableStrip
+                    Divider()
+                    editor
+                }
             } else {
                 editor
             }
@@ -37,8 +55,31 @@ struct NoteDetail: View {
         // A generated title shows as the placeholder and stays out of the
         // field, so typing in the field is always a deliberate rename.
         .toolbar {
+            // Frequent commands (#153): the same actions as the menu items,
+            // enabled the same way (SwiftUI does not validate them through
+            // the responder chain, so they follow the editor's focus).
+            ToolbarItemGroup {
+                Button("Paste as Markdown", systemImage: "doc.richtext") {
+                    NSApp.sendAction(#selector(BoopTextView.pasteAsMarkdown(_:)), to: nil, from: nil)
+                }
+                .help("Paste as Markdown (⌥⇧⌘V): rich text from the clipboard, as Markdown")
+                .disabled(!model.editorHasFocus)
+                Button("Run Script", systemImage: "wand.and.stars") {
+                    if let editor = model.keyEditor() {
+                        model.reloadScripts()
+                        picker?.wrappedValue = PickerTarget(editor: editor)
+                    }
+                }
+                .help("Run Script… (⌘B): a Boop script on the selection or the note")
+                .disabled(!model.editorHasFocus || picker == nil)
+                Toggle(isOn: $previewShown) { Label("Show Preview", systemImage: "eye") }
+                    .help("Show Preview (⌥⌘P): the note rendered as Markdown")
+                Toggle(isOn: $sideBySide) { Label("Preview Beside the Editor", systemImage: "rectangle.split.2x1") }
+                    .help(sideBySide ? "Preview Beside the Editor: on" : "Preview Beside the Editor: off, so the preview replaces the editor")
+                    .disabled(!previewShown)
+            }
             ToolbarItem {
-                LanguageMenu(choice: $syntax, detected: SyntaxLanguage.detect(note.body))
+                LanguageMenu(choice: $syntax, current: language)
             }
         }
         // Compared with the note as it is now, so taking a remote change
@@ -49,11 +90,16 @@ struct NoteDetail: View {
         .onAppear {
             title = note.titleIsUserSet ? note.title : ""
             syntax = note.syntaxChoice
+            language = currentLanguage()
         }
         .onChange(of: note.id) {
             title = note.titleIsUserSet ? note.title : ""
             liveText = nil
+            language = currentLanguage()
         }
+        // A language picked in the menu applies at once; the editor reports
+        // later changes (detection as the text changes).
+        .onChange(of: syntax) { language = currentLanguage() }
         // Changed in iCloud while open (#128): the editor reloads itself;
         // the title, language and preview follow the merged note.
         .onChange(of: model.remoteRevisions[note.id]) {
@@ -80,10 +126,45 @@ extension NoteDetail {
         // newer than what was last saved.
         EditorView(noteID: note.id, revision: model.remoteRevisions[note.id] ?? 0, initialText: model.note(id: note.id)?.body ?? note.body, keymap: keymap, syntax: syntax, appearance: appearance, showMessage: { model.banner = $0 }, jsFormat: { [runner = model.scriptRunner] request in await runner.format(request) }, attachmentURL: { [store = model.store] id in
             (try? store.attachment(id: id)).map { store.fileURL(for: $0) }
-        }, storeImage: { [id = note.id] data, type in model.addImage(data, type: type, to: id) }, onFocusChange: { model.editorFocusMayHaveChanged() }) { text in
+        }, storeImage: { [id = note.id] data, type in model.addImage(data, type: type, to: id) }, onFocusChange: { model.editorFocusMayHaveChanged() },
+           onLanguage: { language = $0 }) { text in
             model.updateBody(note.id, to: text)
             if previewShown { liveText = text }
         }
+    }
+
+    /// The editor's language before it reports one: the setting applied to
+    /// the current text.
+    private func currentLanguage() -> SyntaxLanguage? {
+        syntax.resolve(for: model.note(id: note.id)?.body ?? note.body)
+    }
+
+    private var languageName: String { language?.displayName ?? "plain text" }
+
+    /// In the preview's place beside the editor, for a note that is not
+    /// Markdown (#152).
+    private var notPreviewable: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "eye.slash").font(.title2).foregroundStyle(.secondary)
+            Text("Preview is for Markdown").font(.headline)
+            Text("This note is \(languageName).").foregroundStyle(.secondary)
+            Button("Treat as Markdown") { syntax = .language(.markdown) }
+                .help("Set this note's language to Markdown")
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding()
+    }
+
+    private var notPreviewableStrip: some View {
+        HStack {
+            Image(systemName: "eye.slash").foregroundStyle(.secondary)
+            Text("Preview is for Markdown; this note is \(languageName).").foregroundStyle(.secondary)
+            Spacer()
+            Button("Treat as Markdown") { syntax = .language(.markdown) }
+        }
+        .font(.callout)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
     }
 
     private var preview: some View {
@@ -102,12 +183,13 @@ extension NoteDetail {
 /// files whose type says nothing (`nginx.conf`).
 struct LanguageMenu: View {
     @Binding var choice: SyntaxChoice
-    let detected: SyntaxLanguage?
+    /// What the editor highlights now (#151).
+    let current: SyntaxLanguage?
 
     var body: some View {
         Menu {
             Picker("Language", selection: $choice) {
-                Text("Automatic" + (detected.map { " (\($0.displayName))" } ?? "")).tag(SyntaxChoice.automatic)
+                Text("Automatic" + (current.map { " (\($0.displayName))" } ?? "")).tag(SyntaxChoice.automatic)
                 Text("Plain Text").tag(SyntaxChoice.plain)
                 Divider()
                 ForEach(SyntaxLanguage.allCases.sorted { $0.displayName < $1.displayName }, id: \.self) { language in
@@ -119,12 +201,13 @@ struct LanguageMenu: View {
             Label(label, systemImage: "chevron.left.forwardslash.chevron.right")
                 .labelStyle(.titleAndIcon)
         }
-        .help("Language for highlighting")
+        .help(choice == .automatic ? "Language for highlighting: detected from the text" : "Language for highlighting: set for this note")
     }
 
+    /// The language in use; one detected rather than chosen says so.
     private var label: String {
         switch choice {
-        case .automatic: detected?.displayName ?? "Plain Text"
+        case .automatic: "\(current?.displayName ?? "Plain Text") · Auto"
         case .plain: "Plain Text"
         case .language(let language): language.displayName
         }

@@ -25,6 +25,8 @@ struct EditorView: NSViewRepresentable {
     /// Called when this editor gains or loses focus, goes away, or its
     /// language changes: what the editor-only menu commands depend on.
     var onFocusChange: () -> Void = {}
+    /// The language the editor highlights, whenever it changes (#151).
+    var onLanguage: (SyntaxLanguage?) -> Void = { _ in }
     let onChange: (String) -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -44,7 +46,10 @@ struct EditorView: NSViewRepresentable {
         view.storeImage = storeImage
         view.jsFormat = jsFormat
         view.onFocusChange = { _ in onFocusChange() }
-        view.syntax.onLanguageChange = onFocusChange
+        view.syntax.onLanguageChange = { [weak view] in
+            onFocusChange()
+            onLanguage(view?.syntax.currentLanguage)
+        }
         context.coordinator.onFocusChange = onFocusChange
         context.coordinator.onChange = onChange
         if context.coordinator.noteID != noteID {

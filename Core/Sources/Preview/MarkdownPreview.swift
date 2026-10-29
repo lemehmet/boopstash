@@ -44,6 +44,14 @@ public enum PreviewImage: Equatable, Sendable {
 }
 
 public enum MarkdownPreview {
+    /// The languages the preview renders (#152): Markdown only. Code and
+    /// plain text gain nothing from it.
+    public static let previewable: Set<SyntaxLanguage> = [.markdown]
+
+    public static func canPreview(_ language: SyntaxLanguage?) -> Bool {
+        language.map(previewable.contains) ?? false
+    }
+
     /// The blocks for a note. Fenced code is highlighted with the editor's
     /// grammars.
     public static func blocks(for markdown: String) async -> [PreviewBlock] {
