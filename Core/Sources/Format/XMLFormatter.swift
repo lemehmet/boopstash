@@ -1,7 +1,8 @@
 import Foundation
 
-/// XML and XML property lists, re-indented by Foundation's `XMLDocument`,
-/// which keeps comments, CDATA and the order of everything. Property lists
+/// XML and XML property lists, parsed by Foundation's `XMLDocument` and
+/// printed from the tree, keeping comments, CDATA and the order of
+/// everything, and text exactly as written. Property lists
 /// take this path rather than `PropertyListSerialization`, whose round trip
 /// reorders dictionary keys and drops comments. `XMLDocument` is macOS only;
 /// on iOS XML is not formatted.
@@ -20,9 +21,7 @@ public enum XMLFormatter {
             // External entities and DTDs are never loaded: formatting must not
             // reach the network or the disk (ADR 0001).
             let document = try XMLDocument(xmlString: text, options: [.nodePreserveCDATA, .nodeLoadExternalEntitiesNever])
-            var out = reindent(document.xmlString(options: [.nodePrettyPrint, .nodePreserveCDATA, .nodeCompactEmptyElement]), to: indent)
-            if !out.hasSuffix("\n") { out += "\n" }
-            return .success(out)
+            return .success(render(document, source: text, width: indent))
         } catch let error as NSError {
             return .failure(failure(from: error.userInfo[NSLocalizedDescriptionKey] as? String))
         }
@@ -31,50 +30,57 @@ public enum XMLFormatter {
         #endif
     }
 
-    /// `XMLDocument` always indents by four spaces; this scales the
-    /// indentation of lines that start with markup to `width`. Lines inside
-    /// CDATA sections, comments, processing instructions and declarations
-    /// keep their own whitespace, which may matter.
-    static func reindent(_ xml: String, to width: Int) -> String {
-        guard width != 4 else { return xml }
-        // Inside a CDATA section or comment, and what ends it.
-        var closer: String?
-        var lines: [String] = []
-        for line in xml.split(separator: "\n", omittingEmptySubsequences: false) {
-            let content = line.drop { $0 == " " }
-            if closer == nil, content.hasPrefix("<") {
-                lines.append(String(repeating: " ", count: (line.count - content.count) / 4 * width) + content)
-            } else {
-                lines.append(String(line))
-            }
-            closer = openSection(after: Substring(line), inside: closer)
+    #if os(macOS)
+    /// The document printed from its tree (#112): an element whose content
+    /// is only elements, comments and processing instructions has one per
+    /// line, indented by `width`; any element with text in it (mixed
+    /// content, CDATA) is written exactly as it is, since its whitespace is
+    /// part of the text. `XMLDocument`'s own pretty print re-indents even
+    /// that, and only by four spaces.
+    static func render(_ document: XMLDocument, source: String, width: Int) -> String {
+        var out: [String] = []
+        // The source's own declaration, word for word (XMLDocument adds a
+        // standalone it did not have); without one, XMLDocument's.
+        let start = source.drop { $0 == "\u{FEFF}" || $0.isWhitespace }
+        if start.hasPrefix("<?xml "), let end = start.range(of: "?>") {
+            out.append(String(start[..<end.upperBound]))
+        } else {
+            let pretty = document.xmlString(options: [.nodePrettyPrint, .nodePreserveCDATA, .nodeCompactEmptyElement])
+            if let first = pretty.split(separator: "\n", maxSplits: 1).first, first.hasPrefix("<?xml ") { out.append(String(first)) }
         }
-        return lines.joined(separator: "\n")
+        if let dtd = document.dtd {
+            out.append(dtd.xmlString(options: [.nodePrettyPrint]).trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+        for child in document.children ?? [] where child.kind != .DTDKind {
+            render(child, depth: 0, width: width, into: &out)
+        }
+        return out.joined(separator: "\n") + "\n"
     }
 
-    /// What opens a section whose contents are data, and what closes it.
-    /// A DOCTYPE counts up to its first ">": the declarations of an
-    /// internal subset are markup, where whitespace carries no meaning.
-    static let sections = [("<![CDATA[", "]]>"), ("<!--", "-->"), ("<?", "?>"), ("<!DOCTYPE", ">")]
-
-    /// Whether `line` leaves a CDATA section or comment open, given the one
-    /// open before it: returns what still has to close it.
-    static func openSection(after line: Substring, inside: String?) -> String? {
-        var rest = line[...]
-        var closer = inside
-        while true {
-            if let open = closer {
-                guard let end = rest.range(of: open) else { return open }
-                rest = rest[end.upperBound...]
-                closer = nil
-            } else {
-                let starts = sections.compactMap { pair in rest.range(of: pair.0).map { ($0, pair.1) } }
-                guard let first = starts.min(by: { $0.0.lowerBound < $1.0.lowerBound }) else { return nil }
-                rest = rest[first.0.upperBound...]
-                closer = first.1
-            }
+    static func render(_ node: XMLNode, depth: Int, width: Int, into out: inout [String]) {
+        let pad = String(repeating: " ", count: depth * width)
+        guard let element = node as? XMLElement else {
+            // Comments and processing instructions, word for word.
+            if node.kind == .text, (node.stringValue ?? "").allSatisfy(\.isWhitespace) { return }
+            out.append(pad + node.xmlString(options: [.nodePreserveCDATA]))
+            return
         }
+        let children = element.children ?? []
+        let hasText = children.contains { $0.kind == .text && !($0.stringValue ?? "").allSatisfy(\.isWhitespace) }
+        guard !children.isEmpty, !hasText else {
+            out.append(pad + element.xmlString(options: [.nodePreserveCDATA, .nodeCompactEmptyElement]))
+            return
+        }
+        // The start tag, attributes and namespaces included: the element
+        // without its children, written as an empty one.
+        let shell = element.copy() as! XMLElement
+        shell.setChildren(nil)
+        let empty = shell.xmlString(options: [.nodeCompactEmptyElement])
+        out.append(pad + String(empty.dropLast(2)) + ">")
+        for child in children { render(child, depth: depth + 1, width: width, into: &out) }
+        out.append(pad + "</\(element.name ?? "")>")
     }
+    #endif
 
     /// libxml2's message reads "Line 3: Opening and ending tag mismatch…";
     /// the line moves into the error's own field.

@@ -208,31 +208,23 @@ extension Result where Success == String, Failure == FormatError {
         #expect(four.contains("\n    <b>"), "\(four)")
     }
 
-    /// Lines inside CDATA and comments keep their own whitespace.
-    @Test func reindentingLeavesCDATAAndCommentsAlone() {
-        let pretty = """
-            <a>
-                <b><![CDATA[
-                    <kept/>
-                ]]></b>
-                <!--
-                    <also kept/>
-                -->
-                <c/>
-            </a>
-            """
-        let expected = """
-            <a>
-              <b><![CDATA[
-                    <kept/>
-                ]]></b>
-              <!--
-                    <also kept/>
-                -->
-              <c/>
-            </a>
-            """
-        #expect(XMLFormatter.reindent(pretty, to: 2) == expected)
+    /// Text is never re-indented: mixed content, CDATA and comments come
+    /// out exactly as written (#146).
+    @Test func textKeepsItsWhitespace() throws {
+        let source = "<r><p>Hello\n    <b>world</b></p><c><![CDATA[\n    kept\n]]></c><!--\n    also kept\n--><d><e/></d></r>"
+        let out = try XMLFormatter.format(source, indent: 2).get()
+        #expect(out.contains("<p>Hello\n    <b>world</b></p>"), "\(out)")
+        #expect(out.contains("<![CDATA[\n    kept\n]]>"))
+        #expect(out.contains("<!--\n    also kept\n-->"))
+        #expect(out.contains("\n  <d>\n    <e/>\n  </d>"), "\(out)")
+        #expect(try XMLFormatter.format(out, indent: 2).get() == out, "idempotent")
+    }
+
+    @Test func processingInstructionsAndDeclarationsAreKept() throws {
+        let out = try XMLFormatter.format(#"<?xml version="1.0"?><?pi some data?><r a="1"><x/></r>"#, indent: 2).get()
+        #expect(out.hasPrefix("<?xml version=\"1.0\""), "\(out)")
+        #expect(out.contains("<?pi some data?>"))
+        #expect(out.contains("<r a=\"1\">\n  <x/>\n</r>"), "\(out)")
     }
 
     /// Cancelled while scanning one huge string: it stops there, instead of
@@ -261,10 +253,10 @@ extension Result where Success == String, Failure == FormatError {
         #expect(await task.value == nil)
     }
 
-    /// Processing instructions keep their data's whitespace.
-    @Test func reindentingLeavesProcessingInstructionsAlone() {
-        let pretty = "<r>\n    <?p data\n        <kept>?>\n    <c/>\n</r>"
-        #expect(XMLFormatter.reindent(pretty, to: 2) == "<r>\n  <?p data\n        <kept>?>\n  <c/>\n</r>")
+    /// A processing instruction's data keeps its whitespace.
+    @Test func processingInstructionDataIsKept() throws {
+        let out = try XMLFormatter.format("<r><?p data\n        <kept>?><c/></r>", indent: 2).get()
+        #expect(out.contains("<?p data\n        <kept>?>"), "\(out)")
     }
 
     @Test func cancellationStopsWhileWriting() async {
