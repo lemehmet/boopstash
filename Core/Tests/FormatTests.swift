@@ -66,13 +66,19 @@ import Testing
         #expect(JSONFormatter.format(text) == .failure(FormatError(message: message, line: line, column: column)))
     }
 
+    /// Cancelled before it starts (the task cancels itself first), so the
+    /// result is deterministic: the parser's check must turn it into a
+    /// failure, not a formatted document.
     @Test func aCancelledFormatStops() async {
-        let deep = "[" + Array(repeating: "1", count: 200_000).joined(separator: ",") + "]"
-        let task = Task.detached { JSONFormatter.format(deep) }
-        task.cancel()
-        if case .failure(let error) = await task.value {
-            #expect(error.message == "cancelled")
+        let task = Task.detached { () -> Result<String, FormatError> in
+            withUnsafeCurrentTask { $0?.cancel() }
+            return JSONFormatter.format("[1, 2, 3]")
         }
+        guard case .failure(let error) = await task.value else {
+            Issue.record("a cancelled format still formatted")
+            return
+        }
+        #expect(error.message == "cancelled")
     }
 
     @Test func aByteOrderMarkIsTolerated() throws {
