@@ -88,6 +88,9 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
         /// the engine automatically, only by Sync Now, so a permanent error
         /// does not fail again on every send.
         var heldBack: Set<CKRecord.ID> = []
+        /// Moves on with every account change and reset, so a retry started
+        /// for the previous account never applies to the new one.
+        var generation = 0
         var watcher: Task<Void, Never>?
     }
 
@@ -205,7 +208,9 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
         case .willSendChanges:
             state.withLock { $0.sendFailed = false }
         case .didSendChanges:
-            report(.sent(Date(), failed: state.withLock { $0.sendFailed }))
+            // A record held back after failing for good is still a problem,
+            // whatever this send did.
+            report(.sent(Date(), failed: state.withLock { $0.sendFailed || !$0.heldBack.isEmpty }))
         case .sentDatabaseChanges, .willFetchChanges, .willFetchRecordZoneChanges, .didFetchRecordZoneChanges:
             break
         @unknown default:
@@ -223,13 +228,10 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
         case .switchAccounts:
             // Another person's iCloud: this one's notes stay here and go up
             // to the new account as new records.
-            try? store.resetSyncForReupload()
-            engine.state.add(pendingDatabaseChanges: [.saveZone(CKRecordZone(zoneID: Self.zoneID))])
-            requeuePending(engine)
+            startOver(engine, makingZone: true)
             report(.account(Self.describe(.available)))
         case .signOut:
-            try? store.resetSyncForReupload()
-            requeuePending(engine)
+            startOver(engine, makingZone: false)
             report(.account(Self.describe(.noAccount)))
         @unknown default:
             break
@@ -241,13 +243,12 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
         case .encryptedDataReset:
             // The iCloud Keychain was reset: the server's copy can no longer
             // be read, so everything goes up again (ADR 0002).
-            try? store.resetSyncForReupload()
-            engine.state.add(pendingDatabaseChanges: [.saveZone(CKRecordZone(zoneID: Self.zoneID))])
-            requeuePending(engine)
+            startOver(engine, makingZone: true)
         case .deleted, .purged:
             // Deleted from iCloud on purpose: notes here stay, and sync stops
             // rather than putting them back.
             try? store.resetSyncForReupload()
+            state.withLock { $0.generation += 1 }
             report(.stoppedByServer("BoopStash's data was deleted from iCloud. Your notes on this Mac are unchanged; turn sync on again to upload them."))
         @unknown default:
             break
@@ -269,10 +270,8 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
             case .zoneNotFound where (failure.error.userInfo[CKErrorUserDidResetEncryptedDataKey] as? Bool) == true:
                 // The iCloud Keychain was reset and the zone went with it
                 // (ADR 0002): everything goes up again, not just this record.
-                try? store.resetSyncForReupload()
-                engine.state.add(pendingDatabaseChanges: [.saveZone(CKRecordZone(zoneID: Self.zoneID))])
+                startOver(engine, makingZone: true)
                 engine.state.add(pendingRecordZoneChanges: [.saveRecord(record.recordID)])
-                requeuePending(engine)
             case .serverRecordChanged:
                 // Changed elsewhere first: merge the server's version in; the
                 // store marks what is still to send, and the watcher re-adds it.
@@ -339,6 +338,19 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
         requeuePending(engine)
     }
 
+    /// Everything goes up again as new (another account, a keychain reset):
+    /// nothing is held back any more, retries for before are void, and the
+    /// engine is given everything.
+    private func startOver(_ engine: CKSyncEngine, makingZone: Bool) {
+        try? store.resetSyncForReupload()
+        state.withLock {
+            $0.heldBack = []
+            $0.generation += 1
+        }
+        if makingZone { engine.state.add(pendingDatabaseChanges: [.saveZone(CKRecordZone(zoneID: Self.zoneID))]) }
+        requeuePending(engine)
+    }
+
     /// Gives the engine everything the store still has to send.
     private func requeuePending(_ engine: CKSyncEngine) {
         guard let pending = try? store.currentPendingSyncNames() else { return }
@@ -393,7 +405,9 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
     /// Reads the files of fetched records here, then applies everything at
     /// once where edits happen (`applyRemote`). A record whose downloaded
     /// file cannot be read is not applied: it is fetched again by itself.
-    private func applyFetched(_ records: [CKRecord], deletions: [(CKRecord.ID, CKRecord.RecordType)], attempt: Int = 1) async {
+    private func applyFetched(_ records: [CKRecord], deletions: [(CKRecord.ID, CKRecord.RecordType)], attempt: Int = 1,
+                              generation: Int? = nil) async {
+        let generation = generation ?? state.withLock { $0.generation }
         var incoming: [Incoming] = []
         var unreadable: [CKRecord.ID] = []
         for record in records {
@@ -409,16 +423,18 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
             incoming.append(Incoming(record: sync, systemFields: Self.systemFields(of: record), asset: asset))
         }
         let deleted = deletions.compactMap { id, type in SyncRecord.Kind(rawValue: type).map { Deletion(kind: $0, name: id.recordName) } }
-        let outcome = await apply(incoming, deletions: deleted)
+        let outcome = await apply(incoming, deletions: deleted, generation: generation)
         let retry = unreadable + (outcome?.failedRecords ?? [])
-        if !retry.isEmpty { refetch(retry, attempt: attempt) }
-        if let failed = outcome?.failedDeletions, !failed.isEmpty { retryDeletions(failed, attempt: attempt) }
+        if !retry.isEmpty { refetch(retry, attempt: attempt, generation: generation) }
+        if let failed = outcome?.failedDeletions, !failed.isEmpty { retryDeletions(failed, attempt: attempt, generation: generation) }
     }
 
-    private func apply(_ incoming: [Incoming], deletions: [Deletion]) async -> RemoteOutcome? {
+    private func apply(_ incoming: [Incoming], deletions: [Deletion], generation: Int) async -> RemoteOutcome? {
         let store = self.store
-        return await applyRemote {
+        return await applyRemote { [self] in
             var outcome = RemoteOutcome()
+            // Fetched for an account this device no longer syncs with.
+            guard state.withLock({ $0.generation }) == generation else { return outcome }
             for item in incoming {
                 do {
                     let copy = try store.applyServerRecord(item.record, systemFields: item.systemFields, assetData: item.asset)
@@ -443,39 +459,39 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
 
     /// Applies again deletions from the server that failed here: the
     /// engine will not send them again.
-    private func retryDeletions(_ deletions: [Deletion], attempt: Int) {
+    private func retryDeletions(_ deletions: [Deletion], attempt: Int, generation: Int) {
         guard attempt <= 3 else {
             report(.problem("Some deletions from iCloud could not be applied on this Mac."))
             return
         }
         Task {
             try? await Task.sleep(for: .seconds(5 * attempt))
-            guard state.withLock({ $0.engine != nil }) else { return }
-            if let failed = await apply([], deletions: deletions)?.failedDeletions, !failed.isEmpty {
-                retryDeletions(failed, attempt: attempt + 1)
+            guard state.withLock({ $0.engine != nil && $0.generation == generation }) else { return }
+            if let failed = await apply([], deletions: deletions, generation: generation)?.failedDeletions, !failed.isEmpty {
+                retryDeletions(failed, attempt: attempt + 1, generation: generation)
             }
         }
     }
 
     /// Fetches records again whose files could not be read, or that could
     /// not be applied, a few times with a growing pause.
-    private func refetch(_ ids: [CKRecord.ID], attempt: Int) {
+    private func refetch(_ ids: [CKRecord.ID], attempt: Int, generation: Int) {
         guard attempt <= 3 else {
             report(.problem("Some changes from iCloud could not be applied on this Mac; they will come with the next change to them."))
             return
         }
         Task { [container] in
             try? await Task.sleep(for: .seconds(5 * attempt))
-            guard state.withLock({ $0.engine != nil }) else { return }
+            guard state.withLock({ $0.engine != nil && $0.generation == generation }) else { return }
             do {
                 let results = try await container.privateCloudDatabase.records(for: ids)
                 let records = results.values.compactMap { try? $0.get() }
                 // Each record can fail alone; those go round again too.
                 let missing = ids.filter { (try? results[$0]?.get()) == nil }
-                await applyFetched(records, deletions: [], attempt: attempt + 1)
-                if !missing.isEmpty { refetch(missing, attempt: attempt + 1) }
+                await applyFetched(records, deletions: [], attempt: attempt + 1, generation: generation)
+                if !missing.isEmpty { refetch(missing, attempt: attempt + 1, generation: generation) }
             } catch {
-                refetch(ids, attempt: attempt + 1)
+                refetch(ids, attempt: attempt + 1, generation: generation)
             }
         }
     }

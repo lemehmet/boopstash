@@ -103,14 +103,16 @@ demo mode (made-up notes in memory, never a real store) on the Mac and in the
 and `fastlane/screenshots-ios/`; `release` uploads them.
 
 The version is the newest `## vX.Y.Z` in `CHANGELOG.md`; the build number
-counts up from TestFlight's newest. Besides the App Store Connect key above,
-the lanes need:
+counts up from TestFlight's newest. The lanes need:
 
 | Name | Kind | What |
 |---|---|---|
+| `ASC_APPSTORE_KEY_ID`, `ASC_APPSTORE_KEY_CONTENT` | secrets | An App Store Connect API key of its own, with the **Admin** role, which creating distribution certificates requires (`bootstrap`); its `.p8` as base64. `ASC_ISSUER_ID` is shared with the key above, which notarization keeps |
 | `MATCH_PASSWORD` | secret | The passphrase match encrypts the signing material with |
 | `MATCH_S3_BUCKET`, `MATCH_S3_REGION`, `MATCH_S3_ENDPOINT` | secrets | The private bucket for match (DigitalOcean Spaces; the endpoint is the region host, e.g. `https://fra1.digitaloceanspaces.com`) |
 | `MATCH_S3_ACCESS_KEY`, `MATCH_S3_SECRET_ACCESS_KEY` | secrets | A key that can read and write only that bucket |
 
-Locally: `bundle install`, export the same variables, then
+Locally: `bundle config set --local path .build/bundle`, `bundle install`,
+export the same variables (the Admin key as `ASC_APPSTORE_KEY_ID` and
+`ASC_APPSTORE_KEY_CONTENT`, which take precedence over `ASC_KEY_*`), then
 `bundle exec fastlane mac beta upload:false`.
