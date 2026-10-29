@@ -436,6 +436,35 @@ import Testing
         #expect(try migrated.pendingSyncChanges().count == 1)
     }
 
+    /// The adapter learns every name waiting to be sent, and again when
+    /// that changes.
+    @Test func pendingNamesAreStreamed() async throws {
+        var iterator = store.pendingSyncNames().makeAsyncIterator()
+        #expect(try await iterator.next() == SyncPending())
+        let mine = note("new")
+        try store.save(mine)
+        let name = mine.id.uuidString.lowercased()
+        #expect(try await iterator.next()?.saves == [SyncPending.Name(kind: .note, name: name)])
+        try store.delete(id: mine.id)
+        #expect(try await iterator.next() == SyncPending(saves: [], deletes: [SyncPending.Name(kind: .note, name: name)]))
+    }
+
+    /// One record is built when the engine asks for it, and not once it
+    /// has nothing to send.
+    @Test func aPendingSaveIsBuiltOnDemand() throws {
+        let mine = note("new")
+        try store.save(mine)
+        let name = mine.id.uuidString.lowercased()
+        guard case .save(let record, nil, let version)? = try store.pendingSave(kind: .note, name: name) else {
+            Issue.record("not built")
+            return
+        }
+        #expect(record == SyncMapping.record(for: mine))
+        try store.acknowledgeSave(kind: .note, name: name, version: version, systemFields: fields)
+        #expect(try store.pendingSave(kind: .note, name: name) == nil)
+        #expect(try store.pendingSave(kind: .attachment, name: name) == nil)
+    }
+
     @Test func theEngineStateIsKept() throws {
         #expect(try store.syncEngineState() == nil)
         try store.setSyncEngineState(Data([1, 2]))
