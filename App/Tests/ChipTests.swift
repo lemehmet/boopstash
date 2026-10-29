@@ -164,6 +164,23 @@ struct ChipTests {
         window.close()
     }
 
+    /// Scrolling to a reference gives it its chip.
+    @Test func scrollingBuildsChipsForWhatComesIntoView() async throws {
+        let far = String(repeating: "line\n", count: 2000)
+        let text = AttachmentReference.markdown(for: first, alt: "top") + "\n" + far + AttachmentReference.markdown(for: second, alt: "bottom")
+        let (window, view) = host(text)
+        // The rebuild that setting up schedules runs first, so only the
+        // scroll can bring the bottom chip.
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(view.chipViews.compactMap { $0.accessibilityLabel() } == ["top"])
+        view.scrollRangeToVisible(range(of: second, in: text))
+        for _ in 0..<50 where !view.chipViews.contains(where: { $0.accessibilityLabel() == "bottom" }) {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(view.chipViews.compactMap { $0.accessibilityLabel() } == ["bottom"])
+        window.close()
+    }
+
     /// A chip's picture is a small thumbnail, never the full image.
     @Test func thumbnailsAreDownsampled() throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("chip-\(UUID().uuidString).png")
