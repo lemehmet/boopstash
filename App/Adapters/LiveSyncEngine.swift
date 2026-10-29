@@ -441,7 +441,10 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
         if let failed = outcome?.failedDeletions, !failed.isEmpty { retryDeletions(failed, attempt: attempt, generation: generation) }
     }
 
-    private func apply(_ incoming: [Incoming], deletions: [Deletion], generation: Int) async -> RemoteOutcome? {
+    /// `retrying`: the deletions are retries, applied only if their record
+    /// has not come back since; checked here, in the same main-actor step
+    /// as any record that clears it, so none can land in between.
+    private func apply(_ incoming: [Incoming], deletions: [Deletion], generation: Int, retrying: Bool = false) async -> RemoteOutcome? {
         let store = self.store
         return await applyRemote { [self] in
             var outcome = RemoteOutcome()
@@ -461,6 +464,7 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
                 }
             }
             for deletion in deletions {
+                if retrying, state.withLock({ $0.retryingDeletions.remove(deletion.name) }) == nil { continue }
                 do {
                     try store.applyServerDeletion(kind: deletion.kind, name: deletion.name)
                     if deletion.kind == .note, let id = UUID(uuidString: deletion.name) { outcome.changed.insert(id) }
@@ -483,10 +487,7 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
         Task {
             try? await Task.sleep(for: .seconds(5 * attempt))
             guard state.withLock({ $0.engine != nil && $0.generation == generation }) else { return }
-            // Only those whose record has not come back since.
-            let still = state.withLock { state in deletions.filter { state.retryingDeletions.remove($0.name) != nil } }
-            guard !still.isEmpty else { return }
-            if let failed = await apply([], deletions: still, generation: generation)?.failedDeletions, !failed.isEmpty {
+            if let failed = await apply([], deletions: deletions, generation: generation, retrying: true)?.failedDeletions, !failed.isEmpty {
                 retryDeletions(failed, attempt: attempt + 1, generation: generation)
             }
         }

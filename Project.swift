@@ -158,7 +158,7 @@ let project = Project(
                     ],
                 ],
             ]),
-            sources: ["App/Sources/**", "App/Shared/**", "App/SyncAdapter/**"],
+            sources: ["App/Sources/**", "App/Shared/**", "App/Adapters/**"],
             resources: [
                 "App/Resources/**",
                 // Boop's scripts (ADR 0005); the app lists and sends them.
@@ -211,7 +211,7 @@ let project = Project(
                 // Changes from other devices arrive while in the background.
                 "UIBackgroundModes": ["remote-notification"],
             ]),
-            sources: ["iOS/Sources/**", "iOS/Shared/**", "App/SyncAdapter/**"],
+            sources: ["iOS/Sources/**", "iOS/Shared/**", "App/Adapters/**"],
             resources: ["iOS/Resources/**"],
             dependencies: [.target(name: "BoopstashCore"), .target(name: "BoopStashShare")],
             settings: .settings(base: [

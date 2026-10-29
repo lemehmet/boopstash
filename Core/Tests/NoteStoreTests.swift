@@ -272,6 +272,29 @@ final class TestClock: @unchecked Sendable {
         #expect(FileManager.default.fileExists(atPath: old.appendingPathComponent("notes.sqlite").path))
     }
 
+    /// A refused move keeps the notes where they are, rather than a new,
+    /// empty store in the group.
+    @Test func aRefusedMoveKeepsTheOldStore() throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        try makeStore(in: old, body: "kept")
+        try FileManager.default.createDirectory(at: group, withIntermediateDirectories: true)
+        try Data([1]).write(to: group.appendingPathComponent("something"))
+        let place = try NoteStore.sharedStoreFolder(own: old, group: group)
+        #expect(place.folder == old && !place.inGroup)
+    }
+
+    @Test func theStoreGoesToTheGroup() throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        try makeStore(in: old, body: "kept")
+        #expect(try NoteStore.sharedStoreFolder(own: old, group: group) == (group, true))
+        #expect(try NoteStore.sharedStoreFolder(own: old, group: group) == (group, true), "already there")
+    }
+
+    @Test func aNewStoreStartsInTheGroup() throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        #expect(try NoteStore.sharedStoreFolder(own: old, group: group) == (group, true))
+    }
+
     @Test func nothingToMove() throws {
         defer { try? FileManager.default.removeItem(at: root) }
         #expect(try NoteStore.moveStoreFolder(from: old, to: group) == false)

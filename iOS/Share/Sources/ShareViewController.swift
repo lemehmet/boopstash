@@ -74,32 +74,52 @@ enum ShareSaver {
         let store = try NoteStore.open(at: folder.appendingPathComponent(SharedStore.fileName), shared: true)
         var parts: [String] = []
         var images: [(Data, UTType)] = []
+        // What could not be kept, said rather than dropped in silence.
+        var skipped: [String] = []
         for provider in providers {
             // Core's rules for images, as on the Mac: the supported types,
             // the size limit, and content that matches its type.
             if let type = ImageImport.preferredType(among: provider.registeredTypeIdentifiers) {
-                if let data = try? await provider.loadData(for: type), case .success(let checked) = ImageImport.check(data, type: type) {
-                    images.append((data, checked))
+                do {
+                    let data = try await provider.loadData(for: type)
+                    switch ImageImport.check(data, type: type) {
+                    case .success(let checked): images.append((data, checked))
+                    case .failure(let refusal): skipped.append(ImageImport.message(for: refusal, name: provider.suggestedName))
+                    }
+                } catch {
+                    skipped.append("An image could not be read.")
                 }
             } else if provider.hasItemConformingToTypeIdentifier(UTType.url.identifier) {
-                if let url = try? await provider.loadObject(ofClass: URL.self) { parts.append(url.absoluteString) }
+                do { parts.append(try await provider.loadObject(ofClass: URL.self).absoluteString) } catch { skipped.append("A link could not be read.") }
             } else if provider.hasItemConformingToTypeIdentifier(UTType.plainText.identifier) {
-                if let text = try? await provider.loadObject(ofClass: String.self) { parts.append(text) }
+                do { parts.append(try await provider.loadObject(ofClass: String.self)) } catch { skipped.append("Some text could not be read.") }
+            } else {
+                skipped.append("Something shared is not text, a link or an image.")
             }
         }
         var note = Note(body: "", createdAt: Date())
-        for (data, type) in images {
-            let attachment = try store.addAttachment(data, contentType: type.identifier, noteID: note.id)
-            parts.append(AttachmentReference.markdown(for: attachment.id))
+        // The images and the note go in together: if anything fails, the
+        // images already stored go again, so nothing half-saved is left
+        // behind to sync.
+        var stored: [UUID] = []
+        do {
+            for (data, type) in images {
+                let attachment = try store.addAttachment(data, contentType: type.identifier, noteID: note.id)
+                stored.append(attachment.id)
+                parts.append(AttachmentReference.markdown(for: attachment.id))
+            }
+            let body = parts.joined(separator: "\n\n")
+            guard !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw Failure(errorDescription: (["Nothing BoopStash can keep was shared."] + skipped).joined(separator: "\n"))
+            }
+            note.body = body
+            note.title = RuleTitler.title(for: body, kind: ContentKind.detect(body))
+            try store.save(note)
+        } catch {
+            for id in stored { try? store.deleteAttachment(id: id) }
+            throw error
         }
-        let body = parts.joined(separator: "\n\n")
-        guard !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw Failure(errorDescription: "Nothing BoopStash can keep was shared.")
-        }
-        note.body = body
-        note.title = RuleTitler.title(for: body, kind: ContentKind.detect(body))
-        try store.save(note)
-        return "Saved to BoopStash."
+        return (["Saved to BoopStash."] + skipped.map { "Not kept: \($0)" }).joined(separator: "\n")
     }
 }
 

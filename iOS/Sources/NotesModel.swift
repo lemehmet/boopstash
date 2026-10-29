@@ -127,22 +127,51 @@ final class NotesModel {
         let support = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
         let own = support.appendingPathComponent("Boopstash", isDirectory: true)
         // In the App Group, where the share extension writes too (#66); the
-        // store there moves once from the app's own container. A build
-        // without the group (the simulator, unsigned) keeps it at home.
-        let folder: URL
+        // store there moves once from the app's own container, and stays
+        // there if the move cannot happen. A build without the group (the
+        // simulator, unsigned) keeps it at home.
+        var folder = own, shared = false
         if let group = SharedStore.folder {
-            try NoteStore.moveStoreFolder(from: own, to: group)
-            folder = group
-        } else {
-            folder = own
+            (folder, shared) = try NoteStore.sharedStoreFolder(own: own, group: group)
         }
-        let store = try NoteStore.open(at: folder.appendingPathComponent(SharedStore.fileName), shared: SharedStore.folder != nil)
+        let store = try NoteStore.open(at: folder.appendingPathComponent(SharedStore.fileName), shared: shared)
         // Images nothing refers to, after a day's grace, as on the Mac: also
         // the clean-up a delete leaves when a draft would not save.
         _ = try? store.removeUnreferencedAttachments()
         let model = NotesModel(store: store)
+        if SharedStore.folder != nil, !shared {
+            model.banner = "Sharing to BoopStash is off: its notes could not be moved where the share extension can reach them."
+        }
         if UserDefaults.standard.bool(forKey: syncKey) { model.setSyncEnabled(true) }
         return model
+    }
+
+    // MARK: Image text
+
+    /// Reads an image's text on device (#53), as on the Mac; images shared
+    /// from other apps arrive without it (#66).
+    @ObservationIgnored var recognizeText: @Sendable (Data) async -> String? = { await LiveTextRecognizer.text(in: $0) }
+    @ObservationIgnored private var recognition: Task<Void, Never>?
+    @ObservationIgnored private var recognitionRequested = false
+
+    /// Starts reading the text of images still waiting, unless that is
+    /// under way; a request while it is runs it once more afterwards.
+    func recognizePendingImages() {
+        guard recognition == nil else {
+            recognitionRequested = true
+            return
+        }
+        recognitionRequested = false
+        let store = self.store
+        let recognize = recognizeText
+        recognition = Task { [weak self] in
+            await Task.detached(priority: .utility) {
+                await store.recognizePendingImages(with: recognize)
+            }.value
+            guard let self else { return }
+            self.recognition = nil
+            if self.recognitionRequested { self.recognizePendingImages() }
+        }
     }
 
     private func observe() {
@@ -150,7 +179,11 @@ final class NotesModel {
         let values = store.results(query)
         observation = Task { [weak self] in
             do {
-                for try await notes in values { self?.notes = notes }
+                for try await notes in values {
+                    self?.notes = notes
+                    // A change may have brought an image to read.
+                    self?.recognizePendingImages()
+                }
             } catch {
                 self?.banner = "Could not read notes: \(error.localizedDescription)"
             }

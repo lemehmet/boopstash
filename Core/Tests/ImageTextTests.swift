@@ -82,3 +82,16 @@ import Testing
         #expect(try migrated.notes(matching: NoteQuery(text: "ginx", scope: .title)).map(\.id) == [old.id])
     }
 }
+
+/// The recognition worker both apps run (#53, #136).
+@Suite struct RecognitionWorkerTests {
+    @Test func everyWaitingImageIsReadOnce() async throws {
+        let store = try NoteStore.inMemory()
+        let first = try store.addAttachment(Data([1]), contentType: "public.png", noteID: nil)
+        let second = try store.addAttachment(Data([2]), contentType: "public.png", noteID: nil)
+        await store.recognizePendingImages { data in data == Data([1]) ? "invoice" : nil }
+        #expect(try store.attachment(id: first.id)?.recognizedText == "invoice")
+        #expect(try store.attachment(id: second.id)?.recognizedText == "", "unreadable counts as no text")
+        #expect(try store.attachmentsAwaitingRecognition().isEmpty)
+    }
+}

@@ -74,6 +74,19 @@ public final class NoteStore: Sendable {
         return true
     }
 
+    /// Where a store shared with an extension lives: moved into `group`
+    /// when it can be (`moveStoreFolder`), and otherwise left at `own` while
+    /// a store is there, so a refused move never opens a new, empty store
+    /// in place of the notes. A new store goes in the group. Returns the
+    /// folder and whether it is the group's.
+    public static func sharedStoreFolder(own: URL, group: URL, storeName: String = "notes.sqlite") throws -> (folder: URL, inGroup: Bool) {
+        try moveStoreFolder(from: own, to: group, storeName: storeName)
+        let files = FileManager.default
+        if files.fileExists(atPath: group.appendingPathComponent(storeName).path) { return (group, true) }
+        if files.fileExists(atPath: own.appendingPathComponent(storeName).path) { return (own, false) }
+        return (group, true)
+    }
+
     static var configuration: Configuration {
         var configuration = Configuration()
         configuration.prepareDatabase { db in
@@ -242,6 +255,25 @@ public final class NoteStore: Sendable {
         let rows = try Row.fetchAll(db, sql: "SELECT id, body FROM note WHERE instr(lower(body), ?) > 0", arguments: [needle])
         for row in rows {
             try refreshImageText(of: row["id"], body: row["body"], db)
+        }
+    }
+
+    /// Reads the text of every image still waiting, oldest first and one at
+    /// a time, with `recognize` (Vision, in the app; on device). An image
+    /// that cannot be read, or whose text cannot be, is recorded as having
+    /// none, so it is not tried on every change. Returns when nothing is
+    /// left. Run it off the main actor: files are up to 20 MB.
+    public func recognizePendingImages(with recognize: @Sendable (Data) async -> String?) async {
+        while let next = try? attachmentsAwaitingRecognition(limit: 1).first {
+            let data = try? self.data(for: next)
+            let text = if let data { await recognize(data) ?? "" } else { "" }
+            // Deleted while it was read.
+            guard (try? attachment(id: next.id)) != nil else { continue }
+            do {
+                try setRecognizedText(text, for: next.id)
+            } catch {
+                return
+            }
         }
     }
 

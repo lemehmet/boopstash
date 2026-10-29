@@ -1,7 +1,7 @@
 import Foundation
 import Vision
 
-/// Text in an image, read by Vision on this Mac (#53). Vision's text
+/// Text in an image, read by Vision on this device (#53). Vision's text
 /// recognition runs on device: nothing is sent anywhere (ADR 0001).
 enum LiveTextRecognizer {
     /// The image's text, one observation per line, or nil when the image
