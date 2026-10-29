@@ -252,6 +252,10 @@ final class AppModel {
         }
         if UserDefaults.standard.bool(forKey: "BoopStashDemo") {
             let model = AppModel(store: try DemoNotes.store())
+            // Bundled scripts only: the user's folder and its file names stay
+            // out of the shots.
+            model.scriptsFolder = nil
+            model.reloadScripts()
             model.demoSync = true
             model.lastSynced = Date().addingTimeInterval(-120)
             let index = UserDefaults.standard.integer(forKey: "BoopStashDemoNote")
