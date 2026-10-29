@@ -163,6 +163,26 @@ let project = Project(
                 "ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME": "",
             ])
         ),
+        // The iOS companion (#65), sharing BoopstashCore. Sync and the share
+        // extension arrive with the developer-portal setup (#62).
+        .target(
+            name: "BoopStashMobile",
+            destinations: [.iPhone, .iPad],
+            product: .app,
+            productName: "BoopStash",
+            bundleId: appBundleId,
+            deploymentTargets: .iOS("26.0"),
+            infoPlist: .extendingDefault(with: [
+                "CFBundleDisplayName": "BoopStash",
+                "CFBundleShortVersionString": "$(MARKETING_VERSION)",
+                "CFBundleVersion": "$(CURRENT_PROJECT_VERSION)",
+                "UILaunchScreen": [:],
+                "UIApplicationSceneManifest": ["UIApplicationSupportsMultipleScenes": true],
+            ]),
+            sources: ["iOS/Sources/**"],
+            dependencies: [.target(name: "BoopstashCore")],
+            settings: .settings(base: ["PRODUCT_MODULE_NAME": "BoopStashMobile"])
+        ),
         // Hosted by the app: the editor needs a window, a responder chain
         // and AppKit's pasteboard and key machinery, which Core tests avoid.
         .target(
