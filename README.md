@@ -46,6 +46,12 @@ Boop's scripts keep working.
 
 - Your notes stay on your devices and in your own iCloud. There is no
   BoopStash server.
+- iCloud sync, when it arrives, is optional. Every note and image is
+  encrypted on your device before it is uploaded. With
+  [Advanced Data Protection](https://support.apple.com/en-us/102651) turned on,
+  that encryption is end to end: only your devices hold the keys, and Apple
+  cannot read your notes. Without it, iCloud uses keys Apple can access, as it
+  does for most iCloud data. If you sync, consider turning it on.
 - No analytics, no crash reporting service, no update checks.
 - Any AI is Apple's on-device model. Nothing is sent to a cloud model.
 - The app never watches your clipboard. It reads it only when you paste or
