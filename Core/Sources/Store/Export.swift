@@ -13,7 +13,12 @@ public enum NoteExport {
     /// the export under Unicode case folding and canonical equivalence, which
     /// is how APFS compares them ("οσ" and "ος", or "é" and "e\u{301}", are
     /// one name there).
-    public static func files(for notes: [Note], timeZone: TimeZone = .current) -> [File] {
+    ///
+    /// References to `attachments` become relative links into
+    /// `attachmentsFolder` beside the files, where the app copies them, so
+    /// the export opens with its images in any markdown viewer. A reference
+    /// to an attachment that is not in `attachments` is left as it is.
+    public static func files(for notes: [Note], attachments: [UUID: NoteAttachment] = [:], timeZone: TimeZone = .current) -> [File] {
         var used: Set<String> = []
         // APFS also ignores normalization ("é" and "e\u{301}" are one file
         // there). Swift String equality is canonical equivalence already,
@@ -28,7 +33,7 @@ public enum NoteExport {
                 counter += 1
             }
             used.insert(key(name))
-            return File(name: name, contents: document(for: note))
+            return File(name: name, contents: document(for: note, attachments: attachments))
         }
     }
 
@@ -39,7 +44,9 @@ public enum NoteExport {
 
     /// YAML front matter for what the body does not carry, then the body as
     /// it is. Values are quoted so a title with a colon stays one value.
-    public static func document(for note: Note) -> String {
+    public static let attachmentsFolder = "attachments"
+
+    public static func document(for note: Note, attachments: [UUID: NoteAttachment] = [:]) -> String {
         var lines = ["---"]
         lines.append("title: \(quoted(note.title))")
         lines.append("created: \(timestamp(note.createdAt))")
@@ -48,7 +55,10 @@ public enum NoteExport {
         lines.append("id: \(note.id.uuidString)")
         lines.append("---")
         lines.append("")
-        var document = lines.joined(separator: "\n") + "\n" + note.body
+        let body = AttachmentReference.rewriting(note.body) { id in
+            attachments[id].map { "\(attachmentsFolder)/\($0.fileName)" }
+        }
+        var document = lines.joined(separator: "\n") + "\n" + body
         if !document.hasSuffix("\n") { document += "\n" }
         return document
     }

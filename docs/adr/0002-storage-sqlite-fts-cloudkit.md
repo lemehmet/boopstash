@@ -42,15 +42,50 @@ over conflict resolution or what is encrypted.
 - **The schema lives in `BoopstashCore`** with migrations and tests; only a thin
   `Live*` adapter imports CloudKit.
 
-## Open question — end-to-end encryption
+## End-to-end encryption (resolved 2026-10-28)
 
-CloudKit offers field-level `encryptedValues` on `CKRecord`, which we believe
-are end-to-end encrypted with keys held in the user's iCloud Keychain whether or
-not Advanced Data Protection is on. That must be confirmed against Apple's
-current documentation before the sync milestone, along with how `CKAsset`
-contents are protected. The intent: note title, body and metadata go in
-`encryptedValues`; if assets are only end-to-end under Advanced Data Protection,
-the README says so plainly.
+The open question was whether CloudKit's encrypted fields are end-to-end
+encrypted without Advanced Data Protection, and how assets are protected.
+Apple's current documentation answers both:
+
+- **Encrypted fields are encrypted on the device** with key material in the
+  user's iCloud Keychain, and decrypted only after fetching
+  ([`CKRecord.encryptedValues`](https://developer.apple.com/documentation/cloudkit/ckrecord/encryptedvalues),
+  [Encrypting user data](https://developer.apple.com/documentation/cloudkit/encrypting-user-data)).
+- **They are end-to-end encrypted only with Advanced Data Protection.** The
+  `encryptedValues` documentation: "When you enable Advanced Data Protection,
+  the encryption keys are available exclusively to the record's owner and, if
+  the user shares the record, that share's participants." Apple's Platform
+  Security guide ([Advanced Data Protection for iCloud](https://support.apple.com/guide/security/sec973254c5f/web))
+  explains why. Under standard protection, CloudKit service keys are also
+  held in Apple's hardware security modules. Turning ADP on deletes them
+  there, and then "protects CloudKit fields that third-party developers
+  choose to mark as encrypted, and all CloudKit assets."
+- **Assets get the same protection as encrypted fields, not less.** CloudKit
+  encrypts an asset in chunks and keeps the asset key in an encrypted field
+  of its record, "so CloudKit ultimately encrypts the asset data to a key in
+  the user's iCloud Keychain."
+
+So: **with Advanced Data Protection, everything BoopStash syncs is end-to-end
+encrypted; without it, it is encrypted with keys Apple can use**, as for most
+iCloud data. The README says this plainly and suggests turning ADP on.
+
+Decisions that follow:
+
+- **Every field the app defines goes in `encryptedValues`.** That covers
+  title, body, dates, source app, recognised image text, the title flags and
+  the syntax override. `CKSyncEngine` needs no server-side queries, so nothing
+  needs an index. Left in the clear are only what CloudKit itself requires:
+  record names (random UUIDs), record types, the zone, and `CKRecord.Reference`s
+  from attachments to their notes, which CloudKit cannot encrypt.
+- **Fields are encrypted from the first schema.** CloudKit cannot convert an
+  existing plain field to an encrypted one, so the first schema deployed to
+  Production must already be encrypted.
+- **A reset iCloud Keychain loses the synced copy, not the notes.** When
+  CloudKit reports it can no longer decrypt (`CKError.zoneNotFound` with
+  `CKErrorUserDidResetEncryptedDataKey` in `userInfo`), the app deletes and
+  recreates its zone and uploads everything from the local store again. The
+  local SQLite store stays the source of truth.
 
 ## Consequences
 

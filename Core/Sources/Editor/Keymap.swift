@@ -13,6 +13,7 @@ public enum EditorCommand: String, CaseIterable, Codable, Sendable {
     case fold, unfold
     case toggleComment
     case pasteAsMarkdown
+    case formatDocument, formatJSONSortingKeys
 }
 
 /// A key combination, independent of AppKit so presets are plain data that
@@ -126,6 +127,7 @@ public enum KeymapPreset: String, CaseIterable, Codable, Sendable {
         KeyChord("[", .command): .unindentLines,
         KeyChord("[", [.command, .option]): .fold,
         KeyChord("]", [.command, .option]): .unfold,
+        KeyChord("f", [.option, .shift]): .formatDocument,
     ]
 
     static let jetBrainsOnly: [KeyChord: EditorCommand] = [
@@ -135,6 +137,7 @@ public enum KeymapPreset: String, CaseIterable, Codable, Sendable {
         KeyChord("down", [.option, .shift]): .swapLineDown,
         KeyChord("-", .command): .fold,
         KeyChord("=", .command): .unfold,
+        KeyChord("l", [.command, .option]): .formatDocument,
     ]
 
     static let emacsOnly: [KeyChord: EditorCommand] = [
