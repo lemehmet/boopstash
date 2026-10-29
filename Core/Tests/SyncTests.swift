@@ -513,6 +513,10 @@ import Testing
         full.modelTitledHash = "h"
         full.syntaxOverride = "json"
         #expect(Set(SyncMapping.record(for: full).encrypted.keys).isSubset(of: SyncMapping.schemaFields[.note]!))
+        // Every optional field of an attachment set, too.
+        let image = NoteAttachment(noteID: UUID(), contentType: "public.png", byteSize: 1, recognizedText: "t")
+        #expect(Set(SyncMapping.record(for: image, file: URL(fileURLWithPath: "/unused")).encrypted.keys)
+            .isSubset(of: SyncMapping.schemaFields[.attachment]!))
     }
 
     @Test func theEngineStateIsKept() throws {
