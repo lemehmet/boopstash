@@ -171,8 +171,8 @@ final class AppModel {
 
     @ObservationIgnored private let sources = SourceAppTracker()
     @ObservationIgnored private var observation: Task<Void, Never>?
-    @ObservationIgnored private var pendingSaves: [UUID: Task<Void, Never>] = [:]
-    @ObservationIgnored private var drafts: [UUID: Note] = [:]
+    /// Unsaved edits, saved after a pause (Core's, shared with iOS, #75).
+    @ObservationIgnored let drafts: NoteDrafts
     @ObservationIgnored private var dayObserver: NSObjectProtocol?
     @ObservationIgnored private var keyObservers: [NSObjectProtocol] = []
     @ObservationIgnored private let notifications: NotificationCenter
@@ -199,13 +199,14 @@ final class AppModel {
 
     /// Edits are saved after typing pauses for this long, and immediately
     /// when the selection changes or the app quits.
-    static let saveDelay: Duration = .milliseconds(400)
 
     /// `notifications` carries the window-key changes; tests pass their own
     /// so their posts never reach the rest of the app.
     init(store: NoteStore, notifications: NotificationCenter = .default) {
         self.store = store
         self.notifications = notifications
+        drafts = NoteDrafts(store: store)
+        drafts.onError = { [weak self] in self?.banner = $0 }
         observe()
         // The store re-evaluates "last N days" on every fetch, but with no
         // edits nothing fetches; at midnight, start over so "Today" is today.
@@ -307,8 +308,7 @@ final class AppModel {
     /// delivery and would hand back the previous version as the base for the
     /// next edit.
     func note(id: UUID) -> Note? {
-        if let draft = drafts[id] { return draft }
-        return (try? store.note(id: id)) ?? notes.first { $0.id == id }
+        drafts.note(id: id) ?? notes.first { $0.id == id }
     }
 
     // MARK: Creating
@@ -479,19 +479,15 @@ final class AppModel {
     /// Called on every keystroke, so it only records the text; the title
     /// is regenerated once typing pauses, when the draft is saved.
     func updateBody(_ id: UUID, to body: String) {
-        guard var note = note(id: id), note.body != body else { return }
-        note.body = body
-        scheduleSave(note)
+        // The listed note, if the store cannot be read just now: the typing
+        // is kept either way.
+        drafts.edit(id, body: body, fallback: notes.first { $0.id == id })
     }
 
     /// The note's highlighting setting. Not an edit: saved at once, and the
     /// note keeps its place in the list.
     func setSyntax(_ id: UUID, to choice: SyntaxChoice) {
-        if var draft = drafts[id] {
-            draft.syntaxChoice = choice
-            drafts[id] = draft
-            return
-        }
+        if drafts.amend(id, { $0.syntaxChoice = choice }) { return }
         guard var note = try? store.note(id: id), note.syntaxChoice != choice else { return }
         note.syntaxChoice = choice
         do { try store.save(note) } catch { banner = "Could not save: \(error.localizedDescription)" }
@@ -499,43 +495,14 @@ final class AppModel {
 
     /// An empty title hands naming back to the generator.
     func rename(_ id: UUID, to title: String) {
-        guard var note = note(id: id) else { return }
-        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        note.titleIsUserSet = !trimmed.isEmpty
-        note.title = trimmed.isEmpty ? RuleTitler.title(for: note.body, kind: ContentKind.detect(note.body)) : trimmed
-        scheduleSave(note)
-    }
-
-    private func scheduleSave(_ note: Note) {
-        var note = note
-        note.updatedAt = Date()
-        drafts[note.id] = note
-        pendingSaves[note.id]?.cancel()
-        pendingSaves[note.id] = Task { [weak self] in
-            try? await Task.sleep(for: Self.saveDelay)
-            guard !Task.isCancelled else { return }
-            self?.flush(note.id)
-        }
+        drafts.rename(id, to: title, fallback: notes.first { $0.id == id })
     }
 
     /// Saves a note's pending edits. The draft is dropped only once the
     /// write succeeds: on a failed write (disk full, say) it stays, so the
     /// next edit, selection change or quit tries again.
     func flush(_ id: UUID) {
-        pendingSaves[id]?.cancel()
-        pendingSaves[id] = nil
-        guard var draft = drafts[id] else { return }
-        // A model title for this exact text beats the rule-based one.
-        if !draft.titleIsUserSet, !draft.hasCurrentModelTitle {
-            draft.title = RuleTitler.title(for: draft.body, kind: ContentKind.detect(draft.body))
-        }
-        do {
-            try store.save(draft)
-            drafts[id] = nil
-        } catch {
-            drafts[id] = draft
-            banner = "Could not save: \(error.localizedDescription)"
-        }
+        drafts.flush(id)
     }
 
     // MARK: Model titles
@@ -568,13 +535,14 @@ final class AppModel {
         // Turning the setting off also discards replies already on their way
         // (#16).
         guard usesModelTitles,
-              var current = drafts[id] ?? (try? store.note(id: id)),
+              var current = drafts.note(id: id),
               !current.titleIsUserSet, current.body == body
         else { return }
         current.title = title
         current.modelTitledHash = Note.contentHash(body)
-        if drafts[id] != nil {
-            drafts[id] = current
+        let named = current
+        if drafts.amend(id, { $0 = named }) {
+            return
         } else {
             // Not an edit: keep updatedAt so the note does not jump to the top.
             do { try store.save(current) } catch { banner = "Could not save: \(error.localizedDescription)" }
@@ -585,8 +553,7 @@ final class AppModel {
     /// drafts are kept, see `flush`).
     @discardableResult
     func flushAll() -> Bool {
-        for id in Array(drafts.keys) { flush(id) }
-        return drafts.isEmpty
+        drafts.flushAll()
     }
 
     /// The draft and selection go only once the row is gone, so a failed
@@ -595,19 +562,14 @@ final class AppModel {
         // Other notes' unsaved edits may refer to this note's images; the
         // store can only see saved bodies. Save them first, and if any will
         // not save, leave the images to the launch sweep's grace period.
-        let othersSaved = drafts.keys.filter { $0 != id }.allSatisfy { other in
-            flush(other)
-            return drafts[other] == nil
-        }
+        let othersSaved = drafts.draftIDs.filter { $0 != id }.allSatisfy { drafts.flush($0) }
         do {
             try store.delete(id: id, removingOrphanedAttachments: othersSaved)
         } catch {
             banner = "Could not delete: \(error.localizedDescription)"
             return
         }
-        pendingSaves[id]?.cancel()
-        pendingSaves[id] = nil
-        drafts[id] = nil
+        drafts.discard(id)
         modelTitleRequests.remove(id)
         if selection == id { selection = nil }
     }

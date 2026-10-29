@@ -30,21 +30,35 @@ public final class NoteDrafts {
     /// The notes with unsaved edits.
     public var draftIDs: [UUID] { Array(drafts.keys) }
 
-    public func edit(_ id: UUID, body: String, now: Date = Date()) {
-        guard var note = note(id: id), note.body != body else { return }
+    /// `fallback` is the note as the caller last saw it, used when the store
+    /// cannot be read right now, so the typing is still kept as a draft.
+    public func edit(_ id: UUID, body: String, now: Date = Date(), fallback: Note? = nil) {
+        guard var note = note(id: id) ?? fallback, note.body != body else { return }
         note.body = body
         note.updatedAt = now
         schedule(note)
     }
 
     /// An empty title hands naming back to the generator.
-    public func rename(_ id: UUID, to title: String, now: Date = Date()) {
-        guard var note = note(id: id) else { return }
+    public func rename(_ id: UUID, to title: String, now: Date = Date(), fallback: Note? = nil) {
+        guard var note = note(id: id) ?? fallback else { return }
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         note.titleIsUserSet = !trimmed.isEmpty
         note.title = trimmed.isEmpty ? RuleTitler.title(for: note.body, kind: ContentKind.detect(note.body)) : trimmed
         note.updatedAt = now
         schedule(note)
+    }
+
+    /// Changes a note's draft in place, if it has one, without counting as
+    /// an edit (no new save delay, no new edit date): for settings and
+    /// titles that land while the note is being typed in. Returns whether
+    /// there was a draft.
+    @discardableResult
+    public func amend(_ id: UUID, _ change: (inout Note) -> Void) -> Bool {
+        guard var draft = drafts[id] else { return false }
+        change(&draft)
+        drafts[id] = draft
+        return true
     }
 
     /// Writes a note's draft now. Returns false if it could not be saved.
