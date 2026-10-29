@@ -39,6 +39,10 @@ final class NotesModel {
     /// (the day may have changed while the app was suspended).
     func refresh() {
         observe()
+        // Notes the share extension wrote meanwhile: neither observation in
+        // this process saw them (#138).
+        syncEngine?.takeChangesFromElsewhere()
+        recognizePendingImages()
     }
 
     // MARK: Sync
