@@ -7,6 +7,10 @@
 # MATCH_S3_*). `bootstrap` is the only lane that may create certificates or
 # profiles; the others read them.
 
+require "json"
+require "open3"
+require "tmpdir"
+
 default_platform(:mac)
 
 APP_ID = "com.lemehmet.boopstash"
@@ -56,6 +60,41 @@ def release_notes
   section.gsub(/^### /, "").gsub(/\*\*(.+?)\*\*/, '\1').gsub(/`([^`]*)`/, '\1').strip[0, 4000]
 end
 
+# What the App Store build may claim: the same as the Developer ID release
+# (ADR 0008), and the script service the sandbox alone (ADR 0007). Checked
+# before anything is uploaded.
+def check_entitlements!(pkg)
+  root = Dir.mktmpdir
+  sh("pkgutil", "--expand-full", pkg, File.join(root, "pkg"))
+  app = Dir.glob(File.join(root, "pkg", "**", "BoopStash.app")).first || UI.user_error!("no BoopStash.app in #{pkg}")
+  team = ENV["APPLE_TEAM_ID"]
+  {
+    app => {
+      "com.apple.security.app-sandbox" => true,
+      "com.apple.security.files.user-selected.read-write" => true,
+      "com.apple.developer.icloud-container-identifiers" => ["iCloud.com.lemehmet.boopstash"],
+      "com.apple.developer.icloud-services" => ["CloudKit"],
+      "com.apple.developer.icloud-container-environment" => "Production",
+      "com.apple.developer.aps-environment" => "production",
+      "com.apple.application-identifier" => "#{team}.#{APP_ID}",
+      "com.apple.developer.team-identifier" => team
+    },
+    File.join(app, "Contents/XPCServices/BoopStashScripts.xpc") => { "com.apple.security.app-sandbox" => true }
+  }.each do |bundle, expected|
+    UI.user_error!("missing #{bundle}") unless File.directory?(bundle)
+    # stdout only: codesign reports the executable on stderr.
+    xml, status = Open3.capture2("codesign", "-d", "--entitlements", "-", "--xml", bundle)
+    UI.user_error!("could not read the entitlements of #{bundle}") unless status.success?
+    json, status = Open3.capture2("plutil", "-convert", "json", "-o", "-", "-", stdin_data: xml)
+    UI.user_error!("could not parse the entitlements of #{bundle}") unless status.success?
+    actual = JSON.parse(json)
+    UI.user_error!("#{File.basename(bundle)} entitlements are #{actual}, expected #{expected}") unless actual == expected
+  end
+  UI.success("entitlements checked")
+ensure
+  FileUtils.rm_rf(root) if root
+end
+
 def generate
   sh("cd .. && mise exec -- tuist install && mise exec -- tuist generate --no-open")
 end
@@ -76,7 +115,7 @@ platform :mac do
     build_mac_app(
       workspace: "Boopstash.xcworkspace", scheme: "Boopstash", configuration: "Release",
       export_method: "app-store", installer_cert_name: "3rd Party Mac Developer Installer",
-      output_directory: "../build/appstore", clean: true,
+      output_directory: "./build/appstore", clean: true,
       export_options: { provisioningProfiles: { APP_ID => profile } },
       xcargs: [
         "CODE_SIGN_STYLE=Manual", "DEVELOPMENT_TEAM=#{ENV['APPLE_TEAM_ID']}", "CODE_SIGN_IDENTITY='Apple Distribution'",
@@ -84,6 +123,7 @@ platform :mac do
         "MARKETING_VERSION=#{version}", "CURRENT_PROJECT_VERSION=#{build_number('macos')}"
       ].join(" ")
     )
+    check_entitlements!(lane_context[SharedValues::PKG_OUTPUT_PATH])
     next if options[:upload] == false
 
     upload_to_testflight(api_key: api_key, app_platform: "osx", skip_waiting_for_build_processing: true,
@@ -94,6 +134,7 @@ platform :mac do
   lane :release do
     require_environment!
     deliver(api_key: api_key, platform: "osx", app_version: version, submit_for_review: true,
+            metadata_path: "./fastlane/metadata",
             skip_binary_upload: true, skip_screenshots: true, force: true, precheck_include_in_app_purchases: false,
             release_notes: { "en-US" => release_notes }, automatic_release: false,
             submission_information: { add_id_info_uses_idfa: false, export_compliance_uses_encryption: false })
@@ -115,7 +156,7 @@ platform :ios do
     generate
     build_ios_app(
       workspace: "Boopstash.xcworkspace", scheme: "BoopStashMobile", configuration: "Release",
-      export_method: "app-store", output_directory: "../build/appstore", clean: true,
+      export_method: "app-store", output_directory: "./build/appstore", clean: true,
       export_options: { provisioningProfiles: { APP_ID => profile } },
       xcargs: [
         "CODE_SIGN_STYLE=Manual", "DEVELOPMENT_TEAM=#{ENV['APPLE_TEAM_ID']}", "CODE_SIGN_IDENTITY='Apple Distribution'",
@@ -133,6 +174,7 @@ platform :ios do
   lane :release do
     require_environment!
     deliver(api_key: api_key, platform: "ios", app_version: version, submit_for_review: true,
+            metadata_path: "./fastlane/metadata-ios",
             skip_binary_upload: true, skip_screenshots: true, force: true, precheck_include_in_app_purchases: false,
             release_notes: { "en-US" => release_notes }, automatic_release: false,
             submission_information: { add_id_info_uses_idfa: false, export_compliance_uses_encryption: false })

@@ -89,10 +89,12 @@ The Mac App Store and TestFlight builds go through fastlane (`fastlane/Fastfile`
   again after the App ID gains a capability. It is the only lane that may
   create anything in the developer account.
 - `beta` builds the same sandboxed app as the Homebrew release, signed for the
-  App Store, checks its entitlements (Mac), and uploads it to TestFlight.
+  App Store, checks the entitlements of the app and its script service (Mac)
+  before anything is uploaded, and uploads it to TestFlight.
   With *upload* off it only builds.
 - `release` submits the newest TestFlight build for review with the metadata
-  in `fastlane/metadata/` and the changelog's section for the version as
+  in `fastlane/metadata/` (Mac) or `fastlane/metadata-ios/` (iOS, which says
+  only what the iOS app does) and the changelog's section for the version as
   What's New. It never releases automatically.
 
 The version is the newest `## vX.Y.Z` in `CHANGELOG.md`; the build number
