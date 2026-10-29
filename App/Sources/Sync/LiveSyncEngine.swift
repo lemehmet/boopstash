@@ -26,7 +26,13 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
 
     /// What the app shows about sync.
     enum Event: Sendable {
-        case synced(Date)
+        /// Remote changes are in. The first time since launch, synced
+        /// attachments may be swept (#107), after drafts are saved, which
+        /// only the app can do.
+        case fetched(Date, first: Bool)
+        /// Local changes went up; `failed` when some did not, so a problem
+        /// already shown stays shown.
+        case sent(Date, failed: Bool)
         case account(String?)
         case problem(String)
         /// iCloud data was deleted (Settings ▸ Apple Account ▸ iCloud): sync
@@ -46,6 +52,8 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
         /// Whether remote changes have been fetched since launch, after
         /// which synced attachments may be swept (#107).
         var fetched = false
+        /// Whether a save failed in the send under way.
+        var sendFailed = false
         var watcher: Task<Void, Never>?
     }
 
@@ -147,11 +155,12 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
                 defer { state.fetched = true }
                 return !state.fetched
             }
-            if first { _ = try? store.removeUnreferencedAttachments(includingSynced: true) }
-            report(.synced(Date()))
+            report(.fetched(Date(), first: first))
+        case .willSendChanges:
+            state.withLock { $0.sendFailed = false }
         case .didSendChanges:
-            report(.synced(Date()))
-        case .sentDatabaseChanges, .willFetchChanges, .willFetchRecordZoneChanges, .didFetchRecordZoneChanges, .willSendChanges:
+            report(.sent(Date(), failed: state.withLock { $0.sendFailed }))
+        case .sentDatabaseChanges, .willFetchChanges, .willFetchRecordZoneChanges, .didFetchRecordZoneChanges:
             break
         @unknown default:
             break
@@ -208,6 +217,11 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
             let record = failure.record
             state.withLock { _ = $0.sentVersions.removeValue(forKey: record.recordID) }
             switch failure.error.code {
+            case .zoneNotFound where (failure.error.userInfo[CKErrorUserDidResetEncryptedDataKey] as? Bool) == true:
+                // The iCloud Keychain was reset and the zone went with it
+                // (ADR 0002): everything goes up again, not just this record.
+                try? store.resetSyncForReupload()
+                engine.state.add(pendingDatabaseChanges: [.saveZone(CKRecordZone(zoneID: Self.zoneID))])
             case .serverRecordChanged:
                 // Changed elsewhere first: merge the server's version in; the
                 // store marks what is still to send, and the watcher re-adds it.
@@ -224,11 +238,13 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
                 }
                 engine.state.add(pendingRecordZoneChanges: [.saveRecord(record.recordID)])
             case .quotaExceeded:
+                state.withLock { $0.sendFailed = true }
                 report(.problem("Your iCloud storage is full, so changes are waiting on this Mac."))
             case .networkFailure, .networkUnavailable, .zoneBusy, .serviceUnavailable, .requestRateLimited, .notAuthenticated, .operationCancelled:
                 // The engine tries again by itself.
-                break
+                state.withLock { $0.sendFailed = true }
             default:
+                state.withLock { $0.sendFailed = true }
                 Self.log.error("save of \(record.recordID.recordName, privacy: .public) failed: \(failure.error.localizedDescription, privacy: .public)")
             }
         }
@@ -252,11 +268,20 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
     /// Builds the record to send, or nil when there is nothing to send for
     /// it any more (the engine then drops the change).
     private func record(for id: CKRecord.ID, engine: CKSyncEngine) -> CKRecord? {
-        for kind in [SyncRecord.Kind.note, .attachment] {
-            if case .save(let record, let systemFields, let version)? = try? store.pendingSave(kind: kind, name: id.recordName) {
-                state.withLock { $0.sentVersions[id] = version }
-                return Self.ckRecord(from: record, systemFields: systemFields)
+        do {
+            for kind in [SyncRecord.Kind.note, .attachment] {
+                if case .save(let record, let systemFields, let version)? = try store.pendingSave(kind: kind, name: id.recordName) {
+                    state.withLock { $0.sentVersions[id] = version }
+                    return Self.ckRecord(from: record, systemFields: systemFields)
+                }
             }
+        } catch {
+            // Could not be read now: the change stays pending for the next
+            // send, unlike one with nothing left to send.
+            state.withLock { $0.sendFailed = true }
+            report(.problem("A note could not be read for sync: \(error.localizedDescription)"))
+            Task { engine.state.add(pendingRecordZoneChanges: [.saveRecord(id)]) }
+            return nil
         }
         engine.state.remove(pendingRecordZoneChanges: [.saveRecord(id)])
         return nil

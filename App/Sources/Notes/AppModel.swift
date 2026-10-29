@@ -68,9 +68,15 @@ final class AppModel {
 
     private func handle(_ event: LiveSyncEngine.Event) {
         switch event {
-        case .synced(let date):
+        case .fetched(let date, let first):
             lastSynced = date
-            syncProblem = nil
+            // Synced attachments nothing refers to, now that other devices'
+            // notes are in; only once every draft is saved, since the store
+            // sees saved bodies only (#107).
+            if first, flushAll() { _ = try? store.removeUnreferencedAttachments(includingSynced: true) }
+        case .sent(let date, let failed):
+            lastSynced = date
+            if !failed { syncProblem = nil }
         case .account(let problem):
             syncAccountProblem = problem
         case .problem(let message):

@@ -78,10 +78,13 @@ struct SyncSettings: View {
                 Text("This build of BoopStash was not signed for iCloud, so it cannot sync.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-            } else if model.isSyncing {
+            } else if enabled {
+                // Shown whenever sync is on, also when it could not start.
                 if let problem = model.syncAccountProblem ?? model.syncProblem {
                     Text(problem).font(.caption).foregroundStyle(.red)
                 }
+            }
+            if LiveSyncEngine.isAvailable, model.isSyncing {
                 LabeledContent("Last synced") {
                     HStack {
                         Text(model.lastSynced.map { $0.formatted(date: .abbreviated, time: .shortened) } ?? "Not yet")
