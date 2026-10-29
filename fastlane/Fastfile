@@ -106,6 +106,8 @@ platform :mac do
   desc "Once, and after a capability changes: create or renew the App Store certificates and profiles in match"
   lane :bootstrap do
     require_environment!
+    # An unlocked keychain of its own on CI, as for beta (#129).
+    setup_ci
     signing("macos", readonly: false, force: true, additional_cert_types: ["mac_installer_distribution"])
   end
 
@@ -148,6 +150,8 @@ platform :ios do
   desc "Once, and after a capability changes: create or renew the App Store certificate and profile in match"
   lane :bootstrap do
     require_environment!
+    # An unlocked keychain of its own on CI, as for beta (#129).
+    setup_ci
     signing("ios", readonly: false, force: true)
   end
 
