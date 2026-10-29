@@ -22,6 +22,23 @@ Java from [tree-sitter](https://github.com/tree-sitter) and
 [tree-sitter-sql](https://github.com/DerekStride/tree-sitter-sql) (MIT);
 [tree-sitter-diff](https://github.com/the-mikedavis/tree-sitter-diff) (MIT).
 
+## Boop scripts
+
+The bundled scripts in `Vendor/Boop/scripts` come from
+[Boop](https://github.com/IvanMathy/Boop) by Ivan Mathy (MIT; see
+`Vendor/Boop/LICENSE`), pinned at commit `5cf6914`. The libraries they load
+with `require('@boop/…')`, in `Vendor/Boop/lib`, are under their own licences:
+
+| Library | Licence |
+|---|---|
+| base64.js | BSD-3-Clause |
+| hashes.js ([jsHashes](https://github.com/h2non/jshashes)) | BSD-3-Clause |
+| he.js ([he](https://github.com/mathiasbynens/he)) | MIT |
+| js-yaml.js ([js-yaml](https://github.com/nodeca/js-yaml)) | MIT |
+| lodash.boop.js ([Lodash](https://lodash.com), custom build) | MIT |
+| papaparse.js ([Papa Parse](https://www.papaparse.com)) | MIT |
+| vkBeautify.js ([vkBeautify](https://github.com/vkiryukhin/vkBeautify)) | MIT |
+
 ## Colour themes
 
 The editor's themes reproduce the published colour values of these schemes.

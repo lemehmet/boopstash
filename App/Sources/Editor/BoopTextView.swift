@@ -164,6 +164,69 @@ final class BoopTextView: NSTextView {
         return super.validateUserInterfaceItem(item)
     }
 
+    // MARK: - Scripts
+
+    /// Runs a Boop script (ADR 0005) on each selected range, or on the whole
+    /// note, in the script service (ADR 0007). The result is one undoable
+    /// edit named after the script; what the script posts goes to the
+    /// banner. If the note changed while the script ran, the result is
+    /// dropped rather than written over the newer text.
+    func run(_ script: BoopScript, with runner: LiveScriptRunner) async {
+        let fullText = string
+        let selections = selectedRanges.map(\.rangeValue)
+        let request = ScriptRequest(scriptName: script.name, source: script.source,
+                                    states: ScriptEdits.states(fullText: fullText, selections: selections))
+        let response = await runner.run(request)
+        if !response.errors.isEmpty {
+            NSSound.beep()
+            showMessage?(response.errors.joined(separator: " "))
+        } else if let info = response.infos.last {
+            showMessage?(info)
+        }
+        guard !response.outputs.isEmpty else { return }
+        // The note was closed (another one selected) while the script ran.
+        guard window != nil else {
+            showMessage?("\(script.name) finished after its note was closed, so its result was not applied.")
+            return
+        }
+        guard string == fullText else {
+            showMessage?("\(script.name) finished after the note changed, so its result was not applied.")
+            return
+        }
+        guard let edits = ScriptEdits.replacements(fullText: fullText, selections: selections, response: response) else { return }
+        apply(edits, actionName: script.name)
+    }
+
+    /// Replaces each range with its text as one undoable edit, then selects
+    /// the replacements (or keeps the caret, for a whole-note edit).
+    func apply(_ edits: [(NSRange, String)], actionName: String) {
+        let ns = string as NSString
+        let edits = edits.sorted { $0.0.location < $1.0.location }
+        let changed = edits.filter { ns.substring(with: $0.0) != $0.1 }
+        guard !changed.isEmpty, let storage = textStorage else { return }
+        let caret = selectedRange().location
+        guard shouldChangeText(inRanges: changed.map { NSValue(range: $0.0) }, replacementStrings: changed.map(\.1)) else { return }
+        storage.beginEditing()
+        for (range, text) in changed.reversed() { storage.replaceCharacters(in: range, with: text) }
+        storage.endEditing()
+        didChangeText()
+        undoManager?.setActionName(actionName)
+        let wholeNote = changed.count == 1 && changed[0].0 == NSRange(location: 0, length: ns.length)
+        if wholeNote {
+            setSelectedRange(NSRange(location: min(caret, (string as NSString).length), length: 0))
+        } else {
+            // Every range stays selected, changed or not, shifted by the
+            // changes before it.
+            var delta = 0
+            let ranges = edits.map { range, text -> NSValue in
+                let length = (text as NSString).length
+                defer { delta += length - range.length }
+                return NSValue(range: NSRange(location: range.location + delta, length: length))
+            }
+            selectedRanges = ranges
+        }
+    }
+
     // MARK: - Formatting
 
     /// Edit ▸ Format Document (ADR 0005): the selection, or the whole note,
