@@ -16,12 +16,23 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
 
     /// Whether this build was signed with iCloud: only a build with its
     /// provisioning profile is (ADR 0008), and without the entitlement
-    /// CloudKit would stop the app.
+    /// CloudKit would stop the app. The Mac reads its own entitlements;
+    /// iOS cannot, so the provisioned build says so in its Info.plist.
     static var isAvailable: Bool {
+        #if os(macOS)
         guard let task = SecTaskCreateFromSelf(nil),
               let value = SecTaskCopyValueForEntitlement(task, "com.apple.developer.icloud-container-identifiers" as CFString, nil)
         else { return false }
         return (value as? [String])?.contains(containerID) ?? false
+        #else
+        return Bundle.main.object(forInfoDictionaryKey: "BoopStashICloud") as? String == "YES"
+        #endif
+    }
+
+    /// The iCloud environment this build was signed for, as its Info.plist
+    /// records it: a store that synced with the other one starts over.
+    static var environment: String {
+        Bundle.main.object(forInfoDictionaryKey: "BoopStashICloudEnvironment") as? String ?? "Production"
     }
 
     /// What the app shows about sync.
@@ -86,6 +97,10 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
         self.applyRemote = applyRemote
         let container = CKContainer(identifier: Self.containerID)
         self.container = container
+        // Synced with the other environment before (a development build's
+        // store, opened by a release): start afresh rather than fetch with a
+        // change token that means nothing here.
+        try store.prepareSync(environment: Self.environment)
         let saved = try store.syncEngineState().flatMap { try? JSONDecoder().decode(CKSyncEngine.State.Serialization.self, from: $0) }
         let configuration = CKSyncEngine.Configuration(database: container.privateCloudDatabase, stateSerialization: saved, delegate: self)
         let engine = CKSyncEngine(configuration)

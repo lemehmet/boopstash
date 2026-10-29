@@ -39,13 +39,86 @@ final class NotesModel {
         observe()
     }
 
+    // MARK: Sync
+
+    /// Settings ▸ iCloud; off until the user turns it on (ADR 0008).
+    static let syncKey = "syncWithICloud"
+    private(set) var syncAccountProblem: String?
+    private(set) var syncProblem: String?
+    private(set) var lastSynced: Date?
+    /// Counts changes from iCloud per note, so an open editor reloads.
+    private(set) var remoteRevisions: [UUID: Int] = [:]
+    @ObservationIgnored private var syncEngine: LiveSyncEngine?
+
+    var isSyncing: Bool { syncEngine != nil }
+
+    /// Starts or stops sync. Starting is the first contact with CloudKit;
+    /// stopping keeps everything here and the engine's place.
+    func setSyncEnabled(_ enabled: Bool) {
+        UserDefaults.standard.set(enabled, forKey: Self.syncKey)
+        guard enabled, LiveSyncEngine.isAvailable else {
+            syncEngine?.stop()
+            syncEngine = nil
+            syncAccountProblem = nil
+            syncProblem = nil
+            return
+        }
+        guard syncEngine == nil else { return }
+        do {
+            syncEngine = try LiveSyncEngine(store: store, report: { [weak self] event in
+                Task { @MainActor in self?.handle(event) }
+            }, applyRemote: { [weak self] work in
+                await MainActor.run { self?.applyRemote(work) }
+            })
+            UIApplication.shared.registerForRemoteNotifications()
+        } catch {
+            syncProblem = "Could not start sync: \(error.localizedDescription)"
+        }
+    }
+
+    func syncNow() {
+        guard let syncEngine else { return }
+        Task { await syncEngine.syncNow() }
+    }
+
+    /// Applies changes from iCloud between edits, as on the Mac: drafts are
+    /// saved first, so a note being edited merges instead of being
+    /// overwritten, then the open editor reloads.
+    @discardableResult
+    func applyRemote(_ work: () -> LiveSyncEngine.RemoteOutcome) -> LiveSyncEngine.RemoteOutcome {
+        _ = drafts.flushAll()
+        let outcome = work()
+        for id in outcome.changed { remoteRevisions[id, default: 0] += 1 }
+        return outcome
+    }
+
+    private func handle(_ event: LiveSyncEngine.Event) {
+        switch event {
+        case .fetched(let date, let first):
+            lastSynced = date
+            if first, drafts.flushAll() { _ = try? store.removeUnreferencedAttachments(includingSynced: true) }
+        case .sent(let date, let failed):
+            lastSynced = date
+            if !failed { syncProblem = nil }
+        case .account(let problem):
+            syncAccountProblem = problem
+        case .problem(let message):
+            syncProblem = message
+        case .stoppedByServer(let message):
+            setSyncEnabled(false)
+            banner = message
+        }
+    }
+
     static func live() throws -> NotesModel {
         let support = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
         let store = try NoteStore.open(at: support.appendingPathComponent("Boopstash/notes.sqlite"))
         // Images nothing refers to, after a day's grace, as on the Mac: also
         // the clean-up a delete leaves when a draft would not save.
-        try? store.removeUnreferencedAttachments()
-        return NotesModel(store: store)
+        _ = try? store.removeUnreferencedAttachments()
+        let model = NotesModel(store: store)
+        if UserDefaults.standard.bool(forKey: syncKey) { model.setSyncEnabled(true) }
+        return model
     }
 
     private func observe() {

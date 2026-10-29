@@ -4,6 +4,7 @@ import SwiftUI
 struct NotesView: View {
     @Bindable var model: NotesModel
     @State private var selection: UUID?
+    @State private var settingsShown = false
 
     var body: some View {
         NavigationSplitView {
@@ -39,6 +40,9 @@ struct NotesView: View {
                         Label("Edited", systemImage: "calendar")
                     }
                 }
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Settings", systemImage: "gearshape") { settingsShown = true }
+                }
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     Button("From Clipboard", systemImage: "doc.on.clipboard") {
                         if let note = model.newNoteFromClipboard() { selection = note.id }
@@ -50,7 +54,9 @@ struct NotesView: View {
             }
         } detail: {
             if let id = selection, let note = model.drafts.note(id: id) {
-                NoteEditorView(model: model, note: note).id(id)
+                // A change from iCloud makes a new editor with the merged
+                // note, title included.
+                NoteEditorView(model: model, note: note).id("\(id)-\(model.remoteRevisions[id] ?? 0)")
             } else {
                 ContentUnavailableView("No note selected", systemImage: "note.text")
             }
@@ -58,6 +64,7 @@ struct NotesView: View {
         .onChange(of: selection) { old, _ in
             if let old { model.drafts.flush(old) }
         }
+        .sheet(isPresented: $settingsShown) { SettingsView(model: model) }
         .safeAreaInset(edge: .bottom) {
             if let banner = model.banner {
                 HStack {
@@ -97,5 +104,40 @@ struct NoteEditorView: View {
         .onAppear { title = note.titleIsUserSet ? note.title : "" }
         .onDisappear { model.drafts.flush(note.id) }
         .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+/// iCloud sync, off by default: nothing contacts iCloud, not even to check
+/// the account, until it is turned on (ADR 0008).
+struct SettingsView: View {
+    let model: NotesModel
+    @AppStorage(NotesModel.syncKey) private var enabled = false
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Toggle("Sync with iCloud", isOn: Binding(get: { enabled && LiveSyncEngine.isAvailable }, set: { model.setSyncEnabled($0) }))
+                        .disabled(!LiveSyncEngine.isAvailable)
+                    if !LiveSyncEngine.isAvailable {
+                        Text("This build of BoopStash was not signed for iCloud, so it cannot sync.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    } else if enabled, let problem = model.syncAccountProblem ?? model.syncProblem {
+                        Text(problem).font(.caption).foregroundStyle(.red)
+                    }
+                    if LiveSyncEngine.isAvailable, model.isSyncing {
+                        LabeledContent("Last synced", value: model.lastSynced.map { $0.formatted(date: .abbreviated, time: .shortened) } ?? "Not yet")
+                        Button("Sync Now") { model.syncNow() }
+                    }
+                } header: {
+                    Text("iCloud")
+                } footer: {
+                    Text("Notes and images go to your own iCloud, in fields encrypted on this device. With Advanced Data Protection they are end-to-end encrypted; without it, Apple holds the keys, as for most iCloud data.")
+                }
+            }
+            .navigationTitle("Settings")
+            .toolbar { Button("Done") { dismiss() } }
+        }
     }
 }

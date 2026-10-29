@@ -234,7 +234,36 @@ extension NoteStore {
                 try db.execute(sql: "UPDATE \(table) SET syncPending = syncPending + 1, syncSystemFields = NULL, syncStaleBelow = syncPending + 1")
             }
             try db.execute(sql: "DELETE FROM syncTombstone")
-            try db.execute(sql: "DELETE FROM syncState")
+            try db.execute(sql: "DELETE FROM syncState WHERE key != 'environment'")
+        }
+    }
+
+    /// Readies the store for syncing with one iCloud environment
+    /// (Development or Production): a store that last synced with another
+    /// one, or with one not recorded, holds metadata and a change token
+    /// that mean nothing there, so everything is sent again as new and the
+    /// engine starts afresh. Returns whether it had to.
+    @discardableResult
+    public func prepareSync(environment: String) throws -> Bool {
+        try writer.write { db in
+            let recorded = try String.fetchOne(db, sql: "SELECT CAST(value AS TEXT) FROM syncState WHERE key = 'environment'")
+            guard recorded != environment else { return false }
+            let synced = try Bool.fetchOne(db, sql: """
+                SELECT EXISTS (SELECT 1 FROM syncState WHERE key = 'engine')
+                    OR EXISTS (SELECT 1 FROM note WHERE syncSystemFields IS NOT NULL)
+                    OR EXISTS (SELECT 1 FROM attachment WHERE syncSystemFields IS NOT NULL)
+                """) ?? false
+            if synced {
+                for table in ["note", "attachment"] {
+                    try db.execute(sql: "UPDATE \(table) SET syncPending = syncPending + 1, syncSystemFields = NULL, syncStaleBelow = syncPending + 1")
+                }
+                // Deletions the other environment never heard of are not this
+                // one's business either.
+                try db.execute(sql: "DELETE FROM syncTombstone")
+                try db.execute(sql: "DELETE FROM syncState")
+            }
+            try db.execute(sql: "INSERT OR REPLACE INTO syncState (key, value) VALUES ('environment', ?)", arguments: [Data(environment.utf8)])
+            return synced
         }
     }
 

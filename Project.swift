@@ -144,6 +144,8 @@ let project = Project(
                 // Only the system's encryption (CloudKit, HTTPS of iCloud):
                 // nothing to declare for export (App Store Connect asks).
                 "ITSAppUsesNonExemptEncryption": false,
+                // The iCloud environment the build is signed for (ADR 0008).
+                "BoopStashICloudEnvironment": "$(BOOPSTASH_ICLOUD_ENVIRONMENT)",
                 "NSHumanReadableCopyright": "Copyright © 2026 boopstash contributors. Apache-2.0.",
                 // Services ▸ Save to BoopStash (ServicesProvider.saveSelection).
                 "NSServices": [
@@ -156,7 +158,7 @@ let project = Project(
                     ],
                 ],
             ]),
-            sources: ["App/Sources/**", "App/Shared/**"],
+            sources: ["App/Sources/**", "App/Shared/**", "App/SyncAdapter/**"],
             resources: [
                 "App/Resources/**",
                 // Boop's scripts (ADR 0005); the app lists and sends them.
@@ -201,8 +203,15 @@ let project = Project(
                 // copy over the other's until editors sync live.
                 "UIApplicationSceneManifest": ["UIApplicationSupportsMultipleScenes": false],
                 "ITSAppUsesNonExemptEncryption": false,
+                // Whether the build is signed with iCloud, which iOS cannot
+                // read from its own entitlements, and for which environment
+                // (ADR 0008).
+                "BoopStashICloud": "$(BOOPSTASH_ICLOUD)",
+                "BoopStashICloudEnvironment": "$(BOOPSTASH_ICLOUD_ENVIRONMENT)",
+                // Changes from other devices arrive while in the background.
+                "UIBackgroundModes": ["remote-notification"],
             ]),
-            sources: ["iOS/Sources/**"],
+            sources: ["iOS/Sources/**", "App/SyncAdapter/**"],
             resources: ["iOS/Resources/**"],
             dependencies: [.target(name: "BoopstashCore")],
             settings: .settings(base: [
@@ -212,6 +221,13 @@ let project = Project(
                 // ios beta); Core is a framework and takes none.
                 "BOOPSTASH_PROFILE": "",
                 "PROVISIONING_PROFILE_SPECIFIER": "$(BOOPSTASH_PROFILE)",
+                // Without a profile, no iCloud (ADR 0008); a provisioned build
+                // selects BoopStashMobileCloud with its profile.
+                "BOOPSTASH_ENTITLEMENTS": "",
+                "CODE_SIGN_ENTITLEMENTS": "$(BOOPSTASH_ENTITLEMENTS)",
+                "BOOPSTASH_ICLOUD": "NO",
+                "BOOPSTASH_ICLOUD_ENVIRONMENT": "Production",
+                "BOOPSTASH_APS_ENVIRONMENT": "production",
             ])
         ),
         // Runs scripts and JavaScript formatters in its own sandboxed
