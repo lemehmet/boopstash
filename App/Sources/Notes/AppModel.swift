@@ -466,7 +466,7 @@ final class AppModel {
         // Image references are not text: a note of only images has nothing
         // for the model to read, whoever asks (capture or leaving the note).
         guard usesModelTitles, !note.titleIsUserSet,
-              !AttachmentReference.removingReferences(from: note.body).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              AttachmentReference.hasText(besidesImages: note.body),
               !note.hasCurrentModelTitle, !modelTitleRequests.contains(note.id)
         else { return }
         modelTitleRequests.insert(note.id)
