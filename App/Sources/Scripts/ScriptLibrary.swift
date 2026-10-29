@@ -60,20 +60,43 @@ enum UserScriptsFolder {
 }
 
 /// Calls back when a folder's contents change, so new or edited scripts
-/// appear without a relaunch.
+/// appear without a relaunch. A watch is on the folder itself, so when the
+/// folder is deleted or renamed away, the watcher makes the folder again at
+/// its path and watches that instead.
+@MainActor
 final class FolderWatcher {
-    private let source: DispatchSourceFileSystemObject
-    private let descriptor: Int32
+    private let url: URL
+    private let onChange: @MainActor () -> Void
+    private var source: DispatchSourceFileSystemObject?
 
     init?(_ url: URL, onChange: @escaping @MainActor () -> Void) {
-        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-        descriptor = open(url.path, O_EVTONLY)
-        guard descriptor >= 0 else { return nil }
-        source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: descriptor, eventMask: [.write, .rename, .delete], queue: .main)
-        source.setEventHandler { MainActor.assumeIsolated { onChange() } }
-        source.setCancelHandler { [descriptor] in close(descriptor) }
-        source.resume()
+        self.url = url
+        self.onChange = onChange
+        guard attach() else { return nil }
     }
 
-    deinit { source.cancel() }
+    private func attach() -> Bool {
+        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        let descriptor = open(url.path, O_EVTONLY)
+        guard descriptor >= 0 else { return false }
+        let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: descriptor, eventMask: [.write, .rename, .delete], queue: .main)
+        source.setEventHandler { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, let event = self.source?.data else { return }
+                if !event.isDisjoint(with: [.delete, .rename]) {
+                    // The folder this watch was on is gone from its path.
+                    self.source?.cancel()
+                    self.source = nil
+                    _ = self.attach()
+                }
+                self.onChange()
+            }
+        }
+        source.setCancelHandler { close(descriptor) }
+        source.resume()
+        self.source = source
+        return true
+    }
+
+    deinit { source?.cancel() }
 }

@@ -27,6 +27,26 @@ struct UserScriptsTests {
         #expect(library.problems.contains(ScriptProblem(scriptID: "user/Broken.js", message: "no /** … **/ header")))
     }
 
+    /// Deleting the folder and making it again (Show Scripts Folder) keeps
+    /// new scripts coming.
+    @Test func theWatcherSurvivesTheFolderBeingDeleted() async throws {
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        var changes = 0
+        let watcher = FolderWatcher(folder) { changes += 1 }
+        try FileManager.default.removeItem(at: folder)
+        var deadline = ContinuousClock.now + .seconds(3)
+        while ContinuousClock.now < deadline, !FileManager.default.fileExists(atPath: folder.path) {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        let before = changes
+        try write("Later.js", "/** {\"name\":\"Later\"} **/ function main(s) {}")
+        deadline = ContinuousClock.now + .seconds(3)
+        while ContinuousClock.now < deadline, changes == before { try await Task.sleep(for: .milliseconds(20)) }
+        #expect(changes > before, "a script added to the recreated folder is seen")
+        _ = watcher
+    }
+
     @Test func theWatcherSeesNewScripts() async throws {
         defer { try? FileManager.default.removeItem(at: folder) }
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
