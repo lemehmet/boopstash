@@ -74,3 +74,12 @@ jobs:
             -scheme BoopstashCore \
             -destination 'generic/platform=iOS Simulator' \
             CODE_SIGNING_ALLOWED=NO
+
+      # The iOS app (#65). Its logic is Core's, tested above on macOS.
+      - name: Build the iOS app
+        run: |
+          xcodebuild build \
+            -workspace Boopstash.xcworkspace \
+            -scheme BoopStashMobile \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO

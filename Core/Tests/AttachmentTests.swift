@@ -45,6 +45,17 @@ import Testing
                 "a plain link is not an image reference")
     }
 
+    /// The preview shows `ATTACHMENT:` references, so clean-up must see
+    /// them too, or it would delete an image a note still shows.
+    @Test func uppercaseSchemesAreReferencesToo() throws {
+        let owner = try note("")
+        let image = try store.addAttachment(png, contentType: "public.png", noteID: owner.id)
+        _ = try note("![x](ATTACHMENT:\(image.id.uuidString))")
+        #expect(AttachmentReference.ids(in: "![x](Attachment:\(image.id.uuidString))") == [image.id])
+        try store.delete(id: owner.id)
+        #expect(try store.attachment(id: image.id) != nil, "the other note still shows it")
+    }
+
     @Test func rewritingReplacesOnlyKnownReferences() {
         let known = UUID(), unknown = UUID()
         let body = "\(AttachmentReference.markdown(for: known, alt: "k")) \(AttachmentReference.markdown(for: unknown))"

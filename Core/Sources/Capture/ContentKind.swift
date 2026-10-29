@@ -48,6 +48,8 @@ public enum ContentKind: String, CaseIterable, Codable, Sendable {
     }
 
     public static func detect(_ text: String) -> ContentKind {
+        // A byte-order mark is not content; JSON with one is still JSON (#80).
+        let text = text.hasPrefix("\u{FEFF}") ? String(text.dropFirst()) : text
         let sample = leadingSample(of: text).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !sample.isEmpty else { return .plain }
         let truncated = text.utf8.count > sampleLimit
