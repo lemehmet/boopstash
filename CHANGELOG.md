@@ -6,29 +6,48 @@ breaking changes may land in a minor release.
 
 ## Unreleased
 
-- Text in images is searchable: BoopStash reads the text of each image
+## v0.2.0 — 2026-10-29
+
+### New
+
+- **Images.** Paste an image into a note (⌘V with an image on the
+  clipboard), drop one on the editor or the note list, or capture an
+  image-only clipboard with New Note from Clipboard, ⌃⌥⌘V or Services.
+  Images are kept with the note, up to 20 MB each. In the editor each one
+  shows as a chip with a thumbnail: one Backspace removes it, the caret
+  steps over it, copying it copies its markdown, and a double-click opens
+  it in Quick Look. Export writes images beside the notes and links them.
+- **Text in images is searchable.** BoopStash reads the text of each image
   with Apple's on-device text recognition, so a word in a screenshot finds
-  its note. Nothing leaves the Mac. A note found that way is marked "in
-  image" in the list.
+  its note; such a match is marked "in image" in the list. Nothing leaves
+  the Mac.
+- **Markdown preview.** View ▸ Show Preview (⌥⌘P) shows the note rendered,
+  beside the editor or in its place: headings, emphasis, lists and task
+  lists, quotes, tables, highlighted code and the note's images. It is drawn
+  natively and never loads anything: remote images are named, not
+  fetched, and HTML in a note is shown as text.
+- **Format Document** (Edit menu; ⇧⌥F with VS Code keys, ⌥⌘L with
+  JetBrains keys) formats the note, or the selection, by its language:
+  JSON and XML natively (JSON keeps every number, escape and key order;
+  Format JSON, Sorting Keys orders keys), JavaScript, TypeScript, CSS,
+  HTML, YAML and Markdown with Prettier, and SQL with sql-formatter.
+  Settings ▸ Editor ▸ Formatting has the indent width, quote style, SQL
+  dialect and keyword case. Text that cannot be parsed is left as it is,
+  with the line and column of the problem.
+- **Boop scripts.** Scripts ▸ Run Script… (⌘B) runs Boop's 71 scripts on
+  the selection, each part of a multiple selection, or the whole note:
+  Base64, URL and HTML encoding, hashes, case changes, sorting, JSON and
+  YAML conversion and more. Run Last Script is ⇧⌘B. Your own Boop scripts go
+  in the Scripts folder (Settings ▸ General ▸ Show Scripts Folder); one
+  named like a built-in replaces it.
 
-- Images: paste an image into a note (⌘V with an image on the clipboard),
-  drop one on the editor or the note list, or capture an image-only
-  clipboard with New Note from Clipboard, ⌃⌥⌘V or Services. Images are kept
-  with the note, up to 20 MB each, and a note holding only an image is
-  titled "Image" (or the file's name).
+### Privacy
 
-- Scripts ▸ Run Script… (⌘B) runs Boop's scripts on the selection, or each
-  part of a multiple selection, or the whole note: Base64, URL and HTML
-  encoding, hashes, case changes, sorting, JSON and YAML conversion and more,
-  71 in all. Run Last Script is ⇧⌘B. Scripts run in their own sandboxed
-  process with no network or file access, and one that runs longer than two
-  seconds is stopped.
-
-- Edit ▸ Format Document reformats JSON and XML (property lists included) by
-  the note's language, or just the selection: ⇧⌥F with VS Code keys, ⌥⌘L
-  with JetBrains keys. JSON keeps every number, escape and key order as
-  written; Format JSON, Sorting Keys orders the keys. Invalid text is left as
-  it is, with the line and column of the problem.
+- Scripts and the JavaScript formatters run in a separate sandboxed
+  process with no network, no files and none of your notes beyond the text
+  they are given; one that runs too long is stopped (ADR 0007).
+- Text recognition and the preview add no network access; the app still
+  has no network entitlement.
 
 ## v0.1.1 — 2026-10-28
 
