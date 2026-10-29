@@ -12,6 +12,13 @@ breaking changes may land in a minor release.
   with the note, up to 20 MB each, and a note holding only an image is
   titled "Image" (or the file's name).
 
+- Scripts ▸ Run Script… (⌘B) runs Boop's scripts on the selection, or each
+  part of a multiple selection, or the whole note: Base64, URL and HTML
+  encoding, hashes, case changes, sorting, JSON and YAML conversion and more,
+  71 in all. Run Last Script is ⇧⌘B. Scripts run in their own sandboxed
+  process with no network or file access, and one that runs longer than two
+  seconds is stopped.
+
 - Edit ▸ Format Document reformats JSON and XML (property lists included) by
   the note's language, or just the selection: ⇧⌥F with VS Code keys, ⌥⌘L
   with JetBrains keys. JSON keeps every number, escape and key order as
