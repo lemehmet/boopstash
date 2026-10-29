@@ -6,12 +6,6 @@ breaking changes may land in a minor release.
 
 ## Unreleased
 
-- View ▸ Show Preview (⌥⌘P) shows the note rendered: headings, emphasis,
-  lists and task lists, quotes, tables, highlighted code and images stored
-  with the note, beside the editor or in its place. The preview is drawn
-  natively and never loads anything: remote images are named, not fetched,
-  and HTML in a note is shown as text.
-
 - Images: paste an image into a note (⌘V with an image on the clipboard),
   drop one on the editor or the note list, or capture an image-only
   clipboard with New Note from Clipboard, ⌃⌥⌘V or Services. Images are kept
