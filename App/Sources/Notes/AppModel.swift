@@ -33,8 +33,20 @@ final class AppModel {
     private(set) var lastSynced: Date?
     @ObservationIgnored private var syncEngine: LiveSyncEngine?
     /// The engine, made only when sync is on; replaceable for tests.
-    @ObservationIgnored var makeSyncEngine: (NoteStore, @escaping @Sendable (LiveSyncEngine.Event) -> Void) throws -> LiveSyncEngine = {
-        try LiveSyncEngine(store: $0, report: $1)
+    @ObservationIgnored var makeSyncEngine: (NoteStore, @escaping @Sendable (LiveSyncEngine.Event) -> Void,
+                                             @escaping LiveSyncEngine.ApplyRemote) throws -> LiveSyncEngine = {
+        try LiveSyncEngine(store: $0, report: $1, applyRemote: $2)
+    }
+    /// Counts changes from iCloud per note, so an open editor reloads
+    /// text that changed under it.
+    private(set) var remoteRevisions: [UUID: Int] = [:]
+
+    /// Applies changes from iCloud between edits: drafts are saved first,
+    /// so a note being edited merges (and keeps a conflict copy) instead of
+    /// being overwritten by the next keystroke, then editors reload.
+    func applyRemote(_ work: () -> Set<UUID>) {
+        _ = flushAll()
+        for id in work() { remoteRevisions[id, default: 0] += 1 }
     }
 
     var isSyncing: Bool { syncEngine != nil }
@@ -52,9 +64,11 @@ final class AppModel {
         }
         guard syncEngine == nil else { return }
         do {
-            syncEngine = try makeSyncEngine(store) { [weak self] event in
+            syncEngine = try makeSyncEngine(store, { [weak self] event in
                 Task { @MainActor in self?.handle(event) }
-            }
+            }, { [weak self] work in
+                await MainActor.run { self?.applyRemote(work) }
+            })
             NSApp.registerForRemoteNotifications()
         } catch {
             syncProblem = "Could not start sync: \(error.localizedDescription)"

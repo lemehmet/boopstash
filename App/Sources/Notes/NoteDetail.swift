@@ -64,7 +64,7 @@ extension NoteDetail {
         // The current draft, not the `note` this view was given: switching
         // the preview layout recreates the editor, and the draft may be
         // newer than what was last saved.
-        EditorView(noteID: note.id, initialText: model.note(id: note.id)?.body ?? note.body, keymap: keymap, syntax: syntax, appearance: appearance, showMessage: { model.banner = $0 }, jsFormat: { [runner = model.scriptRunner] request in await runner.format(request) }, attachmentURL: { [store = model.store] id in
+        EditorView(noteID: note.id, revision: model.remoteRevisions[note.id] ?? 0, initialText: model.note(id: note.id)?.body ?? note.body, keymap: keymap, syntax: syntax, appearance: appearance, showMessage: { model.banner = $0 }, jsFormat: { [runner = model.scriptRunner] request in await runner.format(request) }, attachmentURL: { [store = model.store] id in
             (try? store.attachment(id: id)).map { store.fileURL(for: $0) }
         }, storeImage: { [id = note.id] data, type in model.addImage(data, type: type, to: id) }, onFocusChange: { model.editorFocusMayHaveChanged() }) { text in
             model.updateBody(note.id, to: text)

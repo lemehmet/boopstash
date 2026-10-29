@@ -8,6 +8,9 @@ import UniformTypeIdentifiers
 /// list refresh mid-typing never resets the caret.
 struct EditorView: NSViewRepresentable {
     let noteID: UUID
+    /// Bumped when the note changed in iCloud while open: the editor
+    /// reloads `initialText`, which is then the merged text.
+    var revision = 0
     let initialText: String
     let keymap: Keymap
     var syntax: SyntaxChoice = .automatic
@@ -46,6 +49,7 @@ struct EditorView: NSViewRepresentable {
         context.coordinator.onChange = onChange
         if context.coordinator.noteID != noteID {
             context.coordinator.noteID = noteID
+            context.coordinator.revision = revision
             view.load(initialText, syntax: syntax)
             view.setSelectedRange(NSRange(location: 0, length: 0))
             view.undoManager?.removeAllActions()
@@ -53,6 +57,17 @@ struct EditorView: NSViewRepresentable {
             DispatchQueue.main.async { view.window?.makeFirstResponder(view) }
         } else {
             view.syntax.setChoice(syntax)
+            if context.coordinator.revision != revision {
+                context.coordinator.revision = revision
+                if view.string != initialText {
+                    // Keep the caret where it was, as far as the new text goes.
+                    let selection = view.selectedRange()
+                    view.load(initialText, syntax: syntax)
+                    let length = (view.string as NSString).length
+                    view.setSelectedRange(NSRange(location: min(selection.location, length), length: 0))
+                    view.undoManager?.removeAllActions()
+                }
+            }
         }
     }
 
@@ -65,6 +80,7 @@ struct EditorView: NSViewRepresentable {
     @MainActor
     final class Coordinator: NSObject, NSTextViewDelegate {
         var noteID: UUID?
+        var revision = 0
         var onChange: ((String) -> Void)?
         var onFocusChange: (() -> Void)?
 

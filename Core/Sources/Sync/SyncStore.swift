@@ -33,18 +33,7 @@ extension NoteStore {
     /// that changes, so the adapter can tell the sync engine. Ends when the
     /// consuming task is cancelled.
     public func pendingSyncNames() -> AsyncThrowingStream<SyncPending, any Error> {
-        let values = ValueObservation.tracking { db -> SyncPending in
-            var pending = SyncPending()
-            for kind in [SyncRecord.Kind.note, .attachment] {
-                let names = try UUID.fetchAll(db, sql: "SELECT id FROM \(Self.table(kind)) WHERE syncPending > syncAcknowledged")
-                pending.saves += names.map { SyncPending.Name(kind: kind, name: $0.uuidString.lowercased()) }
-            }
-            for row in try Row.fetchAll(db, sql: "SELECT kind, name FROM syncTombstone") {
-                guard let kind = SyncRecord.Kind(rawValue: row["kind"]) else { continue }
-                pending.deletes.append(SyncPending.Name(kind: kind, name: row["name"]))
-            }
-            return pending
-        }.removeDuplicates().values(in: writer)
+        let values = ValueObservation.tracking(Self.pendingNames).removeDuplicates().values(in: writer)
         return AsyncThrowingStream { continuation in
             let task = Task {
                 do {
@@ -56,6 +45,25 @@ extension NoteStore {
             }
             continuation.onTermination = { _ in task.cancel() }
         }
+    }
+
+    /// Everything waiting to be sent, now: for reconciling with the sync
+    /// engine's own list, which a failed save can leave without it.
+    public func currentPendingSyncNames() throws -> SyncPending {
+        try writer.read(Self.pendingNames)
+    }
+
+    static func pendingNames(_ db: Database) throws -> SyncPending {
+        var pending = SyncPending()
+        for kind in [SyncRecord.Kind.note, .attachment] {
+            let names = try UUID.fetchAll(db, sql: "SELECT id FROM \(table(kind)) WHERE syncPending > syncAcknowledged")
+            pending.saves += names.map { SyncPending.Name(kind: kind, name: $0.uuidString.lowercased()) }
+        }
+        for row in try Row.fetchAll(db, sql: "SELECT kind, name FROM syncTombstone") {
+            guard let kind = SyncRecord.Kind(rawValue: row["kind"]) else { continue }
+            pending.deletes.append(SyncPending.Name(kind: kind, name: row["name"]))
+        }
+        return pending
     }
 
     /// The save to send for one record, built now; nil when it has nothing
