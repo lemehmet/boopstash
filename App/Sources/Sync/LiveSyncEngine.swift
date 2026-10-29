@@ -73,6 +73,10 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
         var fetched = false
         /// Whether a save failed in the send under way.
         var sendFailed = false
+        /// Records whose save or delete failed for good: not given back to
+        /// the engine automatically, only by Sync Now, so a permanent error
+        /// does not fail again on every send.
+        var heldBack: Set<CKRecord.ID> = []
         var watcher: Task<Void, Never>?
     }
 
@@ -111,6 +115,8 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
     /// iCloud, say) leaves the engine without it.
     func syncNow() async {
         guard let engine = state.withLock({ $0.engine }) else { return }
+        // Sync Now tries everything again, failed for good or not.
+        state.withLock { $0.heldBack = [] }
         if let pending = try? store.currentPendingSyncNames() { add(pending, to: engine) }
         do {
             try await engine.fetchChanges()
@@ -130,7 +136,7 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
             do {
                 for try await pending in names {
                     guard let self, let engine = self.state.withLock({ $0.engine }) else { return }
-                    self.add(pending, to: engine)
+                    self.add(pending, to: engine, except: self.state.withLock { $0.heldBack })
                 }
             } catch {
                 self?.report(.problem(error.localizedDescription))
@@ -139,10 +145,10 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
         state.withLock { $0.watcher = task }
     }
 
-    private func add(_ pending: SyncPending, to engine: CKSyncEngine) {
+    private func add(_ pending: SyncPending, to engine: CKSyncEngine, except held: Set<CKRecord.ID> = []) {
         let known = Set(engine.state.pendingRecordZoneChanges)
-        let changes = pending.saves.map { CKSyncEngine.PendingRecordZoneChange.saveRecord(Self.recordID($0.name)) }
-            + pending.deletes.map { CKSyncEngine.PendingRecordZoneChange.deleteRecord(Self.recordID($0.name)) }
+        let changes = pending.saves.map { Self.recordID($0.name) }.filter { !held.contains($0) }.map(CKSyncEngine.PendingRecordZoneChange.saveRecord)
+            + pending.deletes.map { Self.recordID($0.name) }.filter { !held.contains($0) }.map(CKSyncEngine.PendingRecordZoneChange.deleteRecord)
         let new = changes.filter { !known.contains($0) }
         if !new.isEmpty { engine.state.add(pendingRecordZoneChanges: new) }
     }
@@ -283,7 +289,10 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
             default:
                 // Not one to retry blindly; it stays pending in the store, so
                 // Sync Now tries it again, and the problem stays shown.
-                state.withLock { $0.sendFailed = true }
+                state.withLock {
+                    $0.sendFailed = true
+                    $0.heldBack.insert(record.recordID)
+                }
                 report(.problem("A change could not be saved to iCloud: \(failure.error.localizedDescription)"))
                 Self.log.error("save of \(record.recordID.recordName, privacy: .public) failed: \(failure.error.localizedDescription, privacy: .public)")
             }
@@ -301,7 +310,10 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
                 state.withLock { $0.sendFailed = true }
                 engine.state.add(pendingRecordZoneChanges: [.deleteRecord(id)])
             default:
-                state.withLock { $0.sendFailed = true }
+                state.withLock {
+                    $0.sendFailed = true
+                    $0.heldBack.insert(id)
+                }
                 report(.problem("A deletion could not be sent to iCloud: \(error.localizedDescription)"))
                 Self.log.error("delete of \(id.recordName, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
             }
@@ -314,7 +326,8 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
 
     /// Gives the engine everything the store still has to send.
     private func requeuePending(_ engine: CKSyncEngine) {
-        if let pending = try? store.currentPendingSyncNames() { add(pending, to: engine) }
+        guard let pending = try? store.currentPendingSyncNames() else { return }
+        add(pending, to: engine, except: state.withLock { $0.heldBack })
     }
 
     private func acknowledgeDelete(_ id: CKRecord.ID) {
@@ -442,7 +455,10 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
             do {
                 let results = try await container.privateCloudDatabase.records(for: ids)
                 let records = results.values.compactMap { try? $0.get() }
+                // Each record can fail alone; those go round again too.
+                let missing = ids.filter { (try? results[$0]?.get()) == nil }
                 await applyFetched(records, deletions: [], attempt: attempt + 1)
+                if !missing.isEmpty { refetch(missing, attempt: attempt + 1) }
             } catch {
                 refetch(ids, attempt: attempt + 1)
             }
