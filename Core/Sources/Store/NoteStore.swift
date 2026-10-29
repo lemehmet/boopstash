@@ -104,13 +104,39 @@ public final class NoteStore: Sendable {
                 t.column("recognizedText", .text)
             }
         }
+        migrator.registerMigration("v6-sync") { db in
+            // iCloud sync (#63). `syncPending` counts local changes not yet
+            // acknowledged by the server (0 when in step); every existing
+            // row starts pending, to be sent once. `syncSystemFields` holds
+            // CloudKit's record metadata, opaque here.
+            for table in ["note", "attachment"] {
+                try db.alter(table: table) { t in
+                    t.add(column: "syncPending", .integer).notNull().defaults(to: 1)
+                    t.add(column: "syncSystemFields", .blob)
+                }
+            }
+            // A deletion the server has not heard of yet.
+            try db.create(table: "syncTombstone") { t in
+                t.column("kind", .text).notNull()
+                t.column("name", .text).notNull()
+                t.column("systemFields", .blob)
+                t.primaryKey(["kind", "name"])
+            }
+            try db.create(table: "syncState") { t in
+                t.primaryKey("key", .text)
+                t.column("value", .blob)
+            }
+        }
         return migrator
     }
 
     // MARK: Reading and writing
 
     public func save(_ note: Note) throws {
-        try writer.write { db in try note.save(db) }
+        try writer.write { db in
+            try note.save(db)
+            try db.execute(sql: "UPDATE note SET syncPending = syncPending + 1 WHERE id = ?", arguments: [note.id])
+        }
     }
 
     /// Deletes a note, and the attachments it owned that no other saved
@@ -119,12 +145,14 @@ public final class NoteStore: Sendable {
     @discardableResult
     public func delete(id: UUID, removingOrphanedAttachments: Bool = true) throws -> Bool {
         let (deleted, orphans) = try writer.write { db -> (Bool, [NoteAttachment]) in
+            try Self.recordTombstone(kind: .note, id: id, table: "note", db)
             guard try Note.deleteOne(db, key: id) else { return (false, []) }
             guard removingOrphanedAttachments else { return (true, []) }
             let owned = try NoteAttachment.filter(Column("noteID") == id).fetchAll(db)
             guard !owned.isEmpty else { return (true, []) }
             let referenced = try Self.referencedAttachmentIDs(db)
             let orphans = owned.filter { !referenced.contains($0.id) }
+            for orphan in orphans { try Self.recordTombstone(kind: .attachment, id: orphan.id, table: "attachment", db) }
             try NoteAttachment.deleteAll(db, keys: orphans.map(\.id))
             return (true, orphans)
         }
@@ -183,6 +211,7 @@ public final class NoteStore: Sendable {
             let referenced = try Self.referencedAttachmentIDs(db)
             let orphans = try NoteAttachment.filter(Column("createdAt") < cutoff).fetchAll(db)
                 .filter { !referenced.contains($0.id) }
+            for orphan in orphans { try Self.recordTombstone(kind: .attachment, id: orphan.id, table: "attachment", db) }
             try NoteAttachment.deleteAll(db, keys: orphans.map(\.id))
             let known = try UUID.fetchSet(db, sql: "SELECT id FROM attachment")
             return (orphans, known)
