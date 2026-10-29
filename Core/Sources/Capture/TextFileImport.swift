@@ -1,8 +1,8 @@
 import Foundation
 import UniformTypeIdentifiers
 
-/// What a dropped file may become: a note holding its text. Images arrive
-/// with attachments in milestone 4; anything else is declined with a reason.
+/// What a dropped file may become: a note holding its text. Images go to
+/// `ImageImport`; anything else that is not text is declined with a reason.
 public enum TextFileImport {
     /// A stash of buffers, not a file manager: bigger files are refused
     /// rather than slowing every search and edit.
