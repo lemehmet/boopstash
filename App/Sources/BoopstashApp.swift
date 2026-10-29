@@ -131,7 +131,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 struct MainWindow: View {
     @Bindable var model: AppModel
     /// This window's script picker; every window has its own.
-    @State private var scriptPickerShown = false
+    @State private var scriptPicker: PickerTarget?
     let keymap: Keymap
     let appearance: EditorAppearance
 
@@ -152,10 +152,10 @@ struct MainWindow: View {
             model.flush(old)
             if let note = model.note(id: old) { model.requestModelTitle(for: note) }
         }
-        .sheet(isPresented: $scriptPickerShown) {
-            ScriptPicker(model: model)
+        .sheet(item: $scriptPicker) { target in
+            ScriptPicker(model: model, target: target)
         }
-        .focusedSceneValue(\.scriptPickerShown, $scriptPickerShown)
+        .focusedSceneValue(\.scriptPicker, $scriptPicker)
         .safeAreaInset(edge: .bottom) {
             if let banner = model.banner {
                 HStack {

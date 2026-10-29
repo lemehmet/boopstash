@@ -6,6 +6,8 @@ import SwiftUI
 /// close.
 struct ScriptPicker: View {
     @Bindable var model: AppModel
+    /// The editor this picker runs in, fixed when it opened.
+    let target: PickerTarget
     @State private var query = ""
     @State private var highlighted: BoopScript.ID?
     @FocusState private var searchFocused: Bool
@@ -70,7 +72,8 @@ struct ScriptPicker: View {
 
     private func run(_ script: BoopScript) {
         dismiss()
-        model.run(script)
+        guard let editor = target.editor else { return }
+        model.run(script, in: editor)
     }
 }
 
@@ -79,15 +82,15 @@ struct ScriptPicker: View {
 /// scene value.
 struct ScriptCommands: Commands {
     let model: AppModel?
-    @FocusedValue(\.scriptPickerShown) private var pickerShown
+    @FocusedValue(\.scriptPicker) private var picker
 
     var body: some Commands {
         CommandMenu("Scripts") {
             Button("Run Script…") {
-                if model?.prepareScriptPicker() == true { pickerShown?.wrappedValue = true }
+                if let editor = model?.keyEditor() { picker?.wrappedValue = PickerTarget(editor: editor) }
             }
             .keyboardShortcut("b")
-            .disabled(!(model?.editorHasFocus ?? false) || pickerShown == nil)
+            .disabled(!(model?.editorHasFocus ?? false) || picker == nil)
             Button("Run Last Script") { model?.runLastScript() }
                 .keyboardShortcut("b", modifiers: [.command, .shift])
                 .disabled(!(model?.editorHasFocus ?? false) || model?.lastScript == nil)
@@ -95,6 +98,12 @@ struct ScriptCommands: Commands {
     }
 }
 
+/// A window's open picker and the editor it runs in. Set opens the sheet.
+final class PickerTarget: Identifiable {
+    weak var editor: BoopTextView?
+    init(editor: BoopTextView) { self.editor = editor }
+}
+
 extension FocusedValues {
-    @Entry var scriptPickerShown: Binding<Bool>?
+    @Entry var scriptPicker: Binding<PickerTarget?>?
 }

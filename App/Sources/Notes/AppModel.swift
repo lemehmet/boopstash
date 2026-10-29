@@ -27,37 +27,27 @@ final class AppModel {
     /// The scripts the picker offers (ADR 0005).
     @ObservationIgnored lazy var scriptLibrary = ScriptLibrary.bundled()
     @ObservationIgnored let scriptRunner = LiveScriptRunner()
-    /// The editor the picker will run its choice in: the one that had focus
-    /// when the picker opened, since the sheet takes focus while it shows.
-    /// Each window shows its own picker (its `scriptPickerShown` focused
-    /// value); only the key window's editor can be the target.
-    @ObservationIgnored weak var scriptTarget: BoopTextView?
     private(set) var lastScript: BoopScript?
 
-    /// Points the picker at the key window's editor. False when there is
-    /// none, and the picker should not open.
-    func prepareScriptPicker() -> Bool {
+    /// The key window's editor, which a picker opened now will run in.
+    /// Each picker keeps its own (#85): the model holds no shared target,
+    /// so two windows' pickers cannot run in each other's notes.
+    func keyEditor() -> BoopTextView? {
         guard let editor = keyResponder() as? BoopTextView else {
             NSSound.beep()
-            return false
+            return nil
         }
-        scriptTarget = editor
-        return true
+        return editor
     }
 
-    func run(_ script: BoopScript) {
+    func run(_ script: BoopScript, in editor: BoopTextView) {
         lastScript = script
-        guard let editor = scriptTarget else { return }
         Task { await editor.run(script, with: scriptRunner) }
     }
 
     func runLastScript() {
-        guard let script = lastScript, let editor = keyResponder() as? BoopTextView else {
-            NSSound.beep()
-            return
-        }
-        scriptTarget = editor
-        run(script)
+        guard let script = lastScript, let editor = keyEditor() else { return }
+        run(script, in: editor)
     }
 
     /// The focused editor's language, for the commands that depend on it.
