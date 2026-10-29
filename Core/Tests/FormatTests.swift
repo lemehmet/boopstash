@@ -220,6 +220,32 @@ extension Result where Success == String, Failure == FormatError {
         #expect(try XMLFormatter.format(out, indent: 2).get() == out, "idempotent")
     }
 
+    /// An element holding only CDATA, even whitespace, keeps it exactly;
+    /// so does one asking for xml:space="preserve" (#149).
+    @Test func characterDataAndPreservedSpaceAreKept() throws {
+        let cdata = try XMLFormatter.format("<r><c><![CDATA[x]]></c><s><![CDATA[  ]]></s></r>", indent: 2).get()
+        #expect(cdata.contains("\n  <c><![CDATA[x]]></c>\n"), "\(cdata)")
+        #expect(cdata.contains("\n  <s><![CDATA[  ]]></s>\n"), "\(cdata)")
+        #expect(try XMLFormatter.format(cdata, indent: 2).get() == cdata, "idempotent")
+        // Whitespace the document asks to keep cannot survive the parser:
+        // the document is left alone, with the reason.
+        guard case .failure(let error) = XMLFormatter.format(#"<r><a xml:space="preserve">  </a></r>"#) else {
+            Issue.record("formatted a document with xml:space")
+            return
+        }
+        #expect(error.message.contains("xml:space"))
+    }
+
+    /// Only an element asking to keep its whitespace counts, not a mention.
+    @Test func preservationIsAnAttributeNotAMention() throws {
+        #expect(XMLFormatter.preservesSpace(#"<r xml:space="preserve"><a>  </a></r>"#))
+        #expect(XMLFormatter.preservesSpace(#"<r xml:space='preserve'><a>"#), "partial text, by its form")
+        #expect(!XMLFormatter.preservesSpace("<r><!-- xml:space=\"preserve\" is not used --><a/></r>"))
+        #expect(!XMLFormatter.preservesSpace(#"<r xml:space="default"><a/></r>"#))
+        let mentioned = try XMLFormatter.format("<r><!-- about xml:space --><a><b/></a></r>", indent: 2).get()
+        #expect(mentioned.contains("\n  <a>\n    <b/>\n  </a>"), "\(mentioned)")
+    }
+
     @Test func processingInstructionsAndDeclarationsAreKept() throws {
         let out = try XMLFormatter.format(#"<?xml version="1.0"?><?pi some data?><r a="1"><x/></r>"#, indent: 2).get()
         #expect(out.hasPrefix("<?xml version=\"1.0\""), "\(out)")
