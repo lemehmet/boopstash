@@ -29,7 +29,7 @@ struct ScriptPicker: View {
             ScrollViewReader { proxy in
                 List(results, selection: $highlighted) { script in
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(script.name)
+                        Text(script.isBundled ? script.name : "\(script.name) (yours)")
                         if !script.description.isEmpty {
                             Text(script.description).font(.caption).foregroundStyle(.secondary)
                         }

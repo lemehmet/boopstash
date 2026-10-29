@@ -34,7 +34,12 @@ These are three different features, kept apart:
 - **Transforms are Boop-compatible scripts** in JavaScriptCore, implementing
   Boop's script API (the `/** … **/` metadata header, `main(state)`, `state.text`,
   `state.selection`, `postError`, `postInfo`) so existing scripts run
-  unchanged. Users can add their own scripts from a folder they choose.
+  unchanged. Users add their own scripts to a folder inside the app's
+  container (`Application Support/Boopstash/Scripts`), revealed from
+  Settings like `keybindings.json`. *Amended 2026-10-28 (#59): this was "a
+  folder they choose", which would need the app-scope security-scoped
+  bookmark entitlement to keep across launches; the container folder needs
+  none.*
 - **Script contexts have no network and no file access.** JavaScriptCore
   exposes nothing but what we inject; no `fetch`, no timers beyond what a
   script needs, and a time limit per run.

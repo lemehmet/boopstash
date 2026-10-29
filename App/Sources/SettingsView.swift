@@ -36,6 +36,20 @@ struct GeneralSettings: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            Section("Scripts") {
+                LabeledContent("Your scripts") {
+                    Button("Show Scripts Folder") { UserScriptsFolder.reveal() }
+                }
+                Text("Boop scripts dropped in this folder appear in Scripts ▸ Run Script… (⌘B). One named like a built-in script replaces it.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                let problems = ScriptLibrary.all().problems.filter { $0.scriptID.hasPrefix("user/") }
+                if !problems.isEmpty {
+                    Text(problems.map { "\($0.scriptID.dropFirst("user/".count)): \($0.message)" }.joined(separator: "\n"))
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+            }
             Section("Clipboard history") {
                 Text("BoopStash never watches the clipboard. For a history of what you copied, macOS has one: turn on System Settings ▸ Spotlight ▸ Clipboard, then press ⌘Space and ⌘4.")
                     .font(.callout)

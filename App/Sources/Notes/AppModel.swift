@@ -24,8 +24,20 @@ final class AppModel {
 
     // MARK: Scripts
 
-    /// The scripts the picker offers (ADR 0005).
-    @ObservationIgnored lazy var scriptLibrary = ScriptLibrary.bundled()
+    /// The scripts the picker offers (ADR 0005), bundled and the user's own
+    /// (#59), reloaded when the Scripts folder changes.
+    private(set) var scriptLibrary = ScriptLibrary.all()
+    @ObservationIgnored private var scriptsWatcher: FolderWatcher?
+
+    func reloadScripts() {
+        scriptLibrary = ScriptLibrary.all()
+    }
+
+    /// Starts watching the user's Scripts folder.
+    func watchScripts() {
+        guard scriptsWatcher == nil, let url = UserScriptsFolder.url else { return }
+        scriptsWatcher = FolderWatcher(url) { [weak self] in self?.reloadScripts() }
+    }
     @ObservationIgnored let scriptRunner = LiveScriptRunner()
     /// The editor the picker will run its choice in: the one that had focus
     /// when the picker opened, since the sheet takes focus while it shows.
@@ -143,7 +155,9 @@ final class AppModel {
         // Attachments nothing refers to any more, after a day's grace so an
         // undo can still bring a deleted image back within a session.
         try? store.removeUnreferencedAttachments()
-        return AppModel(store: store)
+        let model = AppModel(store: store)
+        model.watchScripts()
+        return model
     }
 
     private func observe() {
