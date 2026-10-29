@@ -47,6 +47,18 @@ public final class NoteDrafts {
         schedule(note)
     }
 
+    /// Changes a note's draft in place, if it has one, without counting as
+    /// an edit (no new save delay, no new edit date): for settings and
+    /// titles that land while the note is being typed in. Returns whether
+    /// there was a draft.
+    @discardableResult
+    public func amend(_ id: UUID, _ change: (inout Note) -> Void) -> Bool {
+        guard var draft = drafts[id] else { return false }
+        change(&draft)
+        drafts[id] = draft
+        return true
+    }
+
     /// Writes a note's draft now. Returns false if it could not be saved.
     @discardableResult
     public func flush(_ id: UUID) -> Bool {

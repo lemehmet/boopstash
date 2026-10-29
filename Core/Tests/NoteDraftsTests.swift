@@ -65,4 +65,21 @@ import Testing
         #expect(!drafts.hasUnsavedEdits)
         #expect(try store.note(id: note.id)?.body == "")
     }
+
+    /// A setting or title that lands mid-typing changes the draft without
+    /// counting as an edit; with no draft there is nothing to amend.
+    @Test func amendingChangesOnlyTheDraft() throws {
+        let store = try NoteStore.inMemory()
+        let drafts = NoteDrafts(store: store, saveDelay: .seconds(60))
+        let note = Note(body: "a", createdAt: Date(timeIntervalSince1970: 0))
+        try store.save(note)
+        #expect(!drafts.amend(note.id) { $0.syntaxOverride = "json" }, "no draft yet")
+        drafts.edit(note.id, body: "ab", now: Date(timeIntervalSince1970: 100))
+        #expect(drafts.amend(note.id) { $0.syntaxOverride = "json" })
+        let draft = try #require(drafts.note(id: note.id))
+        #expect(draft.syntaxOverride == "json" && draft.updatedAt == Date(timeIntervalSince1970: 100))
+        #expect(try store.note(id: note.id)?.syntaxOverride == nil, "not saved by amending")
+        drafts.flush(note.id)
+        #expect(try store.note(id: note.id)?.syntaxOverride == "json")
+    }
 }
