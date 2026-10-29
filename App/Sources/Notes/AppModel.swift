@@ -343,8 +343,15 @@ final class AppModel {
     /// The draft and selection go only once the row is gone, so a failed
     /// delete leaves the note exactly as it was, unsaved edits included.
     func delete(_ id: UUID) {
+        // Other notes' unsaved edits may refer to this note's images; the
+        // store can only see saved bodies. Save them first, and if any will
+        // not save, leave the images to the launch sweep's grace period.
+        let othersSaved = drafts.keys.filter { $0 != id }.allSatisfy { other in
+            flush(other)
+            return drafts[other] == nil
+        }
         do {
-            try store.delete(id: id)
+            try store.delete(id: id, removingOrphanedAttachments: othersSaved)
         } catch {
             banner = "Could not delete: \(error.localizedDescription)"
             return

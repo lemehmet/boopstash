@@ -31,6 +31,12 @@ import Testing
         #expect(AttachmentReference.ids(in: "before \(markdown) after") == [id])
     }
 
+    @Test(arguments: ["]", "[x]", #"a\b"#, #"end\"#, "plain"])
+    func anyAltTextRoundTrips(_ alt: String) {
+        let id = UUID()
+        #expect(AttachmentReference.ids(in: AttachmentReference.markdown(for: id, alt: alt)) == [id], "alt \(alt)")
+    }
+
     @Test func referencesAreFoundWhateverTheirAltAndCase() {
         let a = UUID(), b = UUID()
         let body = #"![a \] b](attachment:\#(a.uuidString.uppercased())) and `![](attachment:\#(b.uuidString))`"#
@@ -96,6 +102,33 @@ import Testing
         #expect(!exists(orphan))
         #expect(try store.attachment(id: recent.id) != nil, "within the grace period")
         #expect(try store.attachment(id: shown.id) != nil)
+    }
+
+    @Test func theSweepRemovesOldFilesWithoutRows() throws {
+        try FileManager.default.createDirectory(at: store.attachmentsDirectory, withIntermediateDirectories: true)
+        let old = store.attachmentsDirectory.appendingPathComponent("\(UUID().uuidString.lowercased()).png")
+        let recent = store.attachmentsDirectory.appendingPathComponent("\(UUID().uuidString.lowercased()).png")
+        let unrelated = store.attachmentsDirectory.appendingPathComponent("notes.txt")
+        for file in [old, recent, unrelated] { try png.write(to: file) }
+        let twoDaysAgo = Date().addingTimeInterval(-2 * 24 * 60 * 60)
+        try FileManager.default.setAttributes([.modificationDate: twoDaysAgo], ofItemAtPath: old.path)
+        try FileManager.default.setAttributes([.modificationDate: twoDaysAgo], ofItemAtPath: unrelated.path)
+        let kept = try store.addAttachment(png, contentType: "public.png", noteID: nil)
+        _ = try note(AttachmentReference.markdown(for: kept.id))
+        try FileManager.default.setAttributes([.modificationDate: twoDaysAgo], ofItemAtPath: store.fileURL(for: kept).path)
+
+        #expect(try store.removeUnreferencedAttachments() == 1)
+        #expect(!FileManager.default.fileExists(atPath: old.path))
+        #expect(FileManager.default.fileExists(atPath: recent.path), "within the grace period")
+        #expect(FileManager.default.fileExists(atPath: unrelated.path), "not an attachment file")
+        #expect(exists(kept), "a file with a row stays")
+    }
+
+    @Test func deletingWithUnsavedEditsElsewhereKeepsAttachments() throws {
+        let owner = try note("")
+        let image = try store.addAttachment(png, contentType: "public.png", noteID: owner.id)
+        try store.delete(id: owner.id, removingOrphanedAttachments: false)
+        #expect(try store.attachment(id: image.id) != nil, "left for the sweep")
     }
 
     @Test func notesFromBeforeAttachmentsSurviveTheMigration() throws {

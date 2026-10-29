@@ -42,9 +42,13 @@ extension NoteAttachment: FetchableRecord, PersistableRecord {
 public enum AttachmentReference {
     public static let scheme = "attachment:"
 
-    /// The markdown that shows an attachment.
+    /// The markdown that shows an attachment. Backslashes and brackets in
+    /// the alt text are escaped, so the reference always parses back.
     public static func markdown(for id: UUID, alt: String = "") -> String {
-        "![\(alt)](\(scheme)\(id.uuidString.lowercased()))"
+        let escaped = alt.replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "[", with: "\\[")
+            .replacingOccurrences(of: "]", with: "\\]")
+        return "![\(escaped)](\(scheme)\(id.uuidString.lowercased()))"
     }
 
     /// `![…](attachment:<uuid>)`; the alt text may hold escaped brackets.

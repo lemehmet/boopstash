@@ -113,12 +113,14 @@ public final class NoteStore: Sendable {
         try writer.write { db in try note.save(db) }
     }
 
-    /// Deletes a note, and the attachments it owned that no other note
-    /// refers to.
+    /// Deletes a note, and the attachments it owned that no other saved
+    /// note refers to. A caller holding unsaved edits that may refer to them
+    /// passes false and leaves them to `removeUnreferencedAttachments`.
     @discardableResult
-    public func delete(id: UUID) throws -> Bool {
+    public func delete(id: UUID, removingOrphanedAttachments: Bool = true) throws -> Bool {
         let (deleted, orphans) = try writer.write { db -> (Bool, [NoteAttachment]) in
             guard try Note.deleteOne(db, key: id) else { return (false, []) }
+            guard removingOrphanedAttachments else { return (true, []) }
             let owned = try NoteAttachment.filter(Column("noteID") == id).fetchAll(db)
             guard !owned.isEmpty else { return (true, []) }
             let referenced = try Self.referencedAttachmentIDs(db)
@@ -167,22 +169,42 @@ public final class NoteStore: Sendable {
         try Data(contentsOf: fileURL(for: attachment))
     }
 
-    /// Removes attachments no note refers to that are older than `grace`.
+    /// Removes attachments no note refers to that are older than `grace`,
+    /// and files in the attachments folder that have no row (left by a crash
+    /// between writing a file and recording it, or by a failed removal).
     /// The grace period covers an image pasted into a note whose edit is
     /// not saved yet, and a reference that undo can still bring back; run
-    /// this at launch, not while editing. Returns how many were removed.
+    /// this at launch, not while editing. Returns how many attachments and
+    /// stray files were removed.
     @discardableResult
     public func removeUnreferencedAttachments(olderThan grace: TimeInterval = 24 * 60 * 60, now: Date = Date()) throws -> Int {
-        let orphans = try writer.write { db -> [NoteAttachment] in
+        let cutoff = now.addingTimeInterval(-grace)
+        let (orphans, known) = try writer.write { db -> ([NoteAttachment], Set<UUID>) in
             let referenced = try Self.referencedAttachmentIDs(db)
-            let cutoff = now.addingTimeInterval(-grace)
             let orphans = try NoteAttachment.filter(Column("createdAt") < cutoff).fetchAll(db)
                 .filter { !referenced.contains($0.id) }
             try NoteAttachment.deleteAll(db, keys: orphans.map(\.id))
-            return orphans
+            let known = try UUID.fetchSet(db, sql: "SELECT id FROM attachment")
+            return (orphans, known)
         }
         removeFiles(of: orphans)
-        return orphans.count
+        return orphans.count + removeStrayFiles(keeping: known, modifiedBefore: cutoff)
+    }
+
+    /// Files named `<uuid>.<ext>` whose ID has no row, older than `cutoff`
+    /// (a file being added right now has no row for a moment).
+    private func removeStrayFiles(keeping known: Set<UUID>, modifiedBefore cutoff: Date) -> Int {
+        let files = (try? FileManager.default.contentsOfDirectory(
+            at: attachmentsDirectory, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
+        var removed = 0
+        for file in files {
+            guard let id = UUID(uuidString: file.deletingPathExtension().lastPathComponent), !known.contains(id),
+                  let modified = try? file.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate,
+                  modified < cutoff
+            else { continue }
+            if (try? FileManager.default.removeItem(at: file)) != nil { removed += 1 }
+        }
+        return removed
     }
 
     /// Every attachment ID any note body refers to. Only bodies that mention
