@@ -153,13 +153,17 @@ struct ScriptServiceTests {
         let (windowA, a) = editor("first")
         let (windowB, b) = editor("second")
         let pickerA = PickerTarget(editor: a)
-        _ = PickerTarget(editor: b)  // opened later in the other window
+        let pickerB = PickerTarget(editor: b)  // opened later in the other window
+        // The other window is key now: a picker that looked up the key
+        // editor instead of its own would run in B.
+        model.keyResponder = { b }
         let upper = try BoopScript.parse(script("function main(state) { state.text = state.text.toUpperCase() }"), id: "t/u.js", bundled: false).get()
-        model.run(upper, in: try #require(pickerA.editor))
+        pickerA.run(upper, with: model)
         let deadline = ContinuousClock.now + .seconds(5)
         while ContinuousClock.now < deadline, a.string != "FIRST" { try await Task.sleep(for: .milliseconds(20)) }
         #expect(a.string == "FIRST")
         #expect(b.string == "second")
+        _ = pickerB
         windowA.close()
         windowB.close()
     }

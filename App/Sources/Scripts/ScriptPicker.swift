@@ -72,8 +72,7 @@ struct ScriptPicker: View {
 
     private func run(_ script: BoopScript) {
         dismiss()
-        guard let editor = target.editor else { return }
-        model.run(script, in: editor)
+        target.run(script, with: model)
     }
 }
 
@@ -102,6 +101,14 @@ struct ScriptCommands: Commands {
 final class PickerTarget: Identifiable {
     weak var editor: BoopTextView?
     init(editor: BoopTextView) { self.editor = editor }
+
+    /// Runs the picker's choice in its own editor, whatever window is key
+    /// now (#85).
+    @MainActor
+    func run(_ script: BoopScript, with model: AppModel) {
+        guard let editor else { return }
+        model.run(script, in: editor)
+    }
 }
 
 extension FocusedValues {
