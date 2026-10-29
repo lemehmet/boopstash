@@ -1,0 +1,19 @@
+:root { --bg: #fbfaf7; --fg: #1d1d1f; --muted: #5f5f66; --accent: #2f6fdb; --rule: #e4e2dc; --code: #f0eee8; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #18181a; --fg: #ececee; --muted: #a2a2aa; --accent: #7aa7ff; --rule: #2e2e32; --code: #26262a; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 17px/1.6 -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif; }
+main { max-width: 42rem; margin: 0 auto; padding: 2.5rem 16px 4rem; }
+nav { display: flex; flex-wrap: wrap; gap: 1.25rem; font-size: 0.95rem; margin-bottom: 2rem; }
+nav a { color: var(--muted); text-decoration: none; }
+nav a[aria-current] { color: var(--fg); font-weight: 600; }
+h1 { font-size: 2rem; line-height: 1.2; margin: 0 0 0.5rem; }
+h2 { font-size: 1.2rem; margin: 2rem 0 0.5rem; }
+.lede { color: var(--muted); font-size: 1.1rem; }
+a { color: var(--accent); }
+code, pre { font: 0.9em ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--code); border-radius: 6px; }
+code { padding: 0.1em 0.35em; }
+pre { padding: 0.8rem 1rem; overflow-x: auto; }
+pre code { padding: 0; background: none; }
+footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--rule); color: var(--muted); font-size: 0.9rem; }
