@@ -8,7 +8,31 @@ import Foundation
 final class LiveScriptRunner {
     private var connection: NSXPCConnection?
 
+    /// Requests go to the service one at a time, each after the previous
+    /// one has finished: a superseded format still runs to its end or its
+    /// watchdog, and a watchdog ends the whole service process, which would
+    /// fail whatever request was in flight beside it.
+    private var queue: Task<Void, Never>?
+
+    private func serialized<T: Sendable>(_ work: @escaping @MainActor () async -> T) async -> T {
+        let previous = queue
+        let task = Task { @MainActor in
+            await previous?.value
+            return await work()
+        }
+        queue = Task { _ = await task.value }
+        return await task.value
+    }
+
     func run(_ request: ScriptRequest) async -> ScriptResponse {
+        await serialized { await self.send(request) }
+    }
+
+    func format(_ request: JSFormatRequest) async -> Result<String, FormatError> {
+        await serialized { await self.send(request) }
+    }
+
+    private func send(_ request: ScriptRequest) async -> ScriptResponse {
         guard let data = try? JSONEncoder().encode(request) else {
             return ScriptResponse(outputs: [], errors: ["The script could not be sent."])
         }
@@ -36,7 +60,7 @@ final class LiveScriptRunner {
     }
 
     /// Formats with Prettier or sql-formatter in the service.
-    func format(_ request: JSFormatRequest) async -> Result<String, FormatError> {
+    private func send(_ request: JSFormatRequest) async -> Result<String, FormatError> {
         guard let data = try? JSONEncoder().encode(request) else {
             return .failure(FormatError(message: "The text could not be sent to the formatter.", line: nil, column: nil))
         }

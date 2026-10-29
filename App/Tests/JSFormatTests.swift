@@ -49,8 +49,28 @@ struct JSFormatTests {
     }
 
     @Test func formattingIsIdempotent() async throws {
-        guard case .success(let once) = try await format("const a={b:1}", as: .javascript) else { return }
+        guard case .success(let once) = try await format("const a={b:1}", as: .javascript) else {
+            Issue.record("the first format failed")
+            return
+        }
         #expect(try await format(once, as: .javascript) == .success(once))
+    }
+
+    /// A format sent while an older one is being stopped by the watchdog
+    /// is not caught by that stop: requests go one at a time.
+    @Test func aRequestBehindARunawayFormatStillWorks() async throws {
+        let huge = "const a = [" + Array(repeating: "{ b: 1 }", count: 200_000).joined(separator: ", ") + "];"
+        var slow = try #require(JSFormatting.request(for: huge, as: .javascript))
+        slow.timeLimit = 0.05
+        let small = try #require(JSFormatting.request(for: "let a=1", as: .javascript))
+        async let stopped = runner.format(slow)
+        async let next = runner.format(small)
+        let (first, second) = await (stopped, next)
+        guard case .failure = first else {
+            Issue.record("the runaway format was not stopped")
+            return
+        }
+        #expect(second == .success("let a = 1;\n"))
     }
 
     /// The service's watchdog stops a format that runs too long, and the
