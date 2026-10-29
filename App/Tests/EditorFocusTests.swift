@@ -7,16 +7,30 @@ import Testing
 /// Paste as Markdown is enabled while the key window's focus is a note
 /// editor (#25).
 @MainActor
-@Suite(.serialized)
+@Suite(.serialized, .timeLimit(.minutes(1)))
 struct EditorFocusTests {
     let model: AppModel
+    /// The model's own center: posts here never reach AppKit or SwiftUI
+    /// observers in the host app.
+    let notifications = NotificationCenter()
 
     init() throws {
-        model = AppModel(store: try .inMemory())
+        model = AppModel(store: try .inMemory(), notifications: notifications)
     }
 
-    func settle() async {
-        await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } }
+    func post(_ name: Notification.Name) {
+        notifications.post(name: name, object: NSWindow())
+    }
+
+    /// Focus is re-read on a later main-queue turn; wait for it, failing
+    /// after `timeout` rather than hanging.
+    func eventually(timeout: Duration = .seconds(2), _ condition: () -> Bool) async -> Bool {
+        let deadline = ContinuousClock.now + timeout
+        while ContinuousClock.now < deadline {
+            if condition() { return true }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        return condition()
     }
 
     /// An editor keeps first responder in a window that stops being key, so
@@ -24,13 +38,13 @@ struct EditorFocusTests {
     @Test func focusFollowsTheKeyWindow() {
         let editor = BoopTextView(usingTextLayoutManager: true)
         model.keyResponder = { editor }
-        NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: nil)
+        post(NSWindow.didBecomeKeyNotification)
         #expect(model.editorHasFocus)
         model.keyResponder = { NSTextField() }  // Settings or the search field
-        NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: nil)
+        post(NSWindow.didBecomeKeyNotification)
         #expect(!model.editorHasFocus)
         model.keyResponder = { nil }
-        NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: nil)
+        post(NSWindow.didResignKeyNotification)
         #expect(!model.editorHasFocus)
     }
 
@@ -43,13 +57,12 @@ struct EditorFocusTests {
         background.onFocusChange = { model.editorFocusMayHaveChanged() }
         model.refreshEditorFocus()
         EditorView.dismantleNSView(NSScrollView(), coordinator: background)
-        await settle()
+        try? await Task.sleep(for: .milliseconds(100))
         #expect(model.editorHasFocus)
         model.keyResponder = { nil }
         let leaving = EditorView.Coordinator()
         leaving.onFocusChange = { model.editorFocusMayHaveChanged() }
         EditorView.dismantleNSView(NSScrollView(), coordinator: leaving)
-        await settle()
-        #expect(!model.editorHasFocus)
+        #expect(await eventually { !model.editorHasFocus })
     }
 }

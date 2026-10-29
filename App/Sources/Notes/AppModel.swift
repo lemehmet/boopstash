@@ -38,6 +38,7 @@ final class AppModel {
     @ObservationIgnored private var drafts: [UUID: Note] = [:]
     @ObservationIgnored private var dayObserver: NSObjectProtocol?
     @ObservationIgnored private var keyObservers: [NSObjectProtocol] = []
+    @ObservationIgnored private let notifications: NotificationCenter
     /// Requests in flight, so leaving and re-entering a note does not ask
     /// twice. What was titled is persisted on the note (`modelTitledHash`).
     @ObservationIgnored private var modelTitleRequests: Set<UUID> = []
@@ -63,8 +64,11 @@ final class AppModel {
     /// when the selection changes or the app quits.
     static let saveDelay: Duration = .milliseconds(400)
 
-    init(store: NoteStore) {
+    /// `notifications` carries the window-key changes; tests pass their own
+    /// so their posts never reach the rest of the app.
+    init(store: NoteStore, notifications: NotificationCenter = .default) {
         self.store = store
+        self.notifications = notifications
         observe()
         // The store re-evaluates "last N days" on every fetch, but with no
         // edits nothing fetches; at midnight, start over so "Today" is today.
@@ -74,7 +78,7 @@ final class AppModel {
         // Another window becoming key (another note window, Settings) moves
         // focus without any editor resigning.
         keyObservers = [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification].map { name in
-            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+            notifications.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { self?.refreshEditorFocus() }
             }
         }
@@ -82,7 +86,7 @@ final class AppModel {
 
     isolated deinit {
         if let dayObserver { NotificationCenter.default.removeObserver(dayObserver) }
-        keyObservers.forEach(NotificationCenter.default.removeObserver)
+        keyObservers.forEach(notifications.removeObserver)
     }
 
     static func live() throws -> AppModel {
