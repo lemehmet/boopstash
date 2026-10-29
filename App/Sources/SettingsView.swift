@@ -53,6 +53,7 @@ struct GeneralSettings: View {
                         .foregroundStyle(.red)
                 }
             }
+            if let model { SyncSettings(model: model) }
             Section("Clipboard history") {
                 Text("BoopStash never watches the clipboard. For a history of what you copied, macOS has one: turn on System Settings ▸ Spotlight ▸ Clipboard, then press ⌘Space and ⌘4.")
                     .font(.callout)
@@ -60,6 +61,38 @@ struct GeneralSettings: View {
             }
         }
         .formStyle(.grouped)
+    }
+}
+
+/// Settings ▸ General ▸ iCloud (#64). Off by default; nothing contacts
+/// iCloud, not even to check the account, until it is turned on.
+struct SyncSettings: View {
+    let model: AppModel
+    @AppStorage(AppModel.syncKey) private var enabled = false
+
+    var body: some View {
+        Section("iCloud") {
+            Toggle("Sync with iCloud", isOn: Binding(get: { enabled && LiveSyncEngine.isAvailable }, set: { model.setSyncEnabled($0) }))
+                .disabled(!LiveSyncEngine.isAvailable)
+            if !LiveSyncEngine.isAvailable {
+                Text("This build of BoopStash was not signed for iCloud, so it cannot sync.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else if model.isSyncing {
+                if let problem = model.syncAccountProblem ?? model.syncProblem {
+                    Text(problem).font(.caption).foregroundStyle(.red)
+                }
+                LabeledContent("Last synced") {
+                    HStack {
+                        Text(model.lastSynced.map { $0.formatted(date: .abbreviated, time: .shortened) } ?? "Not yet")
+                        Button("Sync Now") { model.syncNow() }
+                    }
+                }
+            }
+            Text("Notes and images go to your own iCloud, in fields encrypted on this Mac. With Advanced Data Protection they are end-to-end encrypted; without it, Apple holds the keys, as for most iCloud data.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
     }
 }
 

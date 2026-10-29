@@ -29,6 +29,58 @@ extension NoteStore {
         }
     }
 
+    /// The names of everything waiting to be sent, re-delivered whenever
+    /// that changes, so the adapter can tell the sync engine. Ends when the
+    /// consuming task is cancelled.
+    public func pendingSyncNames() -> AsyncThrowingStream<SyncPending, any Error> {
+        let values = ValueObservation.tracking { db -> SyncPending in
+            var pending = SyncPending()
+            for kind in [SyncRecord.Kind.note, .attachment] {
+                let names = try UUID.fetchAll(db, sql: "SELECT id FROM \(Self.table(kind)) WHERE syncPending > 0")
+                pending.saves += names.map { SyncPending.Name(kind: kind, name: $0.uuidString.lowercased()) }
+            }
+            for row in try Row.fetchAll(db, sql: "SELECT kind, name FROM syncTombstone") {
+                guard let kind = SyncRecord.Kind(rawValue: row["kind"]) else { continue }
+                pending.deletes.append(SyncPending.Name(kind: kind, name: row["name"]))
+            }
+            return pending
+        }.removeDuplicates().values(in: writer)
+        return AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    for try await pending in values { continuation.yield(pending) }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    /// The save to send for one record, built now; nil when it has nothing
+    /// to send (acknowledged, or deleted, meanwhile).
+    public func pendingSave(kind: SyncRecord.Kind, name: String) throws -> SyncChange? {
+        guard let id = UUID(uuidString: name) else { return nil }
+        return try writer.read { db in
+            guard let row = try Row.fetchOne(db, sql: "SELECT * FROM \(Self.table(kind)) WHERE id = ? AND syncPending > 0", arguments: [id])
+            else { return nil }
+            let record: SyncRecord = switch kind {
+            case .note: SyncMapping.record(for: try Note(row: row))
+            case .attachment:
+                try { let attachment = try NoteAttachment(row: row); return SyncMapping.record(for: attachment, file: fileURL(for: attachment)) }()
+            }
+            return .save(record, systemFields: row["syncSystemFields"], version: row["syncPending"])
+        }
+    }
+
+    /// The system fields kept for a pending deletion.
+    public func tombstoneSystemFields(kind: SyncRecord.Kind, name: String) throws -> Data? {
+        try writer.read { db in
+            try Data.fetchOne(db, sql: "SELECT systemFields FROM syncTombstone WHERE kind = ? AND name = ?", arguments: [kind.rawValue, name])
+        }
+    }
+
     /// The server saved what was sent at `version`. The record's metadata is
     /// kept, also when the row changed since (a first upload edited in
     /// flight, #106), unless the upload was built before the row had to go

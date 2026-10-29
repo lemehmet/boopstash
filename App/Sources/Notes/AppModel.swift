@@ -23,6 +23,64 @@ final class AppModel {
     /// The key window's first responder; replaceable for tests.
     @ObservationIgnored var keyResponder: () -> NSResponder? = { NSApp.keyWindow?.firstResponder }
 
+    // MARK: Sync
+
+    /// Settings ▸ General ▸ iCloud; off until the user turns it on.
+    static let syncKey = "syncWithICloud"
+    /// What Settings shows about sync while it is on.
+    private(set) var syncAccountProblem: String?
+    private(set) var syncProblem: String?
+    private(set) var lastSynced: Date?
+    @ObservationIgnored private var syncEngine: LiveSyncEngine?
+    /// The engine, made only when sync is on; replaceable for tests.
+    @ObservationIgnored var makeSyncEngine: (NoteStore, @escaping @Sendable (LiveSyncEngine.Event) -> Void) throws -> LiveSyncEngine = {
+        try LiveSyncEngine(store: $0, report: $1)
+    }
+
+    var isSyncing: Bool { syncEngine != nil }
+
+    /// Starts or stops sync. Starting is the first contact with CloudKit
+    /// (ADR 0008); stopping keeps everything here and the engine's place.
+    func setSyncEnabled(_ enabled: Bool) {
+        UserDefaults.standard.set(enabled, forKey: Self.syncKey)
+        guard enabled, LiveSyncEngine.isAvailable else {
+            syncEngine?.stop()
+            syncEngine = nil
+            syncAccountProblem = nil
+            syncProblem = nil
+            return
+        }
+        guard syncEngine == nil else { return }
+        do {
+            syncEngine = try makeSyncEngine(store) { [weak self] event in
+                Task { @MainActor in self?.handle(event) }
+            }
+            NSApp.registerForRemoteNotifications()
+        } catch {
+            syncProblem = "Could not start sync: \(error.localizedDescription)"
+        }
+    }
+
+    func syncNow() {
+        guard let syncEngine else { return }
+        Task { await syncEngine.syncNow() }
+    }
+
+    private func handle(_ event: LiveSyncEngine.Event) {
+        switch event {
+        case .synced(let date):
+            lastSynced = date
+            syncProblem = nil
+        case .account(let problem):
+            syncAccountProblem = problem
+        case .problem(let message):
+            syncProblem = message
+        case .stoppedByServer(let message):
+            setSyncEnabled(false)
+            banner = message
+        }
+    }
+
     // MARK: Scripts
 
     /// The scripts the picker offers (ADR 0005), bundled and the user's own
@@ -150,9 +208,10 @@ final class AppModel {
         let store = try NoteStore.open(at: support.appendingPathComponent("Boopstash/notes.sqlite"))
         // Attachments nothing refers to any more, after a day's grace so an
         // undo can still bring a deleted image back within a session.
-        try? store.removeUnreferencedAttachments()
+        _ = try? store.removeUnreferencedAttachments()
         let model = AppModel(store: store)
         model.watchScripts()
+        if UserDefaults.standard.bool(forKey: syncKey) { model.setSyncEnabled(true) }
         return model
     }
 
