@@ -13,7 +13,9 @@ struct ChipTests {
 
     func host(_ text: String, missing: Set<UUID> = []) -> (NSWindow, BoopTextView) {
         let (scroll, view) = BoopTextView.makeScrollable()
-        scroll.frame = NSRect(x: 0, y: 0, width: 900, height: 300)
+        // Wide enough that no reference wraps: a narrow first segment of a
+        // wrapped reference has no label (#96), which these tests do not test.
+        scroll.frame = NSRect(x: 0, y: 0, width: 2000, height: 300)
         let window = NSWindow(contentRect: scroll.frame, styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = scroll
