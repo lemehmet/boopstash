@@ -42,6 +42,17 @@ public enum SyncValue: Equatable, Sendable {
     var int: Int? { if case .int(let value) = self { value } else { nil } }
 }
 
+/// Every record waiting to be sent, by name.
+public struct SyncPending: Equatable, Sendable {
+    public struct Name: Hashable, Sendable {
+        public var kind: SyncRecord.Kind
+        public var name: String
+    }
+
+    public var saves: [Name] = []
+    public var deletes: [Name] = []
+}
+
 /// A local change waiting to be sent.
 public enum SyncChange: Equatable, Sendable {
     /// `version` is the row's pending version when the record was built;
@@ -51,6 +62,10 @@ public enum SyncChange: Equatable, Sendable {
 }
 
 public enum SyncMapping {
+    /// The fields that are booleans; CloudKit hands every number back as
+    /// one type, so reading a record needs to know.
+    public static let booleanFields: Set<String> = ["titleIsUserSet"]
+
     public static func record(for note: Note) -> SyncRecord {
         var fields: [String: SyncValue] = [
             "title": .string(note.title),

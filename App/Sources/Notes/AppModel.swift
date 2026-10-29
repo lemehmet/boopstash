@@ -23,6 +23,84 @@ final class AppModel {
     /// The key window's first responder; replaceable for tests.
     @ObservationIgnored var keyResponder: () -> NSResponder? = { NSApp.keyWindow?.firstResponder }
 
+    // MARK: Sync
+
+    /// Settings ▸ General ▸ iCloud; off until the user turns it on.
+    static let syncKey = "syncWithICloud"
+    /// What Settings shows about sync while it is on.
+    private(set) var syncAccountProblem: String?
+    private(set) var syncProblem: String?
+    private(set) var lastSynced: Date?
+    @ObservationIgnored private var syncEngine: LiveSyncEngine?
+    /// The engine, made only when sync is on; replaceable for tests.
+    @ObservationIgnored var makeSyncEngine: (NoteStore, @escaping @Sendable (LiveSyncEngine.Event) -> Void,
+                                             @escaping LiveSyncEngine.ApplyRemote) throws -> LiveSyncEngine = {
+        try LiveSyncEngine(store: $0, report: $1, applyRemote: $2)
+    }
+    /// Counts changes from iCloud per note, so an open editor reloads
+    /// text that changed under it.
+    private(set) var remoteRevisions: [UUID: Int] = [:]
+
+    /// Applies changes from iCloud between edits: drafts are saved first,
+    /// so a note being edited merges (and keeps a conflict copy) instead of
+    /// being overwritten by the next keystroke, then editors reload.
+    func applyRemote(_ work: () -> Set<UUID>) {
+        _ = flushAll()
+        for id in work() { remoteRevisions[id, default: 0] += 1 }
+    }
+
+    var isSyncing: Bool { syncEngine != nil }
+
+    /// Starts or stops sync. Starting is the first contact with CloudKit
+    /// (ADR 0008); stopping keeps everything here and the engine's place.
+    func setSyncEnabled(_ enabled: Bool) {
+        UserDefaults.standard.set(enabled, forKey: Self.syncKey)
+        guard enabled, LiveSyncEngine.isAvailable else {
+            syncEngine?.stop()
+            syncEngine = nil
+            syncAccountProblem = nil
+            syncProblem = nil
+            return
+        }
+        guard syncEngine == nil else { return }
+        do {
+            syncEngine = try makeSyncEngine(store, { [weak self] event in
+                Task { @MainActor in self?.handle(event) }
+            }, { [weak self] work in
+                await MainActor.run { self?.applyRemote(work) }
+            })
+            NSApp.registerForRemoteNotifications()
+        } catch {
+            syncProblem = "Could not start sync: \(error.localizedDescription)"
+        }
+    }
+
+    func syncNow() {
+        guard let syncEngine else { return }
+        Task { await syncEngine.syncNow() }
+    }
+
+    private func handle(_ event: LiveSyncEngine.Event) {
+        switch event {
+        case .fetched(let date, let first):
+            lastSynced = date
+            // Synced attachments nothing refers to, now that other devices'
+            // notes are in; only once every draft is saved, since the store
+            // sees saved bodies only (#107).
+            if first, flushAll() { _ = try? store.removeUnreferencedAttachments(includingSynced: true) }
+        case .sent(let date, let failed):
+            lastSynced = date
+            if !failed { syncProblem = nil }
+        case .account(let problem):
+            syncAccountProblem = problem
+        case .problem(let message):
+            syncProblem = message
+        case .stoppedByServer(let message):
+            setSyncEnabled(false)
+            banner = message
+        }
+    }
+
     // MARK: Scripts
 
     /// The scripts the picker offers (ADR 0005), bundled and the user's own
@@ -150,9 +228,10 @@ final class AppModel {
         let store = try NoteStore.open(at: support.appendingPathComponent("Boopstash/notes.sqlite"))
         // Attachments nothing refers to any more, after a day's grace so an
         // undo can still bring a deleted image back within a session.
-        try? store.removeUnreferencedAttachments()
+        _ = try? store.removeUnreferencedAttachments()
         let model = AppModel(store: store)
         model.watchScripts()
+        if UserDefaults.standard.bool(forKey: syncKey) { model.setSyncEnabled(true) }
         return model
     }
 
