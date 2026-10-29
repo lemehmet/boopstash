@@ -68,6 +68,20 @@ public enum AttachmentReference {
         })
     }
 
+    /// Each reference with where it is (UTF-16, as the editor counts), its
+    /// attachment and its alt text unescaped, in order.
+    public static func matches(in body: String) -> [(range: NSRange, id: UUID, alt: String)] {
+        let ns = body as NSString
+        return pattern.matches(in: body, range: NSRange(location: 0, length: ns.length)).compactMap { match in
+            guard let id = UUID(uuidString: ns.substring(with: match.range(at: 1))) else { return nil }
+            let whole = ns.substring(with: match.range)
+            let altEnd = (whole as NSString).range(of: "](attachment:", options: [.backwards, .caseInsensitive]).location
+            let escaped = (whole as NSString).substring(with: NSRange(location: 2, length: max(0, altEnd - 2)))
+            let alt = escaped.replacingOccurrences(of: #"\\(.)"#, with: "$1", options: .regularExpression)
+            return (match.range, id, alt)
+        }
+    }
+
     /// The body without its image references: its text alone, for deciding
     /// whether there is anything to read beyond the images.
     public static func removingReferences(from body: String) -> String {
