@@ -94,6 +94,15 @@ import Testing
         #expect(selected.selection == "y")
     }
 
+    /// A combining mark inserted first must not move the point inside the
+    /// character it joins, nor make the next insert replace the note.
+    @Test func insertAfterACombiningMarkStaysInPlace() {
+        var state = ScriptState(selection: nil, fullText: "ab", insertIndex: 1)
+        state.insert("\u{301}")
+        state.insert("X")
+        #expect(state.fullText == "a\u{301}Xb")
+    }
+
     @Test func insertCountsUTF16AtTheCaretAndCharactersAfter() {
         // The caret is after "é🙂" (1 + 2 UTF-16 units).
         var state = ScriptState(selection: nil, fullText: "é🙂z", insertIndex: 3)
@@ -119,6 +128,10 @@ import Testing
         let whole = try #require(ScriptEdits.replacements(fullText: text, selections: [NSRange(location: 2, length: 0)], response: ScriptResponse(outputs: ["X"])))
         #expect(whole.count == 1 && whole[0].0 == NSRange(location: 0, length: 7))
         #expect(ScriptEdits.replacements(fullText: text, selections: ranges, response: ScriptResponse(outputs: ["only one"])) == nil)
+        // One selected range whose script rewrote the whole note.
+        let rewritten = try #require(ScriptEdits.replacements(fullText: text, selections: [ranges[0]],
+                                                              response: ScriptResponse(outputs: ["one"], wholeNote: "ONE TWO")))
+        #expect(rewritten.count == 1 && rewritten[0].0 == NSRange(location: 0, length: 7) && rewritten[0].1 == "ONE TWO")
     }
 
     @Test func requestsAndResponsesRoundTripAsJSON() throws {

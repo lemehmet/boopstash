@@ -9,8 +9,12 @@ public struct ScriptState: Codable, Hashable, Sendable {
     /// Where `insert` puts text when nothing is selected: the caret, in
     /// UTF-16 units as the editor reports it.
     public var insertIndex: Int?
-    /// How many characters earlier `insert` calls added, as Boop counts.
-    var insertOffset = 0
+    /// How many UTF-16 units earlier `insert` calls added after the caret.
+    var insertedUTF16 = 0
+    /// Whether the script assigned `fullText` while a range was selected.
+    /// Boop ignores that; with one selected range it is applied to the
+    /// whole note, since what the script meant is unambiguous.
+    public var fullTextAssigned = false
 
     public init(selection: String?, fullText: String, insertIndex: Int? = nil) {
         isSelection = selection != nil
@@ -27,21 +31,24 @@ public struct ScriptState: Codable, Hashable, Sendable {
 
     /// Boop's `insert`: replaces the selection; without one, inserts at the
     /// caret (after anything inserted earlier in the run), or replaces the
-    /// whole text when there is no caret.
+    /// whole text when there is no caret. The point is kept in UTF-16 units
+    /// and the text inserted by Unicode scalar, so an earlier insert of a
+    /// combining mark cannot move it inside a character.
     public mutating func insert(_ value: String) {
         guard !isSelection else {
             selection = value
             return
         }
-        guard let insertIndex, let full = fullText,
-              let range = Range(NSRange(location: insertIndex, length: 0), in: full),
-              let point = full.index(range.lowerBound, offsetBy: insertOffset, limitedBy: full.endIndex)
+        guard let insertIndex, var full = fullText,
+              let point = full.utf16.index(full.utf16.startIndex, offsetBy: insertIndex + insertedUTF16, limitedBy: full.utf16.endIndex),
+              let scalarPoint = point.samePosition(in: full.unicodeScalars)
         else {
             fullText = value
             return
         }
-        fullText?.insert(contentsOf: value, at: point)
-        insertOffset += value.count
+        full.unicodeScalars.insert(contentsOf: value.unicodeScalars, at: scalarPoint)
+        fullText = full
+        insertedUTF16 += value.utf16.count
     }
 }
 
@@ -65,13 +72,17 @@ public struct ScriptRequest: Codable, Sendable {
 
 /// What came back: each state's final `text`, in order, and what the script
 /// posted. `outputs` is empty when the script could not run at all.
+/// `wholeNote` is set when a single selected range's script assigned
+/// `fullText`: the whole note's new text.
 public struct ScriptResponse: Codable, Sendable, Equatable {
     public var outputs: [String]
+    public var wholeNote: String?
     public var errors: [String]
     public var infos: [String]
 
-    public init(outputs: [String], errors: [String] = [], infos: [String] = []) {
+    public init(outputs: [String], wholeNote: String? = nil, errors: [String] = [], infos: [String] = []) {
         self.outputs = outputs
+        self.wholeNote = wholeNote
         self.errors = errors
         self.infos = infos
     }
@@ -95,10 +106,12 @@ public enum ScriptEdits {
     /// response does not match the request.
     public static func replacements(fullText: String, selections: [NSRange], response: ScriptResponse) -> [(NSRange, String)]? {
         let ranges = selections.filter { $0.length > 0 }
+        let whole = NSRange(location: 0, length: (fullText as NSString).length)
         if ranges.isEmpty {
             guard response.outputs.count == 1 else { return nil }
-            return [(NSRange(location: 0, length: (fullText as NSString).length), response.outputs[0])]
+            return [(whole, response.outputs[0])]
         }
+        if ranges.count == 1, let wholeNote = response.wholeNote { return [(whole, wholeNote)] }
         guard response.outputs.count == ranges.count else { return nil }
         return Array(zip(ranges, response.outputs))
     }

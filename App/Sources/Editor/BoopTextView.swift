@@ -190,7 +190,8 @@ final class BoopTextView: NSTextView {
     /// the replacements (or keeps the caret, for a whole-note edit).
     func apply(_ edits: [(NSRange, String)], actionName: String) {
         let ns = string as NSString
-        let changed = edits.filter { ns.substring(with: $0.0) != $0.1 }.sorted { $0.0.location < $1.0.location }
+        let edits = edits.sorted { $0.0.location < $1.0.location }
+        let changed = edits.filter { ns.substring(with: $0.0) != $0.1 }
         guard !changed.isEmpty, let storage = textStorage else { return }
         let caret = selectedRange().location
         guard shouldChangeText(inRanges: changed.map { NSValue(range: $0.0) }, replacementStrings: changed.map(\.1)) else { return }
@@ -203,8 +204,10 @@ final class BoopTextView: NSTextView {
         if wholeNote {
             setSelectedRange(NSRange(location: min(caret, (string as NSString).length), length: 0))
         } else {
+            // Every range stays selected, changed or not, shifted by the
+            // changes before it.
             var delta = 0
-            let ranges = changed.map { range, text -> NSValue in
+            let ranges = edits.map { range, text -> NSValue in
                 let length = (text as NSString).length
                 defer { delta += length - range.length }
                 return NSValue(range: NSRange(location: range.location + delta, length: length))

@@ -22,6 +22,7 @@ final class ScriptHost: NSObject, ScriptServiceProtocol {
 
     static func run(_ request: ScriptRequest) -> ScriptResponse {
         var outputs: [String] = []
+        var wholeNote: String?
         let messages = Messages()
         for state in request.states {
             let execution = ScriptExecution(state: state, messages: messages)
@@ -34,9 +35,13 @@ final class ScriptHost: NSObject, ScriptServiceProtocol {
             }
             main.call(withArguments: [execution])
             outputs.append(execution.state.text ?? "")
+            if execution.state.isSelection, execution.state.fullTextAssigned, request.states.count == 1 {
+                wholeNote = execution.state.fullText
+            }
         }
         // A run that failed changes nothing; what it posted is still shown.
-        return ScriptResponse(outputs: messages.errors.isEmpty ? outputs : [], errors: messages.errors, infos: messages.infos)
+        let ok = messages.errors.isEmpty
+        return ScriptResponse(outputs: ok ? outputs : [], wholeNote: ok ? wholeNote : nil, errors: messages.errors, infos: messages.infos)
     }
 
     final class Messages {
@@ -103,7 +108,10 @@ final class ScriptExecution: NSObject, ScriptExecutionExports {
     }
     var fullText: String? {
         get { state.fullText }
-        set { state.fullText = newValue }
+        set {
+            state.fullText = newValue
+            if state.isSelection { state.fullTextAssigned = true }
+        }
     }
     var text: String? {
         get { state.text }

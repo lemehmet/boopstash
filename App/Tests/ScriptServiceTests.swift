@@ -96,6 +96,33 @@ struct ScriptServiceTests {
         #expect(failures.isEmpty, "\(failures.joined(separator: "\n"))")
     }
 
+    /// Boop ignores `fullText` writes on a selection; with one range they
+    /// apply to the whole note.
+    @Test func aFullTextWriteOnOneSelectionRewritesTheNote() async {
+        let response = await runner.run(ScriptRequest(scriptName: "Test", source: script("function main(state) { state.fullText = state.fullText.toUpperCase() }"),
+                                                      states: [ScriptState(selection: "b", fullText: "abc")]))
+        #expect(response.wholeNote == "ABC")
+        let many = await runner.run(ScriptRequest(scriptName: "Test", source: script("function main(state) { state.fullText = 'x' }"),
+                                                  states: [ScriptState(selection: "a", fullText: "ab"), ScriptState(selection: "b", fullText: "ab")]))
+        #expect(many.wholeNote == nil, "ambiguous with several ranges, as in Boop")
+    }
+
+    @Test func unchangedSelectionsStaySelected() async {
+        let (scroll, view) = BoopTextView.makeScrollable()
+        scroll.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
+        let window = NSWindow(contentRect: scroll.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = scroll
+        window.makeKeyAndOrderFront(nil)
+        view.string = " one |two"
+        view.selectedRanges = [NSValue(range: NSRange(location: 0, length: 5)), NSValue(range: NSRange(location: 6, length: 3))]
+        let trim = try! BoopScript.parse(script("function main(state) { state.text = state.text.trim() }"), id: "test/trim.js", bundled: false).get()
+        await view.run(trim, with: runner)
+        #expect(view.string == "one|two")
+        #expect(view.selectedRanges.map(\.rangeValue) == [NSRange(location: 0, length: 3), NSRange(location: 4, length: 3)])
+        window.close()
+    }
+
     @Test func theEditorAppliesARunAsOneUndoableEdit() async {
         let (scroll, view) = BoopTextView.makeScrollable()
         scroll.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
