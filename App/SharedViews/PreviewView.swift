@@ -9,7 +9,7 @@ struct PreviewView: View {
     let appearance: EditorAppearance
     /// An attachment's image, for `![](attachment:<id>)`. Called off the
     /// main thread; results are cached, since attachments never change.
-    var image: @Sendable (UUID) async -> NSImage? = { _ in nil }
+    var image: @Sendable (UUID) async -> PlatformImage? = { _ in nil }
     @Environment(\.colorScheme) private var colorScheme
     @State private var blocks: [PreviewBlock] = []
 
@@ -52,16 +52,16 @@ struct AttachmentImage: View {
     let id: UUID
     let alt: String
     let muted: Color
-    let load: @Sendable (UUID) async -> NSImage?
-    @State private var picture: NSImage?
+    let load: @Sendable (UUID) async -> PlatformImage?
+    @State private var picture: PlatformImage?
     @State private var missing = false
 
-    @MainActor static let cache = NSCache<NSUUID, NSImage>()
+    @MainActor static let cache = NSCache<NSUUID, PlatformImage>()
 
     var body: some View {
         Group {
             if let picture {
-                Image(nsImage: picture).resizable().aspectRatio(contentMode: .fit)
+                Image(platformImage: picture).resizable().aspectRatio(contentMode: .fit)
                     .frame(maxWidth: min(picture.size.width, 900))
                     .accessibilityLabel(alt)
             } else if missing {
@@ -87,13 +87,13 @@ struct AttachmentImage: View {
 struct PreviewPalette {
     let theme: Theme?
 
-    var background: Color { theme.map { Color(nsColor: NSColor($0.background)) } ?? Color(nsColor: .textBackgroundColor) }
-    var text: Color { theme.map { Color(nsColor: NSColor($0.foreground)) } ?? Color(nsColor: .textColor) }
+    var background: Color { theme.map { PreviewPlatform.color($0.background) } ?? PreviewPlatform.textBackground }
+    var text: Color { theme.map { PreviewPlatform.color($0.foreground) } ?? PreviewPlatform.text }
     var muted: Color { color(for: .comment) }
-    var codeBackground: Color { theme.map { Color(nsColor: NSColor($0.selection)) } ?? Color(nsColor: .quaternaryLabelColor).opacity(0.5) }
+    var codeBackground: Color { theme.map { PreviewPlatform.color($0.selection) } ?? PreviewPlatform.codeBackground }
 
     func color(for role: HighlightRole) -> Color {
-        Color(nsColor: theme.map { NSColor($0.color(for: role)) } ?? SyntaxTheme.systemColor(for: role))
+        theme.map { PreviewPlatform.color($0.color(for: role)) } ?? PreviewPlatform.systemColor(for: role)
     }
 }
 
@@ -101,10 +101,10 @@ struct BlockView: View {
     let block: PreviewBlock
     let palette: PreviewPalette
     let appearance: EditorAppearance
-    let image: @Sendable (UUID) async -> NSImage?
+    let image: @Sendable (UUID) async -> PlatformImage?
 
     private var bodySize: CGFloat { CGFloat(appearance.fontSize) + 1 }
-    private var mono: Font { Font(EditorSettings.font(for: appearance)) }
+    private var mono: Font { PreviewPlatform.monospaced(appearance) }
 
     var body: some View {
         switch block {
@@ -172,7 +172,9 @@ struct BlockView: View {
         case .image(.blocked(_, let alt)):
             Label("\(alt.isEmpty ? "Image" : alt) (remote image not loaded)", systemImage: "network.slash")
                 .foregroundStyle(palette.muted)
+                #if os(macOS)
                 .help("BoopStash never loads remote images")
+                #endif
         case .rawHTML(let html):
             Text(html).font(mono).foregroundStyle(palette.muted)
         }
@@ -189,11 +191,12 @@ struct BlockView: View {
     }
 
     private func highlighted(_ code: String, _ highlights: [PreviewHighlight]) -> AttributedString {
-        let attributed = NSMutableAttributedString(string: code)
-        for highlight in highlights where NSMaxRange(highlight.range) <= attributed.length {
-            attributed.addAttribute(.foregroundColor, value: NSColor(palette.color(for: highlight.role)), range: highlight.range)
+        var attributed = AttributedString(code)
+        for highlight in highlights {
+            guard let range = Range(highlight.range, in: code), let target = Range(range, in: attributed) else { continue }
+            attributed[target].foregroundColor = palette.color(for: highlight.role)
         }
-        return (try? AttributedString(attributed, including: \.appKit)) ?? AttributedString(code)
+        return attributed
     }
 
     private func alignment(_ alignments: [PreviewAlignment], _ column: Int) -> HorizontalAlignment {
