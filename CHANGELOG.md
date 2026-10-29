@@ -6,6 +6,12 @@ breaking changes may land in a minor release.
 
 ## Unreleased
 
+- Edit ▸ Format Document reformats JSON and XML (property lists included) by
+  the note's language, or just the selection: ⇧⌥F with VS Code keys, ⌥⌘L
+  with JetBrains keys. JSON keeps every number, escape and key order as
+  written; Format JSON, Sorting Keys orders the keys. Invalid text is left as
+  it is, with the line and column of the problem.
+
 ## v0.1.1 — 2026-10-28
 
 ### New

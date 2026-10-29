@@ -52,6 +52,18 @@ struct BoopstashApp: App {
                 // chain, so it follows the editor's focus explicitly (#25).
                 .disabled(!(delegate.model?.editorHasFocus ?? false))
             }
+            CommandGroup(after: .textEditing) {
+                // Shortcuts come from the key-binding preset (⇧⌥F in VS Code,
+                // ⌥⌘L in JetBrains), so the menu shows none of its own.
+                Button("Format Document") {
+                    NSApp.sendAction(#selector(BoopTextView.formatDocument(_:)), to: nil, from: nil)
+                }
+                .disabled(!(delegate.model?.editorHasFocus ?? false))
+                Button("Format JSON, Sorting Keys") {
+                    NSApp.sendAction(#selector(BoopTextView.formatJSONSortingKeys(_:)), to: nil, from: nil)
+                }
+                .disabled(!(delegate.model?.editorHasFocus ?? false))
+            }
         }
 
         Settings {

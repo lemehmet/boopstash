@@ -96,6 +96,16 @@ final class SyntaxPainter {
         }
     }
 
+    /// The note's language as of now, for commands such as Format Document:
+    /// `language` follows a parse on another task, so just after a load or a
+    /// change of choice it can still be the old one. A forced choice is
+    /// known at once; otherwise the last detection, or a fresh one.
+    var currentLanguage: SyntaxLanguage? {
+        let text = view?.string ?? ""
+        if choice != .automatic { return choice.resolve(for: text) }
+        return language ?? SyntaxLanguage.detect(text)
+    }
+
     /// A new document: resolve its language and parse it from scratch. Call
     /// after setting the view's text.
     func load(_ text: String, choice: SyntaxChoice = .automatic) {
