@@ -1,6 +1,6 @@
 # Third-party notices
 
-Boopstash is Apache-2.0. It builds on the following work, each under its own
+BoopStash is Apache-2.0. It builds on the following work, each under its own
 licence.
 
 ## Libraries

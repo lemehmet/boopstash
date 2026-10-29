@@ -15,7 +15,7 @@ public struct Note: Codable, Hashable, Identifiable, Sendable {
     public var createdAt: Date { didSet { createdAt = createdAt.storedPrecision } }
     public var updatedAt: Date { didSet { updatedAt = updatedAt.storedPrecision } }
     /// The frontmost app when the note was captured, for recall ("the thing I
-    /// copied from Safari"). Nil for notes typed in Boopstash itself.
+    /// copied from Safari"). Nil for notes typed in BoopStash itself.
     public var sourceBundleID: String?
     public var sourceAppName: String?
     /// `contentHash` of the body the on-device model last titled, so an

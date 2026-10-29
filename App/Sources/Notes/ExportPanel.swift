@@ -23,10 +23,10 @@ enum ExportPanel {
         do {
             let notes = try model.store.notes(matching: NoteQuery(limit: Int(Int32.max)))
             let stamp = Date().formatted(.iso8601.year().month().day().dateSeparator(.dash))
-            var folder = parent.appendingPathComponent("Boopstash export \(stamp)")
+            var folder = parent.appendingPathComponent("BoopStash export \(stamp)")
             var counter = 2
             while FileManager.default.fileExists(atPath: folder.path) {
-                folder = parent.appendingPathComponent("Boopstash export \(stamp) \(counter)")
+                folder = parent.appendingPathComponent("BoopStash export \(stamp) \(counter)")
                 counter += 1
             }
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false)

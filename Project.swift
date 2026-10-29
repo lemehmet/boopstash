@@ -1,6 +1,6 @@
 import ProjectDescription
 
-// Boopstash — persistent scratch buffers for macOS, with an iOS companion.
+// BoopStash — persistent scratch buffers for macOS, with an iOS companion.
 //
 // Layout:
 //   - `BoopstashCore`  Foundation plus GRDB, macOS + iOS. Everything that can be
@@ -123,10 +123,13 @@ let project = Project(
             name: "Boopstash",
             destinations: .macOS,
             product: .app,
+            // The app is BoopStash; the target and Swift module keep the
+            // original spelling, which nobody sees.
+            productName: "BoopStash",
             bundleId: appBundleId,
             deploymentTargets: macDeployment,
             infoPlist: .extendingDefault(with: [
-                "CFBundleDisplayName": "Boopstash",
+                "CFBundleDisplayName": "BoopStash",
                 // Tuist's default plist hard-codes 1.0 and 1; the release sets
                 // these build settings from the tag, so the plist must use them
                 // (v0.1.0 shipped reporting 1.0).
@@ -134,12 +137,12 @@ let project = Project(
                 "CFBundleVersion": "$(CURRENT_PROJECT_VERSION)",
                 "LSApplicationCategoryType": "public.app-category.developer-tools",
                 "NSHumanReadableCopyright": "Copyright © 2026 boopstash contributors. Apache-2.0.",
-                // Services ▸ Save to Boopstash (ServicesProvider.saveSelection).
+                // Services ▸ Save to BoopStash (ServicesProvider.saveSelection).
                 "NSServices": [
                     [
-                        "NSMenuItem": ["default": "Save to Boopstash"],
+                        "NSMenuItem": ["default": "Save to BoopStash"],
                         "NSMessage": "saveSelection",
-                        "NSPortName": "Boopstash",
+                        "NSPortName": "BoopStash",
                         "NSSendTypes": ["public.utf8-plain-text", "NSStringPboardType"],
                         "NSRequiredContext": [:],
                     ],
@@ -150,7 +153,10 @@ let project = Project(
             dependencies: [.target(name: "BoopstashCore")],
             // Notarization requires the hardened runtime; every build has it
             // so what is tested is what ships (ADR 0004).
-            settings: .settings(base: ["ENABLE_HARDENED_RUNTIME": "YES"])
+            settings: .settings(base: [
+                "ENABLE_HARDENED_RUNTIME": "YES",
+                "PRODUCT_MODULE_NAME": "Boopstash",
+            ])
         ),
         // Hosted by the app: the editor needs a window, a responder chain
         // and AppKit's pasteboard and key machinery, which Core tests avoid.

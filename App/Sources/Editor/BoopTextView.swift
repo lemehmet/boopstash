@@ -166,7 +166,7 @@ final class BoopTextView: NSTextView {
             // macOS's paste privacy can deny every read; say so instead of
             // looking broken.
             if pasteboard == .general, pasteboard.accessBehavior == .alwaysDeny {
-                showMessage?("macOS is not letting Boopstash read the clipboard. Allow it in System Settings ▸ Privacy & Security ▸ Paste from Other Apps.")
+                showMessage?("macOS is not letting BoopStash read the clipboard. Allow it in System Settings ▸ Privacy & Security ▸ Paste from Other Apps.")
             }
             return
         }

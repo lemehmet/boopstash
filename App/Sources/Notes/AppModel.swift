@@ -95,7 +95,7 @@ final class AppModel {
 
     /// Where a capture came from, which decides how loudly to report it.
     enum CaptureOrigin {
-        /// File ▸ New Note from Clipboard, with Boopstash in front.
+        /// File ▸ New Note from Clipboard, with BoopStash in front.
         case menu
         /// The global shortcut or a service, with another app in front:
         /// the window may not be visible, so success is a sound.

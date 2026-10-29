@@ -1,4 +1,4 @@
-# Contributing to Boopstash
+# Contributing to BoopStash
 
 Thanks for your interest. Contributions and bug reports are both welcome.
 

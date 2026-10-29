@@ -14,7 +14,7 @@ especially for someone who also works on Linux desktops:
   rather than moving to the start or end of the line.
 - Tab does not indent a selection, and Shift-Tab does not unindent.
 
-The editor is a source editor for markdown and code. Boopstash is not trying to
+The editor is a source editor for markdown and code. BoopStash is not trying to
 be a rich-text or full markdown editor.
 
 ## Decision

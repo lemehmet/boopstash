@@ -22,7 +22,7 @@ enum ClipboardCapture {
     }
 }
 
-/// Remembers the last app other than Boopstash to come to the front, so a
+/// Remembers the last app other than BoopStash to come to the front, so a
 /// capture can say where its text most likely came from. Uses only
 /// NSWorkspace's activation notifications: no Accessibility permission, no
 /// window titles.

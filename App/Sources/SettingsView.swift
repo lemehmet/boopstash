@@ -37,7 +37,7 @@ struct GeneralSettings: View {
                     .foregroundStyle(.secondary)
             }
             Section("Clipboard history") {
-                Text("Boopstash never watches the clipboard. For a history of what you copied, macOS has one: turn on System Settings ▸ Spotlight ▸ Clipboard, then press ⌘Space and ⌘4.")
+                Text("BoopStash never watches the clipboard. For a history of what you copied, macOS has one: turn on System Settings ▸ Spotlight ▸ Clipboard, then press ⌘Space and ⌘4.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
@@ -224,7 +224,7 @@ enum KeybindingsFile {
         if !FileManager.default.fileExists(atPath: url.path) {
             try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             let template = """
-            // Boopstash key bindings, in VS Code's keybindings.json format.
+            // BoopStash key bindings, in VS Code's keybindings.json format.
             // Commands are listed in docs/adr/0003; prefix one with "-" to remove a binding.
             [
               // { "key": "cmd+d", "command": "duplicateLineDown" },

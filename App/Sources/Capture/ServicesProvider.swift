@@ -1,7 +1,7 @@
 import AppKit
 import BoopstashCore
 
-/// The Services menu item "Save to Boopstash": any app's selected text
+/// The Services menu item "Save to BoopStash": any app's selected text
 /// becomes a note. The text arrives on a pasteboard the system fills for
 /// this one request, so the same type policy applies as for the clipboard.
 @MainActor

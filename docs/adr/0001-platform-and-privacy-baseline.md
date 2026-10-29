@@ -5,7 +5,7 @@
 
 ## Context
 
-Boopstash is a scratch-buffer app in the spirit of
+BoopStash is a scratch-buffer app in the spirit of
 [Boop](https://github.com/IvanMathy/Boop): somewhere to drop a snippet, an
 agent's output or a screenshot and find it again later. Unlike Boop it keeps
 everything, which makes it a store of whatever its user happened to copy —

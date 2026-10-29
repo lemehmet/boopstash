@@ -105,7 +105,7 @@ jobs:
           xcodebuild archive \
             -workspace Boopstash.xcworkspace -scheme Boopstash -configuration Release \
             -destination 'generic/platform=macOS' \
-            -archivePath "$RUNNER_TEMP/Boopstash.xcarchive" \
+            -archivePath "$RUNNER_TEMP/BoopStash.xcarchive" \
             ARCHS="arm64 x86_64" ONLY_ACTIVE_ARCH=NO \
             MARKETING_VERSION="$VERSION" CURRENT_PROJECT_VERSION="${{ github.run_number }}" \
             CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="Developer ID Application" \
@@ -117,7 +117,7 @@ jobs:
           APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
         run: |
           sed "s/__TEAM_ID__/$APPLE_TEAM_ID/" packaging/release/ExportOptions.plist > "$RUNNER_TEMP/ExportOptions.plist"
-          xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/Boopstash.xcarchive" \
+          xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/BoopStash.xcarchive" \
             -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" -exportPath "$RUNNER_TEMP/export" | tail -3
 
       # What ships must be what ADR 0001 and ADR 0004 promise: signed with a
@@ -127,7 +127,7 @@ jobs:
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          app="$RUNNER_TEMP/export/Boopstash.app"
+          app="$RUNNER_TEMP/export/BoopStash.app"
           shown="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")"
           [ "$shown" = "$VERSION" ] || { echo "::error::the app reports version $shown, not $VERSION"; exit 1; }
           codesign --verify --deep --strict --verbose=2 "$app"
@@ -136,7 +136,7 @@ jobs:
           echo "$details" | grep -q "^Authority=Developer ID Application: " || { echo "::error::not signed with Developer ID"; exit 1; }
           echo "$details" | grep -Eq "^Timestamp=[A-Z][a-z]{2} " || { echo "::error::no secure timestamp"; exit 1; }
           echo "$details" | grep -Eq "flags=0x[0-9a-f]+\([^)]*runtime" || { echo "::error::hardened runtime is off"; exit 1; }
-          archs="$(lipo -archs "$app/Contents/MacOS/Boopstash")"
+          archs="$(lipo -archs "$app/Contents/MacOS/BoopStash")"
           [[ "$archs" == *arm64* && "$archs" == *x86_64* ]] || { echo "::error::not universal: $archs"; exit 1; }
           codesign -d --entitlements - --xml "$app" 2>/dev/null | plutil -convert json -o - - > "$RUNNER_TEMP/entitlements.json"
           # Keys and values: app-sandbox=false must fail as loudly as a
@@ -158,7 +158,7 @@ jobs:
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
           ASC_KEY_CONTENT: ${{ secrets.ASC_KEY_CONTENT }}
         run: |
-          app="$RUNNER_TEMP/export/Boopstash.app"
+          app="$RUNNER_TEMP/export/BoopStash.app"
           key="$RUNNER_TEMP/AuthKey.p8"
           echo "$ASC_KEY_CONTENT" | base64 --decode > "$key"
           ditto -c -k --keepParent "$app" "$RUNNER_TEMP/notarize.zip"
@@ -182,14 +182,14 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           mkdir -p dist
-          name="Boopstash-$VERSION.zip"
-          ditto -c -k --keepParent "$RUNNER_TEMP/export/Boopstash.app" "dist/$name"
+          name="BoopStash-$VERSION.zip"
+          ditto -c -k --keepParent "$RUNNER_TEMP/export/BoopStash.app" "dist/$name"
           # Written from inside dist so the checksum file names a bare file.
           ( cd dist && shasum -a 256 "$name" > "$name.sha256" && shasum -a 256 -c "$name.sha256" )
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Boopstash-${{ steps.version.outputs.version }}
+          name: BoopStash-${{ steps.version.outputs.version }}
           path: dist/*
 
       - name: Remove the signing keychain
@@ -251,7 +251,7 @@ jobs:
         env:
           VERSION: ${{ needs.build.outputs.version }}
         run: |
-          sha="$(cut -d' ' -f1 "dist/Boopstash-$VERSION.zip.sha256")"
+          sha="$(cut -d' ' -f1 "dist/BoopStash-$VERSION.zip.sha256")"
           mkdir -p tap/Casks
           sed -e "s/__VERSION__/$VERSION/g" -e "s/__SHA256__/$sha/" packaging/homebrew/boopstash.rb > tap/Casks/boopstash.rb
           if grep -n '__[A-Z0-9_]*__' tap/Casks/boopstash.rb; then

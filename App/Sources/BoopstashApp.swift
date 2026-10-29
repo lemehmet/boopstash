@@ -26,7 +26,7 @@ struct BoopstashApp: App {
                 MainWindow(model: model, keymap: keymap, appearance: appearance)
                     .frame(minWidth: 720, minHeight: 420)
             } else {
-                ContentUnavailableView("Boopstash could not open its notes", systemImage: "exclamationmark.triangle",
+                ContentUnavailableView("BoopStash could not open its notes", systemImage: "exclamationmark.triangle",
                                        description: Text(delegate.openError ?? ""))
             }
         }
@@ -99,7 +99,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // Left nil on failure, so the next settings change tries again.
             if hotKey == nil, !reportedHotKeyFailure {
                 reportedHotKeyFailure = true
-                model.banner = "⌃⌥⌘V is taken by another app. Capture with ⌥⌘N or Services ▸ Save to Boopstash instead."
+                model.banner = "⌃⌥⌘V is taken by another app. Capture with ⌥⌘N or Services ▸ Save to BoopStash instead."
             }
         } else if !enabled, let hotKey {
             hotKey.unregister()

@@ -6,7 +6,7 @@
 ## Context
 
 Boop formats JSON and runs JavaScript "scripts" that transform the buffer
-(Base64, URL-encode, hashes, sorting…). Boopstash should format more than JSON
+(Base64, URL-encode, hashes, sorting…). BoopStash should format more than JSON
 and keep Boop's scripts working. The sandbox (ADR 0004) rules out calling
 formatters installed on the user's machine, and ADR 0001 rules out anything
 remote.
