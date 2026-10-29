@@ -153,10 +153,55 @@ final class BoopTextView: NSTextView {
 
     override func validateUserInterfaceItem(_ item: any NSValidatedUserInterfaceItem) -> Bool {
         if let action = item.action, Self.refusedToggles.contains(action) { return false }
+        if item.action == #selector(formatDocument(_:)) {
+            return isEditable && DocumentFormatter.canFormat(syntax.currentLanguage)
+        }
+        if item.action == #selector(formatJSONSortingKeys(_:)) {
+            return isEditable && DocumentFormatter.canFormat(syntax.currentLanguage, style: .sortedKeys)
+        }
         if item.action == #selector(pasteAsMarkdown(_:)) {
             return isEditable && NSPasteboard.general.availableType(from: [.html, .rtf, .string]) != nil
         }
         return super.validateUserInterfaceItem(item)
+    }
+
+    // MARK: - Formatting
+
+    /// Edit ▸ Format Document (ADR 0005): the selection, or the whole note,
+    /// reformatted for the note's language as one undoable edit.
+    @objc func formatDocument(_ sender: Any?) {
+        format(style: .standard)
+    }
+
+    /// Edit ▸ Format JSON, Sorting Keys.
+    @objc func formatJSONSortingKeys(_ sender: Any?) {
+        format(style: .sortedKeys)
+    }
+
+    func format(style: DocumentFormatter.Style) {
+        let whole = selectedRange().length == 0
+        let range = whole ? NSRange(location: 0, length: (string as NSString).length) : selectedRange()
+        let source = (string as NSString).substring(with: range)
+        switch DocumentFormatter.format(source, as: syntax.currentLanguage, style: style) {
+        case .failure(let error):
+            NSSound.beep()
+            showMessage?("Not formatted. \(error.description)")
+        case .success(var formatted):
+            // A selection keeps its own trailing newline, or lack of one.
+            if !whole, !source.hasSuffix("\n"), formatted.hasSuffix("\n") { formatted.removeLast() }
+            guard formatted != source else { return }
+            // Sorting moves keys, so no character keeps its place; the caret
+            // goes to the start rather than onto some other key.
+            let caret = style == .sortedKeys ? 0 : DocumentFormatter.caret(selectedRange().location, from: string, to: formatted)
+            guard shouldChangeText(in: range, replacementString: formatted) else { return }
+            textStorage?.replaceCharacters(in: range, with: formatted)
+            didChangeText()
+            undoManager?.setActionName("Format")
+            setSelectedRange(whole
+                ? NSRange(location: caret, length: 0)
+                : NSRange(location: range.location, length: (formatted as NSString).length))
+            scrollRangeToVisible(selectedRange())
+        }
     }
 
     // MARK: - Paste
@@ -178,7 +223,8 @@ final class BoopTextView: NSTextView {
     func pastePlainText(from pasteboard: NSPasteboard) {
         guard !refusesSecret(on: pasteboard) else { return }
         // No text but an image: stored with the note, referenced here (#51).
-        if isEditable, pasteboard.string(forType: .string) == nil, insertImage(from: pasteboard) { return }
+        // An empty string, which some apps add beside an image, is no text.
+        if isEditable, pasteboard.string(forType: .string)?.isEmpty ?? true, insertImage(from: pasteboard) { return }
         guard isEditable, let text = pasteboard.string(forType: .string) else {
             NSSound.beep()
             // macOS's paste privacy can deny every read; say so instead of
@@ -226,7 +272,7 @@ final class BoopTextView: NSTextView {
     /// Images, as files or data, are stored with the note and referenced.
     override func readSelection(from pboard: NSPasteboard, type: NSPasteboard.PasteboardType) -> Bool {
         guard !refusesSecret(on: pboard) else { return false }
-        if pboard.string(forType: .string) == nil || type == .fileURL, insertImage(from: pboard) { return true }
+        if pboard.string(forType: .string)?.isEmpty ?? true || type == .fileURL, insertImage(from: pboard) { return true }
         return super.readSelection(from: pboard, type: type)
     }
 
@@ -335,6 +381,8 @@ final class BoopTextView: NSTextView {
         case .indentLines: indentLines()
         case .unindentLines: unindentLines()
         case .pasteAsMarkdown: pasteAsMarkdown(nil)
+        case .formatDocument: formatDocument(nil)
+        case .formatJSONSortingKeys: formatJSONSortingKeys(nil)
         case .fold, .unfold, .toggleComment:
             // Folding is deferred (ADR 0003); comments need the note's
             // language. Unbound until then, so the key does what AppKit does.

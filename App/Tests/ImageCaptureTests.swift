@@ -95,6 +95,37 @@ struct ImageCaptureTests {
         #expect(attachment.noteID == note.id && attachment.contentType == UTType.png.identifier)
     }
 
+    /// Some apps put an empty string beside an image: that is no text, and
+    /// must neither block the image nor erase the selection.
+    @Test func anEmptyStringBesideAnImageStillPastesTheImage() throws {
+        let note = Note(body: "", createdAt: Date())
+        try model.store.save(note)
+        let (scroll, view) = BoopTextView.makeScrollable()
+        scroll.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
+        view.string = "keep this"
+        view.setSelectedRange(NSRange(location: 5, length: 4))
+        view.storeImage = { data, type in model.addImage(data, type: type, to: note.id) }
+        view.pastePlainText(from: pasteboard {
+            $0.setString("", forType: .string)
+            $0.setData(png, forType: .png)
+        })
+        #expect(view.string.hasPrefix("keep ![](attachment:"), "got \(view.string)")
+    }
+
+    @Test func imageNotesAreNeverSentForAModelTitle() async throws {
+        var asked = 0
+        model.modelTitlesEnabled = { true }
+        model.modelTitlesAvailable = { true }
+        model.modelTitler = { _, _ in asked += 1; return "Model title" }
+        let image = Note(body: AttachmentReference.markdown(for: UUID()) + "\n", createdAt: Date())
+        model.requestModelTitle(for: image)
+        let mixed = Note(body: AttachmentReference.markdown(for: UUID()) + "\nmeeting notes", createdAt: Date())
+        try model.store.save(mixed)
+        model.requestModelTitle(for: mixed)
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(asked == 1, "only the note with text was sent")
+    }
+
     @Test func aDroppedImageFileBecomesANoteTitledByItsName() async throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("drop-\(UUID().uuidString)-chart.png")
         try png.write(to: url)

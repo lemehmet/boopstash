@@ -23,8 +23,18 @@ final class AppModel {
     /// The key window's first responder; replaceable for tests.
     @ObservationIgnored var keyResponder: () -> NSResponder? = { NSApp.keyWindow?.firstResponder }
 
+    /// The focused editor's language, for the commands that depend on it.
+    /// SwiftUI commands are not validated through the responder chain, so
+    /// this is observable state they read.
+    private(set) var editorLanguage: SyntaxLanguage?
+
+    var canFormatDocument: Bool { editorHasFocus && DocumentFormatter.canFormat(editorLanguage) }
+    var canSortJSONKeys: Bool { editorHasFocus && DocumentFormatter.canFormat(editorLanguage, style: .sortedKeys) }
+
     func refreshEditorFocus() {
-        editorHasFocus = keyResponder() is BoopTextView
+        let editor = keyResponder() as? BoopTextView
+        editorHasFocus = editor != nil
+        editorLanguage = editor?.syntax.currentLanguage
     }
 
     /// An editor gained or lost focus, or went away. The window's first
@@ -254,8 +264,7 @@ final class AppModel {
             if origin == .hotKey { NSApp.activate() }
             return banner
         }
-        // An image note has no text for the model to read.
-        if !note.titleIsUserSet, AttachmentReference.ids(in: note.body).isEmpty { requestModelTitle(for: note) }
+        if !note.titleIsUserSet { requestModelTitle(for: note) }
         if background { NSSound(named: "Pop")?.play() }
         return nil
     }
@@ -349,8 +358,10 @@ final class AppModel {
     /// already showing; this replaces it only if, when the answer arrives,
     /// the user has not named the note and its text is what was titled.
     func requestModelTitle(for note: Note) {
+        // Image references are not text: a note of only images has nothing
+        // for the model to read, whoever asks (capture or leaving the note).
         guard usesModelTitles, !note.titleIsUserSet,
-              !note.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !AttachmentReference.removingReferences(from: note.body).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               !note.hasCurrentModelTitle, !modelTitleRequests.contains(note.id)
         else { return }
         modelTitleRequests.insert(note.id)

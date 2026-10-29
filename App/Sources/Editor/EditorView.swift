@@ -15,7 +15,8 @@ struct EditorView: NSViewRepresentable {
     var showMessage: (String) -> Void = { _ in }
     /// Stores a pasted or dropped image for this note; returns its markdown.
     var storeImage: (Data, UTType) -> String? = { _, _ in nil }
-    /// Called when this editor gains or loses focus, or goes away.
+    /// Called when this editor gains or loses focus, goes away, or its
+    /// language changes: what the editor-only menu commands depend on.
     var onFocusChange: () -> Void = {}
     let onChange: (String) -> Void
 
@@ -34,6 +35,7 @@ struct EditorView: NSViewRepresentable {
         view.showMessage = showMessage
         view.storeImage = storeImage
         view.onFocusChange = { _ in onFocusChange() }
+        view.syntax.onLanguageChange = onFocusChange
         context.coordinator.onFocusChange = onFocusChange
         context.coordinator.onChange = onChange
         if context.coordinator.noteID != noteID {
