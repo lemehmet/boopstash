@@ -7,7 +7,7 @@ import UniformTypeIdentifiers
 /// policy as the clipboard applies: a password manager's drag is refused.
 @MainActor
 enum DropCapture {
-    static let acceptedTypes: [UTType] = [.fileURL, .utf8PlainText, .plainText]
+    static let acceptedTypes: [UTType] = [.fileURL, .utf8PlainText, .plainText] + ImageImport.supported
 
     /// Handles a drop; false when nothing in it could be used.
     static func handle(_ providers: [NSItemProvider], model: AppModel) -> Bool {
@@ -40,6 +40,10 @@ enum DropCapture {
             }
             let values = try? url.resourceValues(forKeys: [.contentTypeKey, .fileSizeKey])
             let type = values?.contentType
+            if let type, ImageImport.accepts(type) {
+                await captureImageFile(url, type: type, size: values?.fileSize, model: model, source: source)
+                return
+            }
             // Refuse what the file system already rules out before reading a
             // byte: a known binary type, or more than the limit.
             if let type, !TextFileImport.accepts(type) {
@@ -71,6 +75,14 @@ enum DropCapture {
             case .failure(.unreadable):
                 model.banner = "Could not read \(url.lastPathComponent) as text."
             }
+        } else if !provider.hasItemConformingToTypeIdentifier(UTType.plainText.identifier),
+                  let type = ImageImport.preferredType(among: provider.registeredTypeIdentifiers) {
+            // Image data with no text (dragged from a browser or Preview).
+            guard let data = await loadData(type, from: provider) else {
+                model.banner = "Could not read the dropped image."
+                return
+            }
+            model.saveImage(data, type: type, origin: .drop, sourceBundleID: source?.bundleID, sourceAppName: source?.name)
         } else {
             // The drop was accepted, so every way it can come to nothing is
             // reported rather than silent.
@@ -86,8 +98,34 @@ enum DropCapture {
         }
     }
 
+    /// An image file becomes a note holding it, titled by the file's name.
+    private static func captureImageFile(_ url: URL, type: UTType, size: Int?, model: AppModel, source: (bundleID: String?, name: String?)?) async {
+        let name = url.lastPathComponent
+        if let size, size > ImageImport.sizeLimit {
+            model.banner = ImageImport.message(for: .tooLarge(bytes: size), name: name)
+            return
+        }
+        guard let data = readPrefix(of: url, limit: ImageImport.sizeLimit + 1) else {
+            model.banner = "Could not read \(name)."
+            return
+        }
+        model.saveImage(data, type: type, origin: .drop, title: TextFileImport.title(forFileNamed: name),
+                        sourceBundleID: source?.bundleID, sourceAppName: source?.name)
+    }
+
+    /// The item as a file, read no further than the image limit plus one
+    /// byte, so a huge drag cannot be loaded into memory before it is
+    /// refused. The file only exists during the callback.
+    private static func loadData(_ type: UTType, from provider: NSItemProvider) async -> Data? {
+        await withCheckedContinuation { continuation in
+            _ = provider.loadFileRepresentation(for: type, openInPlace: false) { url, _, _ in
+                continuation.resume(returning: url.flatMap { readPrefix(of: $0, limit: ImageImport.sizeLimit + 1) })
+            }
+        }
+    }
+
     /// Up to `limit` bytes from the start of the file.
-    static func readPrefix(of url: URL, limit: Int) -> Data? {
+    nonisolated static func readPrefix(of url: URL, limit: Int) -> Data? {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
         defer { try? handle.close() }
         return try? TextFileImport.readPrefix(limit: limit) { try handle.read(upToCount: $0) }

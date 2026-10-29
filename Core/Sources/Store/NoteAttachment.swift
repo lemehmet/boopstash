@@ -68,6 +68,12 @@ public enum AttachmentReference {
         })
     }
 
+    /// The body without its image references: its text alone, for deciding
+    /// whether there is anything to read beyond the images.
+    public static func removingReferences(from body: String) -> String {
+        pattern.stringByReplacingMatches(in: body, range: NSRange(location: 0, length: (body as NSString).length), withTemplate: "")
+    }
+
     /// The body with each reference's destination replaced by `destination`
     /// (for export: a relative path). Unknown IDs are left as they are.
     public static func rewriting(_ body: String, _ destination: (UUID) -> String?) -> String {

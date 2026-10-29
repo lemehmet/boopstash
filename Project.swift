@@ -148,7 +148,7 @@ let project = Project(
                         "NSMenuItem": ["default": "Save to BoopStash"],
                         "NSMessage": "saveSelection",
                         "NSPortName": "BoopStash",
-                        "NSSendTypes": ["public.utf8-plain-text", "NSStringPboardType"],
+                        "NSSendTypes": ["public.utf8-plain-text", "NSStringPboardType", "public.png", "public.jpeg", "public.heic", "public.tiff"],
                         "NSRequiredContext": [:],
                     ],
                 ],

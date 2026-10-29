@@ -64,7 +64,7 @@ extension NoteDetail {
         // The current draft, not the `note` this view was given: switching
         // the preview layout recreates the editor, and the draft may be
         // newer than what was last saved.
-        EditorView(noteID: note.id, initialText: model.note(id: note.id)?.body ?? note.body, keymap: keymap, syntax: syntax, appearance: appearance, showMessage: { model.banner = $0 }, onFocusChange: { model.editorFocusMayHaveChanged() }) { text in
+        EditorView(noteID: note.id, initialText: model.note(id: note.id)?.body ?? note.body, keymap: keymap, syntax: syntax, appearance: appearance, showMessage: { model.banner = $0 }, storeImage: { [id = note.id] data, type in model.addImage(data, type: type, to: id) }, onFocusChange: { model.editorFocusMayHaveChanged() }) { text in
             model.updateBody(note.id, to: text)
             if previewShown { liveText = text }
         }
