@@ -340,7 +340,9 @@ struct Writer {
     func image(_ node: HTMLNode) -> String {
         let alt = node.attributes["alt"] ?? ""
         let src = node.attributes["src"] ?? ""
-        guard !src.isEmpty, !src.lowercased().hasPrefix("data:") else { return alt }
+        // With no usable source the alt text stands in as plain text, so
+        // inside a link it is escaped like any other text there (#46).
+        guard !src.isEmpty, !src.lowercased().hasPrefix("data:") else { return inLinkLabel ? Self.escapedLabel(alt) : alt }
         return "![\(Self.escapedLabel(alt))](\(Self.destination(src)))"
     }
 

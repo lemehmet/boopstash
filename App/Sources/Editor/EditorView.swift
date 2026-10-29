@@ -12,7 +12,8 @@ struct EditorView: NSViewRepresentable {
     var syntax: SyntaxChoice = .automatic
     var appearance = EditorAppearance()
     var showMessage: (String) -> Void = { _ in }
-    /// Called when this editor gains or loses focus, or goes away.
+    /// Called when this editor gains or loses focus, goes away, or its
+    /// language changes: what the editor-only menu commands depend on.
     var onFocusChange: () -> Void = {}
     let onChange: (String) -> Void
 
@@ -30,6 +31,7 @@ struct EditorView: NSViewRepresentable {
         view.editorAppearance = appearance
         view.showMessage = showMessage
         view.onFocusChange = { _ in onFocusChange() }
+        view.syntax.onLanguageChange = onFocusChange
         context.coordinator.onFocusChange = onFocusChange
         context.coordinator.onChange = onChange
         if context.coordinator.noteID != noteID {

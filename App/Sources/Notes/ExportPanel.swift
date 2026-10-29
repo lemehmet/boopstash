@@ -30,8 +30,20 @@ enum ExportPanel {
                 counter += 1
             }
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false)
-            for file in NoteExport.files(for: notes) {
+            var attachments: [UUID: NoteAttachment] = [:]
+            for note in notes {
+                for attachment in try model.store.attachments(referencedBy: note.body) { attachments[attachment.id] = attachment }
+            }
+            for file in NoteExport.files(for: notes, attachments: attachments) {
                 try file.contents.write(to: folder.appendingPathComponent(file.name), atomically: true, encoding: .utf8)
+            }
+            if !attachments.isEmpty {
+                let images = folder.appendingPathComponent(NoteExport.attachmentsFolder, isDirectory: true)
+                try FileManager.default.createDirectory(at: images, withIntermediateDirectories: false)
+                for attachment in attachments.values {
+                    try FileManager.default.copyItem(at: model.store.fileURL(for: attachment),
+                                                     to: images.appendingPathComponent(attachment.fileName))
+                }
             }
             model.banner = "Exported \(notes.count) note\(notes.count == 1 ? "" : "s")."
             NSWorkspace.shared.activateFileViewerSelecting([folder])

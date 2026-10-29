@@ -22,8 +22,56 @@ final class AppModel {
     /// The key window's first responder; replaceable for tests.
     @ObservationIgnored var keyResponder: () -> NSResponder? = { NSApp.keyWindow?.firstResponder }
 
+    // MARK: Scripts
+
+    /// The scripts the picker offers (ADR 0005).
+    @ObservationIgnored lazy var scriptLibrary = ScriptLibrary.bundled()
+    @ObservationIgnored let scriptRunner = LiveScriptRunner()
+    /// The editor the picker will run its choice in: the one that had focus
+    /// when the picker opened, since the sheet takes focus while it shows.
+    /// Each window shows its own picker (its `scriptPickerShown` focused
+    /// value); only the key window's editor can be the target.
+    @ObservationIgnored weak var scriptTarget: BoopTextView?
+    private(set) var lastScript: BoopScript?
+
+    /// Points the picker at the key window's editor. False when there is
+    /// none, and the picker should not open.
+    func prepareScriptPicker() -> Bool {
+        guard let editor = keyResponder() as? BoopTextView else {
+            NSSound.beep()
+            return false
+        }
+        scriptTarget = editor
+        return true
+    }
+
+    func run(_ script: BoopScript) {
+        lastScript = script
+        guard let editor = scriptTarget else { return }
+        Task { await editor.run(script, with: scriptRunner) }
+    }
+
+    func runLastScript() {
+        guard let script = lastScript, let editor = keyResponder() as? BoopTextView else {
+            NSSound.beep()
+            return
+        }
+        scriptTarget = editor
+        run(script)
+    }
+
+    /// The focused editor's language, for the commands that depend on it.
+    /// SwiftUI commands are not validated through the responder chain, so
+    /// this is observable state they read.
+    private(set) var editorLanguage: SyntaxLanguage?
+
+    var canFormatDocument: Bool { editorHasFocus && DocumentFormatter.canFormat(editorLanguage) }
+    var canSortJSONKeys: Bool { editorHasFocus && DocumentFormatter.canFormat(editorLanguage, style: .sortedKeys) }
+
     func refreshEditorFocus() {
-        editorHasFocus = keyResponder() is BoopTextView
+        let editor = keyResponder() as? BoopTextView
+        editorHasFocus = editor != nil
+        editorLanguage = editor?.syntax.currentLanguage
     }
 
     /// An editor gained or lost focus, or went away. The window's first
@@ -91,7 +139,11 @@ final class AppModel {
 
     static func live() throws -> AppModel {
         let support = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
-        return AppModel(store: try NoteStore.open(at: support.appendingPathComponent("Boopstash/notes.sqlite")))
+        let store = try NoteStore.open(at: support.appendingPathComponent("Boopstash/notes.sqlite"))
+        // Attachments nothing refers to any more, after a day's grace so an
+        // undo can still bring a deleted image back within a session.
+        try? store.removeUnreferencedAttachments()
+        return AppModel(store: store)
     }
 
     private func observe() {
@@ -339,8 +391,15 @@ final class AppModel {
     /// The draft and selection go only once the row is gone, so a failed
     /// delete leaves the note exactly as it was, unsaved edits included.
     func delete(_ id: UUID) {
+        // Other notes' unsaved edits may refer to this note's images; the
+        // store can only see saved bodies. Save them first, and if any will
+        // not save, leave the images to the launch sweep's grace period.
+        let othersSaved = drafts.keys.filter { $0 != id }.allSatisfy { other in
+            flush(other)
+            return drafts[other] == nil
+        }
         do {
-            try store.delete(id: id)
+            try store.delete(id: id, removingOrphanedAttachments: othersSaved)
         } catch {
             banner = "Could not delete: \(error.localizedDescription)"
             return
