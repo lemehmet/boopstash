@@ -10,6 +10,8 @@ breaking changes may land in a minor release.
   Services item "Save to BoopStash". Your notes and settings carry over, as
   the bundle identifier is unchanged; `brew upgrade` replaces Boopstash.app.
 
+- BoopStash has its own icon.
+
 - Settings ▸ Editor: the editor's font and size, and a theme for light and
   dark appearance from Solarized, GitHub, One, Gruvbox, Dracula and Nord, or
   the system's colours. A theme sets the background, text, selection and

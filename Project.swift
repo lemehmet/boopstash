@@ -149,6 +149,7 @@ let project = Project(
                 ],
             ]),
             sources: ["App/Sources/**"],
+            resources: ["App/Resources/**"],
             entitlements: .file(path: "App/Boopstash.entitlements"),
             dependencies: [.target(name: "BoopstashCore")],
             // Notarization requires the hardened runtime; every build has it
@@ -156,6 +157,10 @@ let project = Project(
             settings: .settings(base: [
                 "ENABLE_HARDENED_RUNTIME": "YES",
                 "PRODUCT_MODULE_NAME": "Boopstash",
+                // The icon is App/Resources' AppIcon; there is no accent colour,
+                // so the system's applies.
+                "ASSETCATALOG_COMPILER_APPICON_NAME": "AppIcon",
+                "ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME": "",
             ])
         ),
         // Hosted by the app: the editor needs a window, a responder chain

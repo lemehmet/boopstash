@@ -18,7 +18,7 @@ struct NoteDetail: View {
                 .padding(.top, 12)
                 .padding(.bottom, 4)
             Divider()
-            EditorView(noteID: note.id, initialText: note.body, keymap: keymap, syntax: syntax, appearance: appearance, showMessage: { model.banner = $0 }) { text in
+            EditorView(noteID: note.id, initialText: note.body, keymap: keymap, syntax: syntax, appearance: appearance, showMessage: { model.banner = $0 }, onFocusChange: { model.editorFocusMayHaveChanged() }) { text in
                 model.updateBody(note.id, to: text)
             }
         }

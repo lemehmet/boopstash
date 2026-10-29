@@ -48,6 +48,9 @@ struct BoopstashApp: App {
                     NSApp.sendAction(#selector(BoopTextView.pasteAsMarkdown(_:)), to: nil, from: nil)
                 }
                 .keyboardShortcut("v", modifiers: [.command, .option, .shift])
+                // A SwiftUI command is not validated through the responder
+                // chain, so it follows the editor's focus explicitly (#25).
+                .disabled(!(delegate.model?.editorHasFocus ?? false))
             }
         }
 
