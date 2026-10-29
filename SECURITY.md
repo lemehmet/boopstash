@@ -15,7 +15,8 @@ around that, and each point is enforceable rather than aspirational:
 
 - **The app is sandboxed in every build.** Homebrew and App Store builds are the
   same code with the same entitlements. `App/Boopstash.entitlements` is the
-  complete list of what the app may reach.
+  complete list of what the app may reach, and released builds add only
+  iCloud for sync (`App/BoopstashCloud.entitlements`, ADR 0008).
 - **Scripts run in a separate, emptier sandbox.** Boop scripts and the
   JavaScript formatters run in a bundled XPC service whose only entitlement
   is the sandbox itself (`App/ScriptService.entitlements`, ADR 0007): no
@@ -25,9 +26,11 @@ around that, and each point is enforceable rather than aspirational:
   write only into a folder you choose in an open panel, which is how export
   works. It cannot read or write anything else on disk.
 - **No network access except your iCloud.** There is no network-client
-  entitlement. No analytics, no crash reporting service, no update checks. Once
-  sync ships, the only remote endpoint is the private database of the app's
-  iCloud container, under your Apple Account.
+  entitlement. No analytics, no crash reporting service, no update checks. The
+  only remote endpoint is the private database of the app's iCloud container,
+  under your Apple Account, reached through the system's iCloud service. The
+  app does not contact it, or check your account, until you turn on Sync with
+  iCloud, which is off by default.
 - **The clipboard is read only when you ask.** No background polling. Paste,
   a menu item, a Services invocation, a drop or the capture hotkey are the only
   triggers.

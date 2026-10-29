@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Boopstash.entitlements plus iCloud (ADR 0008). Used only by builds that
+  embed a provisioning profile: the release workflow passes
+  BOOPSTASH_ENTITLEMENTS to select it, with the Developer ID profile. Every
+  other build (Debug, CI, the test host) signs with Boopstash.entitlements,
+  because these keys stop an app without a matching profile from launching.
+  - iCloud with CloudKit, in the app's own container only: sync of notes
+    and images to the private database (ADR 0002). Sync is off until the
+    user turns it on, and nothing talks to CloudKit before that.
+  - aps-environment: CloudKit's change notifications.
+  The two environment values come from build settings: Production for the
+  Developer ID release, Development for a build signed to test sync.
+-->
+<plist version="1.0">
+<dict>
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+	<key>com.apple.security.files.user-selected.read-write</key>
+	<true/>
+	<key>com.apple.developer.icloud-container-identifiers</key>
+	<array>
+		<string>iCloud.com.lemehmet.boopstash</string>
+	</array>
+	<key>com.apple.developer.icloud-services</key>
+	<array>
+		<string>CloudKit</string>
+	</array>
+	<key>com.apple.developer.icloud-container-environment</key>
+	<string>$(BOOPSTASH_ICLOUD_ENVIRONMENT)</string>
+	<key>com.apple.developer.aps-environment</key>
+	<string>$(BOOPSTASH_APS_ENVIRONMENT)</string>
+</dict>
+</plist>
