@@ -138,7 +138,13 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
         guard let engine = state.withLock({ $0.engine }) else { return }
         // Sync Now tries everything again, failed for good or not.
         state.withLock { $0.heldBack = [] }
-        if let pending = try? store.currentPendingSyncNames() { add(pending, to: engine) }
+        do {
+            add(try store.currentPendingSyncNames(), to: engine)
+        } catch {
+            // Sending now would report success over changes it never saw.
+            report(.problem("Changes waiting to sync could not be read: \(error.localizedDescription)"))
+            return
+        }
         do {
             try await engine.fetchChanges()
             try await engine.sendChanges()
@@ -469,6 +475,9 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
                     try store.applyServerDeletion(kind: deletion.kind, name: deletion.name)
                     if deletion.kind == .note, let id = UUID(uuidString: deletion.name) { outcome.changed.insert(id) }
                 } catch {
+                    // Armed here, in the same main-actor step: a newer record
+                    // applied after this clears it before the retry runs.
+                    state.withLock { _ = $0.retryingDeletions.insert(deletion.name) }
                     outcome.failedDeletions.append(deletion)
                 }
             }
@@ -479,7 +488,6 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
     /// Applies again deletions from the server that failed here: the
     /// engine will not send them again.
     private func retryDeletions(_ deletions: [Deletion], attempt: Int, generation: Int) {
-        state.withLock { $0.retryingDeletions.formUnion(deletions.map(\.name)) }
         guard attempt <= 3 else {
             report(.problem("Some deletions from iCloud could not be applied on this Mac."))
             return

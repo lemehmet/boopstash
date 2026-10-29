@@ -130,16 +130,18 @@ final class NotesModel {
         // store there moves once from the app's own container, and stays
         // there if the move cannot happen. A build without the group (the
         // simulator, unsigned) keeps it at home.
-        var folder = own, shared = false
+        var folder = own, shared = false, merged = 0
         if let group = SharedStore.folder {
-            (folder, shared) = try NoteStore.sharedStoreFolder(own: own, group: group)
+            (folder, shared, merged) = try NoteStore.sharedStoreFolder(own: own, group: group)
         }
         let store = try NoteStore.open(at: folder.appendingPathComponent(SharedStore.fileName), shared: shared)
         // Images nothing refers to, after a day's grace, as on the Mac: also
         // the clean-up a delete leaves when a draft would not save.
         _ = try? store.removeUnreferencedAttachments()
         let model = NotesModel(store: store)
-        if SharedStore.folder != nil, !shared {
+        if merged > 0 {
+            model.banner = "\(merged) notes from an earlier copy of BoopStash on this device were added to your notes."
+        } else if SharedStore.folder != nil, !shared {
             model.banner = "Sharing to BoopStash is off: its notes could not be moved where the share extension can reach them."
         }
         if UserDefaults.standard.bool(forKey: syncKey) { model.setSyncEnabled(true) }

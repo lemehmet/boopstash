@@ -77,14 +77,46 @@ public final class NoteStore: Sendable {
     /// Where a store shared with an extension lives: moved into `group`
     /// when it can be (`moveStoreFolder`), and otherwise left at `own` while
     /// a store is there, so a refused move never opens a new, empty store
-    /// in place of the notes. A new store goes in the group. Returns the
-    /// folder and whether it is the group's.
-    public static func sharedStoreFolder(own: URL, group: URL, storeName: String = "notes.sqlite") throws -> (folder: URL, inGroup: Bool) {
+    /// in place of the notes. A new store goes in the group. With a store in
+    /// both (builds with and without the group, alternating), the group's is
+    /// used and every note and image only in the other is copied into it;
+    /// the other folder is then renamed, kept as a backup, never deleted.
+    /// Returns the folder, whether it is the group's, and how many notes
+    /// came over.
+    public static func sharedStoreFolder(own: URL, group: URL, storeName: String = "notes.sqlite",
+                                         now: Date = Date()) throws -> (folder: URL, inGroup: Bool, merged: Int) {
         try moveStoreFolder(from: own, to: group, storeName: storeName)
         let files = FileManager.default
-        if files.fileExists(atPath: group.appendingPathComponent(storeName).path) { return (group, true) }
-        if files.fileExists(atPath: own.appendingPathComponent(storeName).path) { return (own, false) }
-        return (group, true)
+        let ownStore = own.appendingPathComponent(storeName), groupStore = group.appendingPathComponent(storeName)
+        switch (files.fileExists(atPath: groupStore.path), files.fileExists(atPath: ownStore.path)) {
+        case (true, true):
+            let merged = try open(at: groupStore).copyMissing(from: open(at: ownStore))
+            let stamp = ISO8601DateFormatter.string(from: now, timeZone: .gmt, formatOptions: [.withYear, .withMonth, .withDay, .withTime])
+            try files.moveItem(at: own, to: own.deletingLastPathComponent().appendingPathComponent("\(own.lastPathComponent)-merged-\(stamp)"))
+            return (group, true, merged)
+        case (true, false): return (group, true, 0)
+        case (false, true): return (own, false, 0)
+        case (false, false): return (group, true, 0)
+        }
+    }
+
+    /// Copies every note and attachment of `other` this store does not have
+    /// (by ID), files first, as new local changes to send. Returns how many
+    /// notes came over.
+    func copyMissing(from other: NoteStore) throws -> Int {
+        let attachments = try other.writer.read { db in try NoteAttachment.fetchAll(db) }
+        for attachment in attachments where try self.attachment(id: attachment.id) == nil {
+            guard let data = try? other.data(for: attachment) else { continue }
+            try FileManager.default.createDirectory(at: attachmentsDirectory, withIntermediateDirectories: true)
+            try data.write(to: fileURL(for: attachment), options: .atomic)
+            try writer.write { db in try attachment.insert(db) }
+        }
+        var count = 0
+        for note in try other.writer.read({ db in try Note.fetchAll(db) }) where try self.note(id: note.id) == nil {
+            try save(note)
+            count += 1
+        }
+        return count
     }
 
     static var configuration: Configuration {

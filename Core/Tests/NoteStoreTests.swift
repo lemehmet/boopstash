@@ -286,13 +286,30 @@ final class TestClock: @unchecked Sendable {
     @Test func theStoreGoesToTheGroup() throws {
         defer { try? FileManager.default.removeItem(at: root) }
         try makeStore(in: old, body: "kept")
-        #expect(try NoteStore.sharedStoreFolder(own: old, group: group) == (group, true))
-        #expect(try NoteStore.sharedStoreFolder(own: old, group: group) == (group, true), "already there")
+        #expect(try NoteStore.sharedStoreFolder(own: old, group: group) == (group, true, 0))
+        #expect(try NoteStore.sharedStoreFolder(own: old, group: group) == (group, true, 0), "already there")
     }
 
     @Test func aNewStoreStartsInTheGroup() throws {
         defer { try? FileManager.default.removeItem(at: root) }
-        #expect(try NoteStore.sharedStoreFolder(own: old, group: group) == (group, true))
+        #expect(try NoteStore.sharedStoreFolder(own: old, group: group) == (group, true, 0))
+    }
+
+    /// A store in both places: the group's is used, what only the other
+    /// has is copied in, and the other is kept as a backup.
+    @Test func twoStoresMerge() throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        try makeStore(in: old, body: "only here")
+        try makeStore(in: group, body: "in the group")
+        let place = try NoteStore.sharedStoreFolder(own: old, group: group, now: Date(timeIntervalSince1970: 0))
+        #expect(place.folder == group && place.inGroup && place.merged == 1)
+        let merged = try NoteStore.open(at: group.appendingPathComponent("notes.sqlite"))
+        #expect(Set(try merged.notes(matching: NoteQuery()).map(\.body)) == ["only here", "in the group"])
+        #expect(try FileManager.default.contentsOfDirectory(atPath: group.appendingPathComponent("Attachments").path).count == 2)
+        #expect(!FileManager.default.fileExists(atPath: old.path))
+        let backups = try FileManager.default.contentsOfDirectory(atPath: old.deletingLastPathComponent().path).filter { $0.hasPrefix("Boopstash-merged-") }
+        #expect(backups.count == 1, "kept, renamed")
+        #expect(try NoteStore.sharedStoreFolder(own: old, group: group).merged == 0, "once")
     }
 
     @Test func nothingToMove() throws {
