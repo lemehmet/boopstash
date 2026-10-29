@@ -1,0 +1,1 @@
+scratchpad,notes,clipboard,json,formatter,markdown,boop,snippets,developer,text

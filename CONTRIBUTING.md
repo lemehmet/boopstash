@@ -78,3 +78,34 @@ It needs, in this repository's Actions settings:
 
 To cut a release: move **Unreleased** in `CHANGELOG.md` under the new version,
 merge that, then `git tag vX.Y.Z && git push origin vX.Y.Z`.
+
+## App Store
+
+The Mac App Store and TestFlight builds go through fastlane (`fastlane/Fastfile`,
+#68), run by hand from Actions ▸ **App Store** with a platform and a lane:
+
+- `bootstrap` creates or renews the App Store certificates and profiles and
+  stores them, encrypted, in the match bucket. Run it once per platform, and
+  again after the App ID gains a capability. It is the only lane that may
+  create anything in the developer account.
+- `beta` builds the same sandboxed app as the Homebrew release, signed for the
+  App Store, checks the entitlements of the app and its script service (Mac)
+  before anything is uploaded, and uploads it to TestFlight.
+  With *upload* off it only builds.
+- `release` submits the newest TestFlight build for review with the metadata
+  in `fastlane/metadata/` (Mac) or `fastlane/metadata-ios/` (iOS, which says
+  only what the iOS app does) and the changelog's section for the version as
+  What's New. It never releases automatically.
+
+The version is the newest `## vX.Y.Z` in `CHANGELOG.md`; the build number
+counts up from TestFlight's newest. Besides the App Store Connect key above,
+the lanes need:
+
+| Name | Kind | What |
+|---|---|---|
+| `MATCH_PASSWORD` | secret | The passphrase match encrypts the signing material with |
+| `MATCH_S3_BUCKET`, `MATCH_S3_REGION`, `MATCH_S3_ENDPOINT` | secrets | The private bucket for match (DigitalOcean Spaces; the endpoint is the region host, e.g. `https://fra1.digitaloceanspaces.com`) |
+| `MATCH_S3_ACCESS_KEY`, `MATCH_S3_SECRET_ACCESS_KEY` | secrets | A key that can read and write only that bucket |
+
+Locally: `bundle install`, export the same variables, then
+`bundle exec fastlane mac beta upload:false`.

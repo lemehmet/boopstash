@@ -1,0 +1,21 @@
+BoopStash is a scratch pad that remembers. Paste a snippet, an agent's output or a screenshot, and find it again next week by what it was about, when you copied it, or where it came from.
+
+KEPT AND FOUND
+• Every note is kept and titled for you on your device.
+• Search titles, text and the words in your screenshots, and narrow by age: today, this week, the last 30 days.
+• Capture from anywhere with a shortcut or the Services menu.
+
+AN EDITOR THAT STAYS OUT OF THE WAY
+• No auto-closing quotes and no smart punctuation. Tab indents.
+• VS Code or JetBrains key bindings.
+• Syntax highlighting for the common languages, light and dark themes.
+• Format Document for JSON, XML, JavaScript, TypeScript, CSS, HTML, YAML, Markdown and SQL.
+• Boop's scripts: encode, decode, hash, convert, sort and more, on the selection or the whole note. Add your own.
+• Markdown preview with the note's images.
+
+PRIVATE BY DESIGN
+• No account, no BoopStash server, no analytics.
+• Optional iCloud sync to your own iCloud, with every field encrypted on your device. With Advanced Data Protection, end to end.
+• Text recognition and titles run on your device.
+• The clipboard is read only when you paste or capture.
+• Export every note as Markdown files with their images.

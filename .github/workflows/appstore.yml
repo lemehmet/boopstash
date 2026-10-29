@@ -1,0 +1,77 @@
+name: App Store
+
+# The App Store and TestFlight lanes (fastlane/Fastfile, ADR 0004), run by
+# hand. `bootstrap` creates or renews the App Store certificates and
+# profiles in match; `beta` builds, checks the Mac app's entitlements and
+# uploads to TestFlight (or only builds, with upload off); `release`
+# submits the newest build with the metadata.
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Platform
+        type: choice
+        options: [mac, ios]
+        required: true
+      lane:
+        description: Lane
+        type: choice
+        options: [beta, release, bootstrap]
+        required: true
+      upload:
+        description: Upload the build to TestFlight (beta only)
+        type: boolean
+        default: true
+      ref:
+        description: Branch or tag to build
+        default: main
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  lane:
+    name: ${{ inputs.platform }} ${{ inputs.lane }}
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      - uses: jdx/mise-action@v4
+        with:
+          install: true
+          cache: true
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4"
+          bundler-cache: true
+
+      - name: fastlane ${{ inputs.platform }} ${{ inputs.lane }}
+        env:
+          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_CONTENT: ${{ secrets.ASC_KEY_CONTENT }}
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          MATCH_S3_BUCKET: ${{ secrets.MATCH_S3_BUCKET }}
+          MATCH_S3_REGION: ${{ secrets.MATCH_S3_REGION }}
+          MATCH_S3_ENDPOINT: ${{ secrets.MATCH_S3_ENDPOINT }}
+          MATCH_S3_ACCESS_KEY: ${{ secrets.MATCH_S3_ACCESS_KEY }}
+          MATCH_S3_SECRET_ACCESS_KEY: ${{ secrets.MATCH_S3_SECRET_ACCESS_KEY }}
+          PLATFORM: ${{ inputs.platform }}
+          LANE: ${{ inputs.lane }}
+          UPLOAD: ${{ inputs.upload }}
+        run: |
+          if [ "$LANE" = beta ]; then
+            bundle exec fastlane "$PLATFORM" beta upload:"$UPLOAD"
+          else
+            bundle exec fastlane "$PLATFORM" "$LANE"
+          fi

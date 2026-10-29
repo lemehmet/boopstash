@@ -44,3 +44,7 @@ fastlane/test_output/
 # Spike build output.
 Spikes/*/.build/
 Spikes/*/Tuist/.build/
+/build/
+# Bundler settings; gems installed locally go under .build/, never vendor/
+# (on a case-insensitive disk that is Vendor/).
+/.bundle/

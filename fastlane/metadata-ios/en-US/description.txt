@@ -1,0 +1,8 @@
+BoopStash for iPhone and iPad keeps the notes from BoopStash on your Mac close at hand: the snippets, outputs and scratch text you saved, searchable and editable wherever you are.
+
+• Every note, titled and listed newest first.
+• Search titles and text, and narrow by age: today, this week, the last 30 days.
+• Read and make quick edits, with syntax highlighting for the common languages.
+• Plain text editing that stays out of the way: no smart quotes, no autocorrect.
+
+Private by design: no account, no BoopStash server, no analytics. Your notes stay on your device.
