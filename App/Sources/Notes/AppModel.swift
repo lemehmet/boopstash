@@ -227,6 +227,16 @@ final class AppModel {
     }
 
     static func live() throws -> AppModel {
+        #if DEBUG
+        // Screenshots (#69): made-up notes in memory; the real store, sync
+        // and the Scripts folder are never touched.
+        if UserDefaults.standard.bool(forKey: "BoopStashDemo") {
+            let model = AppModel(store: try DemoNotes.store())
+            let index = UserDefaults.standard.integer(forKey: "BoopStashDemoNote")
+            model.selection = try model.store.notes(matching: NoteQuery()).dropFirst(index).first?.id
+            return model
+        }
+        #endif
         let support = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
         let store = try NoteStore.open(at: support.appendingPathComponent("Boopstash/notes.sqlite"))
         // Attachments nothing refers to any more, after a day's grace so an

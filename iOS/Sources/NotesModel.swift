@@ -111,6 +111,11 @@ final class NotesModel {
     }
 
     static func live() throws -> NotesModel {
+        #if DEBUG
+        // Screenshots (#69): made-up notes in memory; the real store and
+        // sync are never touched.
+        if UserDefaults.standard.bool(forKey: "BoopStashDemo") { return NotesModel(store: try DemoNotes.store()) }
+        #endif
         let support = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
         let own = support.appendingPathComponent("Boopstash", isDirectory: true)
         // In the App Group, where the share extension writes too (#66); the
