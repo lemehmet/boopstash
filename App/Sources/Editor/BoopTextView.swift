@@ -28,6 +28,9 @@ final class BoopTextView: NSTextView {
 
     override func didChangeText() {
         super.didChangeText()
+        // Ranges at once, for the next keystroke's snapping and deletion;
+        // only the chip views wait for layout.
+        chipRanges = attachmentURL == nil ? [] : AttachmentReference.matches(in: string).map(\.range)
         scheduleChipUpdate()
     }
 

@@ -38,6 +38,9 @@ struct ChipTests {
         let (window, view) = host(body, missing: [second])
         let labelled = view.chipViews.compactMap { $0.accessibilityLabel() }
         #expect(labelled == ["plot", "Missing image"])
+        let (other, missingWithAlt) = host(body, missing: [first])
+        #expect(missingWithAlt.chipViews.compactMap { $0.accessibilityLabel() }.first == "plot (missing)")
+        other.close()
         #expect(view.string == body, "chips only cover the text")
         window.close()
     }
@@ -50,6 +53,30 @@ struct ChipTests {
         #expect(view.string == "a  b " + AttachmentReference.markdown(for: second) + " c")
         view.undoManager?.undo()
         #expect(view.string == body)
+        window.close()
+    }
+
+    /// A second delete straight after the first sees the text as it is
+    /// now, not ranges from before the first.
+    @Test func rapidDeletesDoNotUseStaleRanges() {
+        let text = AttachmentReference.markdown(for: first) + "keep this text intact please, more than a reference long"
+        let (window, view) = host(text)
+        view.setSelectedRange(NSRange(location: 0, length: 0))
+        view.deleteForward(nil)
+        view.deleteForward(nil)
+        #expect(view.string == "eep this text intact please, more than a reference long")
+        window.close()
+    }
+
+    @Test func clickingAChipFocusesTheEditor() throws {
+        let (window, view) = host(body)
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 10, height: 10))
+        window.contentView?.addSubview(field)
+        window.makeFirstResponder(field)
+        let chip = try #require(view.chipViews.first)
+        chip.onClick()
+        #expect(window.firstResponder === view)
+        #expect(view.selectedRange() == range(of: first, in: body))
         window.close()
     }
 

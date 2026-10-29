@@ -82,15 +82,26 @@ extension BoopTextView {
                 return true
             }
             let url = attachmentURL?(match.id) ?? nil
-            let label = match.alt.isEmpty ? (url == nil ? "Missing image" : "Image") : match.alt
+            let label = url == nil
+                ? (match.alt.isEmpty ? "Missing image" : "\(match.alt) (missing)")
+                : (match.alt.isEmpty ? "Image" : match.alt)
             for (index, segment) in segments.enumerated() {
                 // Only the first segment of a wrapped reference carries the
                 // thumbnail and label; the rest just cover its text.
                 let chip = ChipView(frame: segment.integral, reference: match.range,
                                     label: index == 0 ? label : nil, image: url.flatMap(thumbnail), missing: url == nil,
                                     background: background, fill: fill, text: text)
-                chip.onClick = { [weak self] in self?.setSelectedRange(match.range) }
-                chip.onDoubleClick = { [weak self] in self?.quickLook(url) }
+                // The editor takes focus first: Copy and Quick Look go
+                // through the responder chain, which starts there.
+                chip.onClick = { [weak self] in
+                    self?.window?.makeFirstResponder(self)
+                    self?.setSelectedRange(match.range)
+                }
+                chip.onDoubleClick = { [weak self] in
+                    self?.window?.makeFirstResponder(self)
+                    self?.setSelectedRange(match.range)
+                    self?.quickLook(url)
+                }
                 addSubview(chip)
                 chipViews.append(chip)
             }
