@@ -3,21 +3,44 @@ import SwiftUI
 
 struct NotesView: View {
     @Bindable var model: NotesModel
+
+    private func row(_ note: Note) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(note.title.isEmpty ? "Untitled" : note.title).lineLimit(1)
+            Text(note.updatedAt, style: .relative).font(.caption).foregroundStyle(.secondary)
+        }
+        .tag(note.id)
+        .contextMenu {
+            Button("Show Similar Notes", systemImage: "sparkle.magnifyingglass") { model.showSimilar(to: note.id) }
+        }
+    }
     @State private var selection: UUID?
     @State private var settingsShown = false
 
     var body: some View {
         NavigationSplitView {
             List(selection: $selection) {
-                ForEach(model.notes) { note in
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(note.title.isEmpty ? "Untitled" : note.title).lineLimit(1)
-                        Text(note.updatedAt, style: .relative).font(.caption).foregroundStyle(.secondary)
+                if let id = model.similarTo {
+                    // Similar notes in place of the list (#157).
+                    Section {
+                        ForEach(model.related) { row($0) }
+                    } header: {
+                        HStack {
+                            Text("Similar to \(model.drafts.note(id: id)?.title ?? "this note")").lineLimit(1)
+                            Spacer()
+                            Button("Done") { model.similarTo = nil }
+                        }
                     }
-                    .tag(note.id)
-                }
-                .onDelete { offsets in
-                    for index in offsets { model.delete(model.notes[index].id) }
+                } else {
+                    ForEach(model.notes) { row($0) }
+                        .onDelete { offsets in
+                            for index in offsets { model.delete(model.notes[index].id) }
+                        }
+                    if !model.related.isEmpty {
+                        Section("Similar in meaning") {
+                            ForEach(model.related) { row($0) }
+                        }
+                    }
                 }
             }
             .navigationTitle("BoopStash")

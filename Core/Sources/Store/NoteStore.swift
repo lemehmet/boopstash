@@ -251,6 +251,17 @@ public final class NoteStore: Sendable {
                 }
             }
         }
+        migrator.registerMigration("v9-embeddings") { db in
+            // Semantic search (#157): one unit-length vector per note, from
+            // its text as the hash records, rebuilt on this device and never
+            // synced. A note whose text cannot be embedded has an empty one,
+            // so it is not tried again until its text changes.
+            try db.create(table: "noteEmbedding") { t in
+                t.primaryKey("noteID", .blob).references("note", onDelete: .cascade)
+                t.column("sourceHash", .text).notNull()
+                t.column("vector", .blob).notNull()
+            }
+        }
         return migrator
     }
 

@@ -10,7 +10,12 @@ final class AppModel {
     private(set) var notes: [Note] = []
     var selection: UUID?
     var query = NoteQuery() {
-        didSet { if query != oldValue { observe() } }
+        didSet {
+            guard query != oldValue else { return }
+            // A new search ends "similar to" (#157).
+            if query.text != oldValue.text, !query.text.isEmpty { similarTo = nil }
+            observe()
+        }
     }
     /// A one-line message for the window, such as why a capture was refused.
     var banner: String?
@@ -283,11 +288,85 @@ final class AppModel {
                     self?.notes = notes
                     // A change may have added an image to read.
                     self?.recognizePendingImages()
+                    self?.embedPendingNotes()
+                    self?.findRelated()
                 }
             } catch {
                 self?.banner = "Could not read notes: \(error.localizedDescription)"
             }
         }
+    }
+
+    // MARK: Semantic search (#157)
+
+    /// Settings ▸ General ▸ Search; on unless turned off.
+    static let semanticSearchKey = "semanticSearch"
+    @ObservationIgnored var semanticSearchEnabled: () -> Bool = {
+        UserDefaults.standard.object(forKey: AppModel.semanticSearchKey) as? Bool ?? true
+    }
+    /// Notes close in meaning to the search that its words did not find,
+    /// listed after them.
+    private(set) var related: [Note] = []
+    /// The note whose similar notes the list shows, instead of a search.
+    var similarTo: UUID? {
+        didSet { if similarTo != oldValue { findRelated() } }
+    }
+    /// The bundled model, on device; replaceable for tests.
+    @ObservationIgnored var embed: Embedder = { LiveEmbedder.shared.embed($0) }
+    @ObservationIgnored private var embedding: Task<Void, Never>?
+    @ObservationIgnored private var embeddingRequested = false
+    @ObservationIgnored private var relating: Task<Void, Never>?
+
+    /// Keeps every note's embedding current, off the main actor, as the
+    /// image-text worker does.
+    func embedPendingNotes() {
+        guard semanticSearchEnabled() else { return }
+        guard embedding == nil else {
+            embeddingRequested = true
+            return
+        }
+        embeddingRequested = false
+        let store = self.store, embed = self.embed
+        embedding = Task { [weak self] in
+            await Task.detached(priority: .utility) { await store.embedPendingNotes(with: embed) }.value
+            guard let self else { return }
+            self.embedding = nil
+            if self.embeddingRequested { self.embedPendingNotes() } else { self.findRelated() }
+        }
+    }
+
+    /// Fills `related`: notes similar to the open "similar to" note, or to
+    /// the search text (three or more characters) and not already found by
+    /// its words. After a short pause, so typing is not held up.
+    func findRelated() {
+        relating?.cancel()
+        let text = query.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard semanticSearchEnabled(), similarTo != nil || text.count >= 3 else {
+            related = []
+            return
+        }
+        let store = self.store, embed = self.embed, query = self.query, similarTo = self.similarTo
+        let shown = similarTo.map { Set([$0]) } ?? Set(notes.map(\.id))
+        relating = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(250))
+            guard !Task.isCancelled else { return }
+            let found = await Task.detached(priority: .userInitiated) { () -> [Note] in
+                let vector: [Float]?
+                if let similarTo { vector = try? store.embedding(of: similarTo) } else { vector = await embed(text) }
+                guard let vector else { return [] }
+                return (try? store.notesSimilar(to: vector, within: similarTo == nil ? query : NoteQuery(), excluding: shown, limit: similarTo == nil ? 10 : 20))?.map(\.note) ?? []
+            }.value
+            guard let self, !Task.isCancelled else { return }
+            self.related = found
+        }
+    }
+
+    /// Note ▸ Show Similar Notes: the list shows the notes closest in
+    /// meaning to this one.
+    func showSimilar(to id: UUID) {
+        flush(id)
+        query.text = ""
+        similarTo = id
     }
 
     // MARK: Image text

@@ -158,8 +158,10 @@ let project = Project(
                     ],
                 ],
             ]),
-            sources: ["App/Sources/**", "App/Shared/**", "App/Adapters/**", "App/SharedViews/**"],
+            // The semantic search model (#157), compiled by Xcode.
+            sources: ["App/Sources/**", "App/Shared/**", "App/Adapters/**", "App/SharedViews/**", "Vendor/MiniLM/MiniLM.mlpackage"],
             resources: [
+                "Vendor/MiniLM/vocab.txt",
                 "App/Resources/**",
                 // Boop's scripts (ADR 0005); the app lists and sends them.
                 .folderReference(path: "Vendor/Boop/scripts"),
@@ -211,8 +213,8 @@ let project = Project(
                 // Changes from other devices arrive while in the background.
                 "UIBackgroundModes": ["remote-notification"],
             ]),
-            sources: ["iOS/Sources/**", "iOS/Shared/**", "App/Adapters/**", "App/SharedViews/**"],
-            resources: ["iOS/Resources/**"],
+            sources: ["iOS/Sources/**", "iOS/Shared/**", "App/Adapters/**", "App/SharedViews/**", "Vendor/MiniLM/MiniLM.mlpackage"],
+            resources: ["iOS/Resources/**", "Vendor/MiniLM/vocab.txt"],
             dependencies: [.target(name: "BoopstashCore"), .target(name: "BoopStashShare")],
             settings: .settings(base: [
                 "PRODUCT_MODULE_NAME": "BoopStashMobile",

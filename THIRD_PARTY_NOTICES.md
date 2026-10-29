@@ -33,6 +33,7 @@ unmodified, pinned in `Vendor/`:
 |---|---|---|
 | [Prettier](https://prettier.io) (standalone and its babel, estree, typescript, postcss, html, yaml and markdown plugins) | 3.9.9 | MIT (`Vendor/Prettier/LICENSE`); the code Prettier bundles is listed with its licences in `Vendor/Prettier/THIRD-PARTY-NOTICES.md`, as Prettier ships it |
 | [sql-formatter](https://github.com/sql-formatter-org/sql-formatter) | 15.9.0 | MIT (`Vendor/SQLFormatter/LICENSE`); its bundle includes [nearley](https://github.com/kach/nearley) (MIT) |
+| [all-MiniLM-L6-v2](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2) (sentence-transformers) | c9745ed | Apache-2.0 (`Vendor/MiniLM/LICENSE`); converted to Core ML by `scripts/models/convert-minilm.py`, for on-device semantic search |
 
 ## Boop scripts
 
