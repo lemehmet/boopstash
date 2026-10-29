@@ -1,5 +1,6 @@
 import AppKit
 import BoopstashCore
+import ImageIO
 import Quartz
 
 /// Inline image chips (#52). The note's text stays its markdown: each
@@ -63,12 +64,20 @@ final class ChipView: NSView {
 }
 
 extension BoopTextView {
-    /// Rebuilds the chips for the current text and layout.
+    /// Rebuilds the chips for the current text and layout. Every reference
+    /// keeps its range, for editing; only those on screen get a chip, so a
+    /// note with many images lays out and looks up only what is visible
+    /// (#95). Scrolling rebuilds them.
     func updateChips() {
         chipViews.forEach { $0.removeFromSuperview() }
         chipViews = []
         chipRanges = []
         guard let layout = textLayoutManager, let content = layout.textContentManager, attachmentURL != nil else { return }
+        observeScrollingForChips()
+        // The viewport is laid out by the time the view draws; before that
+        // (a note just loaded), lay it out now: it is only what is visible.
+        if layout.textViewportLayoutController.viewportRange == nil { layout.textViewportLayoutController.layoutViewport() }
+        let visible = SyntaxPainter.visibleRange(of: self, in: content)
         let origin = textContainerOrigin
         let theme = activeTheme
         let background = theme.map { NSColor($0.background) } ?? .textBackgroundColor
@@ -76,6 +85,8 @@ extension BoopTextView {
         let text = theme.map { NSColor($0.foreground) } ?? .labelColor
         for match in AttachmentReference.matches(in: string) {
             chipRanges.append(match.range)
+            // Off screen: no layout, no lookup, no view.
+            if let visible, NSMaxRange(match.range) < visible.location || match.range.location > NSMaxRange(visible) { continue }
             guard let start = content.location(content.documentRange.location, offsetBy: match.range.location),
                   let end = content.location(start, offsetBy: match.range.length),
                   let range = NSTextRange(location: start, end: end)
@@ -122,11 +133,43 @@ extension BoopTextView {
         }
     }
 
+    private func observeScrollingForChips() {
+        guard chipScrollObserver == nil, let clip = enclosingScrollView?.contentView else { return }
+        clip.postsBoundsChangedNotifications = true
+        chipScrollObserver = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification, object: clip, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.scheduleChipUpdate() }
+        }
+    }
+
+    /// The chip's picture: from the cache, or nil while a small thumbnail
+    /// is decoded off the main thread, which then rebuilds the chips (#95).
+    /// The full image is never loaded for a chip.
     private func thumbnail(_ url: URL) -> NSImage? {
         if let cached = Self.thumbnails.object(forKey: url as NSURL) { return cached }
-        guard let image = NSImage(contentsOf: url) else { return nil }
-        Self.thumbnails.setObject(image, forKey: url as NSURL)
-        return image
+        guard !Self.decoding.contains(url) else { return nil }
+        Self.decoding.insert(url)
+        Task { [weak self] in
+            let decoded = await Task.detached(priority: .utility) { Self.downsampled(url, maxPixels: 160) }.value
+            Self.decoding.remove(url)
+            guard let (image, cost) = decoded else { return }
+            Self.thumbnails.setObject(image, forKey: url as NSURL, cost: cost)
+            self?.scheduleChipUpdate()
+        }
+        return nil
+    }
+
+    /// A thumbnail at most `maxPixels` on its longer side, read with ImageIO
+    /// without decoding the whole image, and its size in bytes.
+    nonisolated static func downsampled(_ url: URL, maxPixels: Int) -> (NSImage, Int)? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary),
+              let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                  kCGImageSourceCreateThumbnailFromImageAlways: true,
+                  kCGImageSourceCreateThumbnailWithTransform: true,
+                  kCGImageSourceThumbnailMaxPixelSize: maxPixels,
+              ] as CFDictionary)
+        else { return nil }
+        let image = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+        return (image, cgImage.bytesPerRow * cgImage.height)
     }
 
     /// The reference a position falls strictly inside, if any.

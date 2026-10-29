@@ -152,4 +152,32 @@ struct ChipTests {
         view.updateChips()
         #expect(view.chipViews.isEmpty)
     }
+
+    /// Only references on screen get a chip; all keep their range, so
+    /// editing treats an off-screen one as a unit too (#95).
+    @Test func onlyVisibleReferencesGetChips() {
+        let far = String(repeating: "line\n", count: 2000)
+        let text = AttachmentReference.markdown(for: first, alt: "top") + "\n" + far + AttachmentReference.markdown(for: second, alt: "bottom")
+        let (window, view) = host(text)
+        #expect(view.chipRanges.count == 2)
+        #expect(view.chipViews.compactMap { $0.accessibilityLabel() } == ["top"])
+        window.close()
+    }
+
+    /// A chip's picture is a small thumbnail, never the full image.
+    @Test func thumbnailsAreDownsampled() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("chip-\(UUID().uuidString).png")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let big = NSImage(size: NSSize(width: 2000, height: 1000), flipped: false) { rect in
+            NSColor.systemBlue.setFill()
+            rect.fill()
+            return true
+        }
+        let tiff = try #require(big.tiffRepresentation)
+        let png = try #require(NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]))
+        try png.write(to: url)
+        let (image, cost) = try #require(BoopTextView.downsampled(url, maxPixels: 160))
+        #expect(max(image.size.width, image.size.height) <= 160)
+        #expect(cost < 160 * 160 * 4 + 1024)
+    }
 }

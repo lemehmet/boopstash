@@ -25,7 +25,18 @@ final class BoopTextView: NSTextView {
     var chipRanges: [NSRange] = []
     var chipUpdate: Task<Void, Never>?
     var quickLookSource: QuickLookSource?
-    @MainActor static let thumbnails = NSCache<NSURL, NSImage>()
+    /// Chips are rebuilt as the view scrolls: only visible references get
+    /// one (#95).
+    var chipScrollObserver: NSObjectProtocol?
+    /// Small thumbnails, decoded off the main thread, kept within a memory
+    /// budget (#95).
+    @MainActor static let thumbnails: NSCache<NSURL, NSImage> = {
+        let cache = NSCache<NSURL, NSImage>()
+        cache.totalCostLimit = 32 * 1024 * 1024
+        return cache
+    }()
+    /// Thumbnails being decoded, so a rebuild does not start another.
+    @MainActor static var decoding: Set<URL> = []
 
     override func didChangeText() {
         super.didChangeText()
