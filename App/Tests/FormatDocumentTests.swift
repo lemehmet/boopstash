@@ -82,6 +82,23 @@ struct FormatDocumentTests {
         window.close()
     }
 
+    /// The editor is reused across notes: a format started on one note is
+    /// not applied to the next, even when its text is the same.
+    @Test func aFormatIsNotAppliedToTheNextNote() async {
+        let (window, view) = host("{}", .json)
+        view.setSelectedRange(NSRange(location: 0, length: 0))
+        view.formatter = { source, language, style in
+            Thread.sleep(forTimeInterval: 0.3)
+            return DocumentFormatter.format(source, as: language, style: style)
+        }
+        let running = view.format(style: .standard)
+        view.load("{}", syntax: .language(.json))
+        view.setSelectedRange(NSRange(location: 0, length: 0))
+        await running.value
+        #expect(view.string == "{}")
+        window.close()
+    }
+
     @Test func sortingKeysFormatsJSONInKeyOrder() async {
         let source = #"{"b":1,"a":2}"#
         let (window, view) = host(source, .json)

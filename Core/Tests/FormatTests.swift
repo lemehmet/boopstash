@@ -66,6 +66,15 @@ import Testing
         #expect(JSONFormatter.format(text) == .failure(FormatError(message: message, line: line, column: column)))
     }
 
+    @Test func aCancelledFormatStops() async {
+        let deep = "[" + Array(repeating: "1", count: 200_000).joined(separator: ",") + "]"
+        let task = Task.detached { JSONFormatter.format(deep) }
+        task.cancel()
+        if case .failure(let error) = await task.value {
+            #expect(error.message == "cancelled")
+        }
+    }
+
     @Test func aByteOrderMarkIsTolerated() throws {
         #expect(try json("\u{FEFF}[1]") == "[\n  1\n]\n")
         // The caret before "1" (after the BOM and "[") stays before "1".

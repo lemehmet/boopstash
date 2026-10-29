@@ -102,6 +102,9 @@ final class BoopTextView: NSTextView {
 
     /// Replaces the whole text with another note's, and highlights it.
     func load(_ text: String, syntax choice: SyntaxChoice = .automatic) {
+        // A format still running belongs to the previous note.
+        formatting?.cancel()
+        documentGeneration += 1
         syntax.replacingDocument { string = text }
         // The new text arrives in the default font and colour.
         applyAppearance()
@@ -252,13 +255,19 @@ final class BoopTextView: NSTextView {
         let source = (snapshot as NSString).substring(with: range)
         let choice = syntax.choice
         let formatter = self.formatter
+        let generation = documentGeneration
         formatting?.cancel()
         let task = Task { [weak self] in
-            let result = await Task.detached(priority: .userInitiated) {
+            // The worker is cancelled with this task, so a superseded format
+            // stops parsing instead of running to the end.
+            let worker = Task.detached(priority: .userInitiated) {
                 formatter(source, choice.resolve(for: snapshot), style)
-            }.value
+            }
+            let result = await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
             guard let self, !Task.isCancelled else { return }
-            guard self.string == snapshot, self.selectedRange() == selection else {
+            // Another note in this reused editor, even one with the same
+            // text, is not the note that was formatted.
+            guard self.documentGeneration == generation, self.string == snapshot, self.selectedRange() == selection else {
                 self.showMessage?("The note changed while it was being formatted, so it was left as it is.")
                 return
             }
@@ -273,6 +282,9 @@ final class BoopTextView: NSTextView {
         DocumentFormatter.format($0, as: $1, style: $2)
     }
     private var formatting: Task<Void, Never>?
+    /// Counts loaded documents, so work started for one is not applied to
+    /// the next.
+    private var documentGeneration = 0
 
     private func apply(_ result: Result<String, FormatError>, source: String, range: NSRange, whole: Bool, style: DocumentFormatter.Style) {
         switch result {
