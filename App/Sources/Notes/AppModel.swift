@@ -230,6 +230,14 @@ final class AppModel {
         #if DEBUG
         // Screenshots (#69): made-up notes in memory; the real store, sync
         // and the Scripts folder are never touched.
+        // The CloudKit schema (CONTRIBUTING ▸ iCloud schema): a note with every
+        // field, synced from memory to a development build's Development
+        // environment; the real store is never opened.
+        if UserDefaults.standard.bool(forKey: "BoopStashSeedSchema") {
+            let model = AppModel(store: try DemoNotes.schemaSeedStore())
+            model.setSyncEnabled(true)
+            return model
+        }
         if UserDefaults.standard.bool(forKey: "BoopStashDemo") {
             let model = AppModel(store: try DemoNotes.store())
             let index = UserDefaults.standard.integer(forKey: "BoopStashDemoNote")

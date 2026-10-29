@@ -66,6 +66,16 @@ public enum SyncMapping {
     /// one type, so reading a record needs to know.
     public static let booleanFields: Set<String> = ["titleIsUserSet"]
 
+    /// Every encrypted field each record type can carry: the CloudKit
+    /// schema. Production accepts only fields deployed to it, so a field
+    /// added here must also be in `DemoNotes.schemaSeedStore()`, synced
+    /// from a development build, and deployed (CONTRIBUTING ▸ iCloud schema).
+    public static let schemaFields: [SyncRecord.Kind: Set<String>] = [
+        .note: ["title", "titleIsUserSet", "body", "createdAt", "updatedAt", "sourceBundleID", "sourceAppName",
+                "modelTitledHash", "syntaxOverride"],
+        .attachment: ["contentType", "byteSize", "createdAt", "recognizedText"],
+    ]
+
     public static func record(for note: Note) -> SyncRecord {
         var fields: [String: SyncValue] = [
             "title": .string(note.title),

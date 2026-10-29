@@ -18,6 +18,26 @@ public enum DemoNotes {
         return store
     }
 
+    /// One note and one image with every field the sync records can carry
+    /// set, in an in-memory store: syncing it from a development build
+    /// creates the complete CloudKit schema in the Development environment,
+    /// to be deployed to Production (see CONTRIBUTING ▸ iCloud schema).
+    /// Made-up content, like the rest.
+    public static func schemaSeedStore() throws -> NoteStore {
+        let store = try NoteStore.inMemory()
+        var note = Note(title: "Schema seed", titleIsUserSet: true, body: "", createdAt: Date(),
+                        sourceBundleID: "com.example.seed", sourceAppName: "Seed")
+        note.syntaxOverride = "json"
+        // A 1 x 1 PNG.
+        let png = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAwS2OUAAAAABJRU5ErkJggg==")!
+        let image = try store.addAttachment(png, contentType: "public.png", noteID: note.id)
+        try store.setRecognizedText("seed", for: image.id)
+        note.body = "Every synced field, set. " + AttachmentReference.markdown(for: image.id)
+        note.modelTitledHash = Note.contentHash(note.body)
+        try store.save(note)
+        return store
+    }
+
     struct Demo {
         var title: String?
         var body: String

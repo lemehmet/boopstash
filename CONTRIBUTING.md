@@ -79,6 +79,22 @@ It needs, in this repository's Actions settings:
 To cut a release: move **Unreleased** in `CHANGELOG.md` under the new version,
 merge that, then `git tag vX.Y.Z && git push origin vX.Y.Z`.
 
+## iCloud schema
+
+CloudKit creates fields automatically only in the Development environment;
+Production accepts only fields deployed to it, and rejects a record with any
+other ("Cannot create or modify field … in production schema"). The complete
+list is `SyncMapping.schemaFields`, and a test keeps
+`DemoNotes.schemaSeedStore()` in step with it. After adding a field:
+
+1. Build the app for Development with iCloud (a development profile;
+   `BOOPSTASH_ENTITLEMENTS='$(SRCROOT)/App/BoopstashCloud.entitlements'`,
+   `BOOPSTASH_ICLOUD_ENVIRONMENT=Development`, `BOOPSTASH_APS_ENVIRONMENT=development`,
+   Debug configuration) and launch it with `-BoopStashSeedSchema YES`. It syncs
+   one made-up note and image with every field set, from memory; the real
+   store is not opened.
+2. In the CloudKit Console, Schema (Development) ▸ Deploy Schema Changes.
+
 ## App Store
 
 The Mac App Store and TestFlight builds go through fastlane (`fastlane/Fastfile`,
