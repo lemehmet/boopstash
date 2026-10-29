@@ -31,6 +31,12 @@ import Testing
         #expect(linux.command(for: KeyChord("d", .command)) == .duplicateLineDown, "preset bindings survive")
     }
 
+    @Test func formatDocumentUsesEachEditorsShortcut() {
+        #expect(Keymap(preset: .vsCode).command(for: KeyChord("f", [.option, .shift])) == .formatDocument)
+        #expect(Keymap(preset: .jetBrains).command(for: KeyChord("l", [.command, .option])) == .formatDocument)
+        #expect(!Keymap(preset: .emacs).bindings.values.contains(.formatDocument), "Emacs has no standard key; the menu has it")
+    }
+
     @Test func pasteAsMarkdownIsEverywhere() {
         for preset in KeymapPreset.allCases {
             #expect(Keymap(preset: preset).command(for: KeyChord("v", [.command, .option, .shift])) == .pasteAsMarkdown)
