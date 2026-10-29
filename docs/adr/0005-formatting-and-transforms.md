@@ -1,6 +1,7 @@
 # ADR 0005 — Highlighting, formatting and transforms run in-process
 
-- **Status:** Accepted (2026-10-28)
+- **Status:** Accepted (2026-10-28); where scripts and JavaScript formatters
+  run is refined by ADR 0007 (a sandboxed XPC service, for the time limit)
 - **Deciders:** boopstash maintainers
 
 ## Context
