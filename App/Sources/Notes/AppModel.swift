@@ -44,9 +44,12 @@ final class AppModel {
     /// Applies changes from iCloud between edits: drafts are saved first,
     /// so a note being edited merges (and keeps a conflict copy) instead of
     /// being overwritten by the next keystroke, then editors reload.
-    func applyRemote(_ work: () -> Set<UUID>) {
+    @discardableResult
+    func applyRemote(_ work: () -> LiveSyncEngine.RemoteOutcome) -> LiveSyncEngine.RemoteOutcome {
         _ = flushAll()
-        for id in work() { remoteRevisions[id, default: 0] += 1 }
+        let outcome = work()
+        for id in outcome.changed { remoteRevisions[id, default: 0] += 1 }
+        return outcome
     }
 
     var isSyncing: Bool { syncEngine != nil }

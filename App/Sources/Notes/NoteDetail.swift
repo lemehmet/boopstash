@@ -41,7 +41,11 @@ struct NoteDetail: View {
                 LanguageMenu(choice: $syntax, detected: SyntaxLanguage.detect(note.body))
             }
         }
-        .onChange(of: syntax) { model.setSyntax(note.id, to: syntax) }
+        // Compared with the note as it is now, so taking a remote change
+        // into these fields is not itself saved as an edit.
+        .onChange(of: syntax) {
+            if syntax != model.note(id: note.id)?.syntaxChoice { model.setSyntax(note.id, to: syntax) }
+        }
         .onAppear {
             title = note.titleIsUserSet ? note.title : ""
             syntax = note.syntaxChoice
@@ -50,11 +54,21 @@ struct NoteDetail: View {
             title = note.titleIsUserSet ? note.title : ""
             liveText = nil
         }
+        // Changed in iCloud while open (#128): the editor reloads itself;
+        // the title, language and preview follow the merged note.
+        .onChange(of: model.remoteRevisions[note.id]) {
+            guard let merged = model.note(id: note.id) else { return }
+            title = merged.titleIsUserSet ? merged.title : ""
+            syntax = merged.syntaxChoice
+            if liveText != nil { liveText = merged.body }
+        }
         .onChange(of: previewShown) { _, shown in
             if !shown { liveText = nil }
         }
         .onChange(of: title) {
-            if title.isEmpty || title != note.title { model.rename(note.id, to: title) }
+            let current = model.note(id: note.id)
+            let shown = current.map { $0.titleIsUserSet ? $0.title : "" } ?? ""
+            if title != shown { model.rename(note.id, to: title) }
         }
     }
 }
