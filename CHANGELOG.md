@@ -6,6 +6,11 @@ breaking changes may land in a minor release.
 
 ## Unreleased
 
+- Images in a note show as chips in the editor: a thumbnail and the image's
+  description in place of its `![](attachment:…)` reference. A chip is one
+  unit: one Backspace removes it, the caret steps over it, and copying it
+  copies its markdown. Double-click a chip to see the image in Quick Look.
+
 - Edit ▸ Format Document reformats JSON and XML (property lists included) by
   the note's language, or just the selection: ⇧⌥F with VS Code keys, ⌥⌘L
   with JetBrains keys. JSON keeps every number, escape and key order as

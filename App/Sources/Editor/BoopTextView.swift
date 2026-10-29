@@ -13,6 +13,52 @@ final class BoopTextView: NSTextView {
     /// that only make sense in an editor can be disabled elsewhere (#25).
     var onFocusChange: ((Bool) -> Void)?
 
+    // MARK: Chips (#52)
+
+    /// An attachment's file, or nil when it is missing; set by the host.
+    /// While nil, references show as their markdown.
+    var attachmentURL: ((UUID) -> URL?)? {
+        didSet { scheduleChipUpdate() }
+    }
+    var chipViews: [ChipView] = []
+    var chipRanges: [NSRange] = []
+    var chipUpdate: Task<Void, Never>?
+    var quickLookSource: QuickLookSource?
+    @MainActor static let thumbnails = NSCache<NSURL, NSImage>()
+
+    override func didChangeText() {
+        super.didChangeText()
+        scheduleChipUpdate()
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        let widthChanged = newSize.width != frame.width
+        super.setFrameSize(newSize)
+        if widthChanged { scheduleChipUpdate() }
+    }
+
+    override func setSelectedRanges(_ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting: Bool) {
+        let previous = selectedRange()
+        super.setSelectedRanges(stillSelecting ? ranges : snapped(ranges, from: previous), affinity: affinity, stillSelecting: stillSelecting)
+    }
+
+    /// A reference goes in one keystroke, as one undo step.
+    override func deleteBackward(_ sender: Any?) {
+        let selection = selectedRange()
+        if selection.length == 0, let chip = chipRanges.first(where: { NSMaxRange($0) == selection.location }) {
+            setSelectedRange(chip)
+        }
+        super.deleteBackward(sender)
+    }
+
+    override func deleteForward(_ sender: Any?) {
+        let selection = selectedRange()
+        if selection.length == 0, let chip = chipRanges.first(where: { $0.location == selection.location }) {
+            setSelectedRange(chip)
+        }
+        super.deleteForward(sender)
+    }
+
     override func becomeFirstResponder() -> Bool {
         let became = super.becomeFirstResponder()
         if became { onFocusChange?(true) }
@@ -92,6 +138,8 @@ final class BoopTextView: NSTextView {
         enclosingScrollView?.backgroundColor = backgroundColor
         syntax.theme = theme
         SyntaxPainter.markForRedisplay(self)
+        // Chips take the theme's colours.
+        scheduleChipUpdate()
     }
 
     /// Light and dark themes switch with the system appearance.
@@ -103,6 +151,8 @@ final class BoopTextView: NSTextView {
     /// Replaces the whole text with another note's, and highlights it.
     func load(_ text: String, syntax choice: SyntaxChoice = .automatic) {
         syntax.replacingDocument { string = text }
+        // A replaced document sends no didChangeText.
+        scheduleChipUpdate()
         // The new text arrives in the default font and colour.
         applyAppearance()
         syntax.load(text, choice: choice)

@@ -12,6 +12,8 @@ struct EditorView: NSViewRepresentable {
     var syntax: SyntaxChoice = .automatic
     var appearance = EditorAppearance()
     var showMessage: (String) -> Void = { _ in }
+    /// An attachment's file for its chip, nil when missing.
+    var attachmentURL: ((UUID) -> URL?)?
     /// Called when this editor gains or loses focus, goes away, or its
     /// language changes: what the editor-only menu commands depend on.
     var onFocusChange: () -> Void = {}
@@ -30,6 +32,7 @@ struct EditorView: NSViewRepresentable {
         view.keymap = keymap
         view.editorAppearance = appearance
         view.showMessage = showMessage
+        if view.attachmentURL == nil { view.attachmentURL = attachmentURL }
         view.onFocusChange = { _ in onFocusChange() }
         view.syntax.onLanguageChange = onFocusChange
         context.coordinator.onFocusChange = onFocusChange

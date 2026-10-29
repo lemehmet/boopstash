@@ -45,6 +45,15 @@ import Testing
                 "a plain link is not an image reference")
     }
 
+    @Test func matchesGiveRangesIDsAndAltText() {
+        let a = UUID(), b = UUID()
+        let body = "x " + AttachmentReference.markdown(for: a, alt: "a]b") + " y " + AttachmentReference.markdown(for: b)
+        let found = AttachmentReference.matches(in: body)
+        #expect(found.map(\.id) == [a, b])
+        #expect(found.map(\.alt) == ["a]b", ""])
+        #expect((body as NSString).substring(with: found[1].range) == AttachmentReference.markdown(for: b))
+    }
+
     @Test func rewritingReplacesOnlyKnownReferences() {
         let known = UUID(), unknown = UUID()
         let body = "\(AttachmentReference.markdown(for: known, alt: "k")) \(AttachmentReference.markdown(for: unknown))"
