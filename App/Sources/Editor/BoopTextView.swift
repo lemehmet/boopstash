@@ -158,6 +158,11 @@ final class BoopTextView: NSTextView {
         formatting?.cancel()
         documentGeneration += 1
         syntax.replacingDocument { string = text }
+        // The previous note's chips and ranges go now, not after the
+        // deferred rebuild: a keystroke in between would act on them (#94).
+        chipViews.forEach { $0.removeFromSuperview() }
+        chipViews = []
+        chipRanges = attachmentURL == nil ? [] : AttachmentReference.matches(in: text).map(\.range)
         // A replaced document sends no didChangeText.
         scheduleChipUpdate()
         // The new text arrives in the default font and colour.

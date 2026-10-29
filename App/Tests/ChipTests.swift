@@ -80,6 +80,29 @@ struct ChipTests {
         window.close()
     }
 
+    /// Loading another note replaces the chip ranges at once: a delete
+    /// straight after the load acts on the new text (#94).
+    @Test func loadingANoteReplacesItsRangesAtOnce() {
+        // The old note starts with a long reference; the new one with a
+        // different reference: only ranges recomputed for the new text make
+        // one Forward Delete remove exactly its reference.
+        let (window, view) = host(AttachmentReference.markdown(for: first, alt: "a much longer alt text here") + " old note")
+        let next = AttachmentReference.markdown(for: second) + "tail"
+        view.load(next)
+        view.setSelectedRange(NSRange(location: 0, length: 0))
+        view.deleteForward(nil)
+        #expect(view.string == "tail")
+        #expect(view.chipViews.isEmpty)
+        window.close()
+    }
+
+    @Test func aNarrowSegmentHasNoDecoration() {
+        let chip = ChipView(frame: NSRect(x: 0, y: 0, width: 8, height: 16), reference: NSRange(location: 0, length: 1),
+                            label: "plot", image: nil, missing: false, background: .white, fill: .gray, text: .black)
+        #expect(chip.subviews.count == 1, "only the pill")
+        #expect(chip.layer?.masksToBounds == true)
+    }
+
     @Test func forwardDeleteRemovesTheReferenceAhead() {
         let (window, view) = host(body)
         let chip = range(of: second, in: body)

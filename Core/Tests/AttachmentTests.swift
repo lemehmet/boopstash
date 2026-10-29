@@ -71,6 +71,45 @@ import Testing
         #expect(found.map(\.id) == [id] && found.map(\.alt) == ["plot"])
     }
 
+    /// Every form the preview shows is a reference clean-up keeps (#88).
+    @Test(arguments: ["![x](<attachment:%@>)", "![x](attachment:%@ \"title\")", "![x]( attachment:%@ )", "![x](<attachment:%@> 'title')",
+                      #"![x](attachment:%@ "a \"quoted\" title")"#, #"![x](attachment:%@ 'it\'s')"#, #"![x](attachment:%@ (a \) paren))"#])
+    func everyDestinationFormIsAReference(_ form: String) throws {
+        let owner = try note("")
+        let image = try store.addAttachment(png, contentType: "public.png", noteID: owner.id)
+        let body = String(format: form, image.id.uuidString)
+        #expect(AttachmentReference.ids(in: body) == [image.id])
+        #expect(AttachmentReference.matches(in: body).first?.alt == "x")
+        _ = try note(body)
+        try store.delete(id: owner.id)
+        #expect(try store.attachment(id: image.id) != nil, "\(body) still shows it")
+    }
+
+    /// Reference-style images and escaped line breaks in titles (#104).
+    @Test(arguments: ["![plot][img]\n\n[img]: attachment:%@", "![plot][img]\n\n[img]:\n  <attachment:%@> \"t\"",
+                      "![x](attachment:%@ \"a\\\nb\")"])
+    func otherFormsAreReferencesToo(_ form: String) throws {
+        let owner = try note("")
+        let image = try store.addAttachment(png, contentType: "public.png", noteID: owner.id)
+        let body = String(format: form, image.id.uuidString)
+        #expect(AttachmentReference.ids(in: body) == [image.id], "\(body)")
+        _ = try note(body)
+        try store.delete(id: owner.id)
+        #expect(try store.attachment(id: image.id) != nil)
+    }
+
+    @Test func exportRewritesDefinitionsToo() {
+        let id = UUID()
+        let body = "![x][a]\n\n[a]: attachment:\(id.uuidString)"
+        #expect(AttachmentReference.rewriting(body) { _ in "attachments/a.png" } == "![x][a]\n\n[a]: attachments/a.png")
+    }
+
+    @Test func rewritingKeepsTheFormAroundTheDestination() {
+        let id = UUID()
+        let body = "![x](<attachment:\(id.uuidString)> \"t\")"
+        #expect(AttachmentReference.rewriting(body) { _ in "attachments/a.png" } == #"![x](<attachments/a.png> "t")"#)
+    }
+
     @Test func rewritingReplacesOnlyKnownReferences() {
         let known = UUID(), unknown = UUID()
         let body = "\(AttachmentReference.markdown(for: known, alt: "k")) \(AttachmentReference.markdown(for: unknown))"

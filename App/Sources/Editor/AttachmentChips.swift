@@ -17,6 +17,8 @@ final class ChipView: NSView {
         super.init(frame: frame)
         wantsLayer = true
         layer?.backgroundColor = background.cgColor
+        // Nothing drawn outside the reference's own text (#96).
+        layer?.masksToBounds = true
         let pill = NSView(frame: bounds.insetBy(dx: 0, dy: 1))
         pill.autoresizingMask = [.width, .height]
         pill.wantsLayer = true
@@ -25,6 +27,9 @@ final class ChipView: NSView {
         addSubview(pill)
         guard let label else { return }
         let height = max(bounds.height - 4, 8)
+        // A segment too narrow for a picture and a few letters (a wrapped
+        // reference's first line can be a character wide) stays plain.
+        guard bounds.width >= height * 1.4 + 24 else { return }
         var x: CGFloat = 4
         if let image, !missing {
             let thumbnail = NSImageView(frame: NSRect(x: x, y: 2, width: height * 1.4, height: height))
