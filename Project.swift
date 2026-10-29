@@ -87,6 +87,11 @@ let project = Project(
     packages: [
         // SQLite toolkit for the store and its FTS5 index (ADR 0002).
         .remote(url: "https://github.com/groue/GRDB.swift", requirement: .exact("7.11.1")),
+        // CommonMark and GitHub's extensions for the markdown preview.
+        // swift-markdown follows swift-cmark's gfm branch, which has no
+        // releases; it is pinned here to a revision so builds repeat.
+        .remote(url: "https://github.com/swiftlang/swift-markdown", requirement: .exact("0.9.0")),
+        .remote(url: "https://github.com/swiftlang/swift-cmark", requirement: .revision("a7ecfef490df1b17927ea828bc2a73cc0b69990d")),
     ] + syntaxPackages,
     settings: .settings(
         base: baseSettings,
@@ -104,7 +109,7 @@ let project = Project(
             deploymentTargets: coreDeployment,
             infoPlist: .default,
             sources: ["Core/Sources/**"],
-            dependencies: [.package(product: "GRDB")] + syntaxProducts.map { .package(product: $0) }
+            dependencies: [.package(product: "GRDB"), .package(product: "Markdown")] + syntaxProducts.map { .package(product: $0) }
         ),
         // Tests run on macOS: no simulator to boot, and Core is pure Foundation
         // so the platform does not change what is being tested. CI separately

@@ -10,6 +10,8 @@ licence.
 | [GRDB.swift](https://github.com/groue/GRDB.swift) | MIT | The note store and its full-text index |
 | [SwiftTreeSitter](https://github.com/tree-sitter/swift-tree-sitter) | BSD-3-Clause | Parsing for syntax highlighting |
 | [tree-sitter](https://github.com/tree-sitter/tree-sitter) | MIT | The parsing runtime |
+| [swift-markdown](https://github.com/swiftlang/swift-markdown) | Apache-2.0 | Parsing markdown for the preview |
+| [swift-cmark](https://github.com/swiftlang/swift-cmark) (cmark-gfm) | BSD-2-Clause, with MIT-licensed parts | The CommonMark and GitHub-extension parser beneath it |
 
 ## Grammars
 

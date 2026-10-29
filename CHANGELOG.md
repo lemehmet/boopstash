@@ -6,6 +6,12 @@ breaking changes may land in a minor release.
 
 ## Unreleased
 
+- View ▸ Show Preview (⌥⌘P) shows the note rendered: headings, emphasis,
+  lists and task lists, quotes, tables, highlighted code and images stored
+  with the note, beside the editor or in its place. The preview is drawn
+  natively and never loads anything: remote images are named, not fetched,
+  and HTML in a note is shown as text.
+
 ## v0.1.1 — 2026-10-28
 
 ### New

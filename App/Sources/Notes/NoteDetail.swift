@@ -8,6 +8,11 @@ struct NoteDetail: View {
     let appearance: EditorAppearance
     @State private var title = ""
     @State private var syntax: SyntaxChoice = .automatic
+    @AppStorage(PreviewSettings.shownKey) private var previewShown = false
+    @AppStorage(PreviewSettings.sideBySideKey) private var sideBySide = true
+    /// The text as typed, for the preview; drafts are not observed, so the
+    /// editor reports here while a preview shows.
+    @State private var liveText: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -18,8 +23,15 @@ struct NoteDetail: View {
                 .padding(.top, 12)
                 .padding(.bottom, 4)
             Divider()
-            EditorView(noteID: note.id, initialText: note.body, keymap: keymap, syntax: syntax, appearance: appearance, showMessage: { model.banner = $0 }, onFocusChange: { model.editorFocusMayHaveChanged() }) { text in
-                model.updateBody(note.id, to: text)
+            if previewShown && sideBySide {
+                HSplitView {
+                    editor.frame(minWidth: 240)
+                    preview.frame(minWidth: 240)
+                }
+            } else if previewShown {
+                preview
+            } else {
+                editor
             }
         }
         // A generated title shows as the placeholder and stays out of the
@@ -36,9 +48,26 @@ struct NoteDetail: View {
         }
         .onChange(of: note.id) {
             title = note.titleIsUserSet ? note.title : ""
+            liveText = nil
         }
         .onChange(of: title) {
             if title.isEmpty || title != note.title { model.rename(note.id, to: title) }
+        }
+    }
+}
+
+extension NoteDetail {
+    private var editor: some View {
+        EditorView(noteID: note.id, initialText: note.body, keymap: keymap, syntax: syntax, appearance: appearance, showMessage: { model.banner = $0 }, onFocusChange: { model.editorFocusMayHaveChanged() }) { text in
+            model.updateBody(note.id, to: text)
+            if previewShown { liveText = text }
+        }
+    }
+
+    private var preview: some View {
+        PreviewView(markdown: liveText ?? note.body, appearance: appearance) { [store = model.store] id in
+            guard let attachment = try? store.attachment(id: id) else { return nil }
+            return NSImage(contentsOf: store.fileURL(for: attachment))
         }
     }
 }
