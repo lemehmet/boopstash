@@ -34,11 +34,15 @@ extension NoteStore {
     public func acknowledgeSave(kind: SyncRecord.Kind, name: String, version: Int, systemFields: Data) throws {
         guard let id = UUID(uuidString: name) else { return }
         try writer.write { db in
+            // Metadata from the server is kept unless the row was changed
+            // since and has none: then the server deleted the record
+            // meanwhile, and the row must go up again as new.
             try db.execute(sql: """
-                UPDATE \(Self.table(kind)) SET syncSystemFields = ?,
+                UPDATE \(Self.table(kind)) SET
+                    syncSystemFields = CASE WHEN syncPending = ? OR syncSystemFields IS NOT NULL THEN ? ELSE syncSystemFields END,
                     syncPending = CASE WHEN syncPending = ? THEN 0 ELSE syncPending END
                 WHERE id = ?
-                """, arguments: [systemFields, version, id])
+                """, arguments: [version, systemFields, version, id])
         }
     }
 
@@ -54,6 +58,13 @@ extension NoteStore {
     /// an attachment's file, written before its row.
     @discardableResult
     public func applyServerRecord(_ record: SyncRecord, systemFields: Data, assetData: Data? = nil, now: Date = Date()) throws -> Note? {
+        // Deleted here, deletion not yet sent: a stale save from the server
+        // must not bring the record back.
+        let tombstoned = try writer.read { db in
+            try Bool.fetchOne(db, sql: "SELECT EXISTS (SELECT 1 FROM syncTombstone WHERE kind = ? AND name = ?)",
+                              arguments: [record.kind.rawValue, record.name]) ?? false
+        }
+        guard !tombstoned else { return nil }
         switch record.kind {
         case .attachment:
             guard let attachment = SyncMapping.attachment(from: record) else { return nil }
@@ -64,6 +75,9 @@ extension NoteStore {
             let pending = try writer.read { db in
                 try Int.fetchOne(db, sql: "SELECT syncPending FROM attachment WHERE id = ?", arguments: [attachment.id])
             }
+            // A row is written only after its file (the store's rule): a new
+            // attachment without its asset waits for one.
+            if pending == nil, assetData == nil { return nil }
             // A new image, or one unchanged here, takes the server's file and
             // fields; one changed here keeps its own until it is sent.
             if let assetData, (pending ?? 0) == 0 {
@@ -109,15 +123,16 @@ extension NoteStore {
     /// deletion must not silently discard an edit made here.
     public func applyServerDeletion(kind: SyncRecord.Kind, name: String) throws {
         guard let id = UUID(uuidString: name) else { return }
-        let kept = try writer.write { db -> Bool in
-            let table = Self.table(kind)
-            guard let pending = try Int.fetchOne(db, sql: "SELECT syncPending FROM \(table) WHERE id = ?", arguments: [id]),
-                  pending > 0 else { return false }
-            try db.execute(sql: "UPDATE \(table) SET syncSystemFields = NULL WHERE id = ?", arguments: [id])
-            return true
-        }
-        guard !kept else { return }
+        // Check and delete in one transaction: an edit saved in between
+        // would otherwise be deleted without a trace.
         let removed = try writer.write { db -> NoteAttachment? in
+            let table = Self.table(kind)
+            if let pending = try Int.fetchOne(db, sql: "SELECT syncPending FROM \(table) WHERE id = ?", arguments: [id]), pending > 0 {
+                // Kept and sent again as new; the version moves on, so an
+                // acknowledgement of the upload in flight cannot clear it.
+                try db.execute(sql: "UPDATE \(table) SET syncSystemFields = NULL, syncPending = syncPending + 1 WHERE id = ?", arguments: [id])
+                return nil
+            }
             switch kind {
             case .note:
                 _ = try Note.deleteOne(db, key: id)

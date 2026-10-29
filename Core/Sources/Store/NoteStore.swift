@@ -243,6 +243,7 @@ public final class NoteStore: Sendable {
     public func deleteAttachment(id: UUID) throws {
         let removed = try writer.write { db -> NoteAttachment? in
             let attachment = try NoteAttachment.fetchOne(db, key: id)
+            try Self.recordTombstone(kind: .attachment, id: id, table: "attachment", db)
             _ = try NoteAttachment.deleteOne(db, key: id)
             return attachment
         }
@@ -280,8 +281,14 @@ public final class NoteStore: Sendable {
         let cutoff = now.addingTimeInterval(-grace)
         let (orphans, known) = try writer.write { db -> ([NoteAttachment], Set<UUID>) in
             let referenced = try Self.referencedAttachmentIDs(db)
+            // An attachment that came from iCloud before its note did is
+            // not an orphan yet: its note is still on its way.
+            let waiting = try UUID.fetchSet(db, sql: """
+                SELECT id FROM attachment WHERE syncSystemFields IS NOT NULL AND noteID IS NOT NULL
+                    AND noteID NOT IN (SELECT id FROM note)
+                """)
             let orphans = try NoteAttachment.filter(Column("createdAt") < cutoff).fetchAll(db)
-                .filter { !referenced.contains($0.id) }
+                .filter { !referenced.contains($0.id) && !waiting.contains($0.id) }
             for orphan in orphans { try Self.recordTombstone(kind: .attachment, id: orphan.id, table: "attachment", db) }
             try NoteAttachment.deleteAll(db, keys: orphans.map(\.id))
             let known = try UUID.fetchSet(db, sql: "SELECT id FROM attachment")

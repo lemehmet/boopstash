@@ -178,6 +178,57 @@ import Testing
         #expect(record.name == mine.id.uuidString.lowercased() && systemFields == nil, "sent as new")
     }
 
+    /// Recovery from a server deletion survives the acknowledgement of the
+    /// upload that was in flight: the edit still goes up as new.
+    @Test func anAcknowledgementDoesNotUndoDeletionRecovery() throws {
+        var mine = note("synced")
+        try store.applyServerRecord(SyncMapping.record(for: mine), systemFields: fields)
+        mine.body = "edited"
+        try store.save(mine)
+        let name = mine.id.uuidString.lowercased()
+        let sent = try #require(try version(of: name))
+        try store.applyServerDeletion(kind: .note, name: name)
+        try store.acknowledgeSave(kind: .note, name: name, version: sent, systemFields: fields)
+        guard case .save(_, let systemFields, _) = try store.pendingSyncChanges().first else {
+            Issue.record("no longer pending")
+            return
+        }
+        #expect(systemFields == nil, "still sent as new")
+    }
+
+    /// Deleted here while a stale save comes from the server: the deletion
+    /// wins and the note does not come back.
+    @Test func aTombstoneWinsOverAStaleServerSave() throws {
+        let synced = note("x")
+        try store.applyServerRecord(SyncMapping.record(for: synced), systemFields: fields)
+        try store.delete(id: synced.id)
+        try store.applyServerRecord(SyncMapping.record(for: synced), systemFields: fields)
+        #expect(try store.note(id: synced.id) == nil)
+        try store.acknowledgeDelete(kind: .note, name: synced.id.uuidString.lowercased())
+        #expect(try store.note(id: synced.id) == nil)
+    }
+
+    @Test func aNewAttachmentWithoutItsAssetWaits() throws {
+        let attachment = NoteAttachment(noteID: nil, contentType: "public.png", byteSize: 3)
+        try store.applyServerRecord(SyncMapping.record(for: attachment, file: URL(fileURLWithPath: "/unused")), systemFields: fields)
+        #expect(try store.attachment(id: attachment.id) == nil)
+    }
+
+    /// An attachment from iCloud whose note has not arrived yet is not
+    /// swept as an orphan (and so not deleted on every device).
+    @Test func theSweepWaitsForAnAttachmentsNote() throws {
+        let attachment = NoteAttachment(noteID: UUID(), contentType: "public.png", byteSize: 3, createdAt: Date(timeIntervalSince1970: 0))
+        try store.applyServerRecord(SyncMapping.record(for: attachment, file: URL(fileURLWithPath: "/unused")), systemFields: fields, assetData: Data([1, 2, 3]))
+        #expect(try store.removeUnreferencedAttachments() == 0)
+        #expect(try store.attachment(id: attachment.id) != nil)
+    }
+
+    @Test func deletingAnAttachmentDirectlyIsSent() throws {
+        let attachment = try store.addAttachment(Data([1]), contentType: "public.png", noteID: nil)
+        try store.deleteAttachment(id: attachment.id)
+        #expect(try pendingNames() == ["delete Attachment \(attachment.id.uuidString.lowercased())"])
+    }
+
     @Test func aServerDeletionLeavesNoTombstone() throws {
         let remote = note("gone soon")
         try store.applyServerRecord(SyncMapping.record(for: remote), systemFields: fields)
