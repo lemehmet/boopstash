@@ -61,12 +61,25 @@ extension NoteStore {
                 try FileManager.default.createDirectory(at: attachmentsDirectory, withIntermediateDirectories: true)
                 try assetData.write(to: fileURL(for: attachment), options: .atomic)
             }
+            let pending = try writer.read { db in
+                try Int.fetchOne(db, sql: "SELECT syncPending FROM attachment WHERE id = ?", arguments: [attachment.id])
+            }
+            // A new image, or one unchanged here, takes the server's file and
+            // fields; one changed here keeps its own until it is sent.
+            if let assetData, (pending ?? 0) == 0 {
+                try FileManager.default.createDirectory(at: attachmentsDirectory, withIntermediateDirectories: true)
+                try assetData.write(to: fileURL(for: attachment), options: .atomic)
+            }
             try writer.write { db in
-                if try NoteAttachment.exists(db, key: attachment.id) {
-                    try db.execute(sql: "UPDATE attachment SET syncSystemFields = ? WHERE id = ?", arguments: [systemFields, attachment.id])
-                } else {
+                switch pending {
+                case nil:
                     try attachment.insert(db)
                     try db.execute(sql: "UPDATE attachment SET syncPending = 0, syncSystemFields = ? WHERE id = ?", arguments: [systemFields, attachment.id])
+                case 0?:
+                    try attachment.update(db)
+                    try db.execute(sql: "UPDATE attachment SET syncSystemFields = ? WHERE id = ?", arguments: [systemFields, attachment.id])
+                default:
+                    try db.execute(sql: "UPDATE attachment SET syncSystemFields = ? WHERE id = ?", arguments: [systemFields, attachment.id])
                 }
             }
             return nil
@@ -91,9 +104,19 @@ extension NoteStore {
     }
 
     /// The server deleted a record: it goes here too, without a tombstone,
-    /// since there is nothing to tell the server.
+    /// since there is nothing to tell the server. A record with changes not
+    /// yet sent is kept instead, and sent again as new: another device's
+    /// deletion must not silently discard an edit made here.
     public func applyServerDeletion(kind: SyncRecord.Kind, name: String) throws {
         guard let id = UUID(uuidString: name) else { return }
+        let kept = try writer.write { db -> Bool in
+            let table = Self.table(kind)
+            guard let pending = try Int.fetchOne(db, sql: "SELECT syncPending FROM \(table) WHERE id = ?", arguments: [id]),
+                  pending > 0 else { return false }
+            try db.execute(sql: "UPDATE \(table) SET syncSystemFields = NULL WHERE id = ?", arguments: [id])
+            return true
+        }
+        guard !kept else { return }
         let removed = try writer.write { db -> NoteAttachment? in
             switch kind {
             case .note:
@@ -131,11 +154,14 @@ extension NoteStore {
         }
     }
 
-    /// Records a deletion for the server, if the server has the record.
+    /// Records a deletion for the server. Always, even for a record the
+    /// server may not have: its first upload can be on its way, and without
+    /// a tombstone it would reappear from iCloud. Deleting a record the
+    /// server never got is harmless (the adapter treats "unknown item" on a
+    /// delete as done).
     static func recordTombstone(kind: SyncRecord.Kind, id: UUID, table: String, _ db: Database) throws {
-        guard let row = try Row.fetchOne(db, sql: "SELECT syncSystemFields FROM \(table) WHERE id = ?", arguments: [id]),
-              let systemFields = row["syncSystemFields"] as Data?
-        else { return }
+        guard let row = try Row.fetchOne(db, sql: "SELECT syncSystemFields FROM \(table) WHERE id = ?", arguments: [id]) else { return }
+        let systemFields = row["syncSystemFields"] as Data?
         try db.execute(sql: "INSERT OR REPLACE INTO syncTombstone (kind, name, systemFields) VALUES (?, ?, ?)",
                        arguments: [kind.rawValue, id.uuidString.lowercased(), systemFields])
     }

@@ -77,18 +77,27 @@ import Testing
         #expect(try pendingNames() == ["save Note \(name)"])
     }
 
-    @Test func deletingASyncedNoteLeavesATombstoneAnUnsyncedOneDoesNot() throws {
+    @Test func deletingASyncedNoteLeavesATombstone() throws {
         let synced = note("a")
-        let local = note("b")
         try store.save(synced)
-        try store.save(local)
         let name = synced.id.uuidString.lowercased()
         try store.acknowledgeSave(kind: .note, name: name, version: try #require(try version(of: name)), systemFields: fields)
         try store.delete(id: synced.id)
-        try store.delete(id: local.id)
         #expect(try pendingNames() == ["delete Note \(name)"])
         try store.acknowledgeDelete(kind: .note, name: name)
         #expect(try pendingNames().isEmpty)
+    }
+
+    /// Deleted while its first upload may be on its way: the server still
+    /// hears of the deletion, so the note does not come back.
+    @Test func aDeletionDuringTheFirstUploadIsStillSent() throws {
+        let fresh = note("new")
+        try store.save(fresh)
+        let name = fresh.id.uuidString.lowercased()
+        let sent = try #require(try version(of: name))
+        try store.delete(id: fresh.id)
+        try store.acknowledgeSave(kind: .note, name: name, version: sent, systemFields: fields)
+        #expect(try pendingNames() == ["delete Note \(name)"])
     }
 
     // MARK: Server changes
@@ -153,6 +162,22 @@ import Testing
         #expect(SyncMerge.merge(local: local, server: server).note.title == "Server")
     }
 
+    /// Another device deleted a note this one edited: the edit is kept and
+    /// sent again as a new record.
+    @Test func aServerDeletionKeepsUnsentEdits() throws {
+        var mine = note("synced")
+        try store.applyServerRecord(SyncMapping.record(for: mine), systemFields: fields)
+        mine.body = "edited here"
+        try store.save(mine)
+        try store.applyServerDeletion(kind: .note, name: mine.id.uuidString.lowercased())
+        #expect(try store.note(id: mine.id)?.body == "edited here")
+        guard case .save(let record, let systemFields, _) = try store.pendingSyncChanges().first else {
+            Issue.record("not pending")
+            return
+        }
+        #expect(record.name == mine.id.uuidString.lowercased() && systemFields == nil, "sent as new")
+    }
+
     @Test func aServerDeletionLeavesNoTombstone() throws {
         let remote = note("gone soon")
         try store.applyServerRecord(SyncMapping.record(for: remote), systemFields: fields)
@@ -167,6 +192,18 @@ import Testing
         try store.applyServerRecord(record, systemFields: fields, assetData: Data([1, 2, 3]))
         let stored = try #require(try store.attachment(id: attachment.id))
         #expect(try store.data(for: stored) == Data([1, 2, 3]))
+        #expect(try pendingNames().isEmpty)
+    }
+
+    @Test func aServerUpdateToAnAttachmentApplies() throws {
+        var attachment = NoteAttachment(noteID: nil, contentType: "public.png", byteSize: 3)
+        try store.applyServerRecord(SyncMapping.record(for: attachment, file: URL(fileURLWithPath: "/unused")), systemFields: fields, assetData: Data([1, 2, 3]))
+        attachment.recognizedText = "read elsewhere"
+        attachment.byteSize = 4
+        try store.applyServerRecord(SyncMapping.record(for: attachment, file: URL(fileURLWithPath: "/unused")), systemFields: fields, assetData: Data([1, 2, 3, 4]))
+        let stored = try #require(try store.attachment(id: attachment.id))
+        #expect(stored.recognizedText == "read elsewhere" && stored.byteSize == 4)
+        #expect(try store.data(for: stored) == Data([1, 2, 3, 4]))
         #expect(try pendingNames().isEmpty)
     }
 
