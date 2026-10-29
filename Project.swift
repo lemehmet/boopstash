@@ -153,10 +153,14 @@ let project = Project(
                     ],
                 ],
             ]),
-            sources: ["App/Sources/**"],
-            resources: ["App/Resources/**"],
+            sources: ["App/Sources/**", "App/Shared/**"],
+            resources: [
+                "App/Resources/**",
+                // Boop's scripts (ADR 0005); the app lists and sends them.
+                .folderReference(path: "Vendor/Boop/scripts"),
+            ],
             entitlements: .file(path: "App/Boopstash.entitlements"),
-            dependencies: [.target(name: "BoopstashCore")],
+            dependencies: [.target(name: "BoopstashCore"), .target(name: "BoopStashScripts")],
             // Notarization requires the hardened runtime; every build has it
             // so what is tested is what ships (ADR 0004).
             settings: .settings(base: [
@@ -166,6 +170,29 @@ let project = Project(
                 // so the system's applies.
                 "ASSETCATALOG_COMPILER_APPICON_NAME": "AppIcon",
                 "ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME": "",
+            ])
+        ),
+        // Runs scripts and JavaScript formatters in its own sandboxed
+        // process, so a runaway script can be stopped (ADR 0007).
+        .target(
+            name: "BoopStashScripts",
+            destinations: .macOS,
+            product: .xpc,
+            bundleId: "\(appBundleId).scripts",
+            deploymentTargets: macDeployment,
+            infoPlist: .extendingDefault(with: [
+                "CFBundleShortVersionString": "$(MARKETING_VERSION)",
+                "CFBundleVersion": "$(CURRENT_PROJECT_VERSION)",
+                "XPCService": ["ServiceType": "Application"],
+            ]),
+            sources: ["App/ScriptService/**", "App/Shared/**"],
+            resources: [.folderReference(path: "Vendor/Boop/lib")],
+            entitlements: .file(path: "App/ScriptService.entitlements"),
+            dependencies: [.target(name: "BoopstashCore")],
+            settings: .settings(base: [
+                "ENABLE_HARDENED_RUNTIME": "YES",
+                // BoopstashCore is embedded once, in the app's Frameworks.
+                "LD_RUNPATH_SEARCH_PATHS": "$(inherited) @executable_path/../../../../Frameworks",
             ])
         ),
         // Hosted by the app: the editor needs a window, a responder chain

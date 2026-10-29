@@ -16,6 +16,11 @@ around that, and each point is enforceable rather than aspirational:
 - **The app is sandboxed in every build.** Homebrew and App Store builds are the
   same code with the same entitlements. `App/Boopstash.entitlements` is the
   complete list of what the app may reach.
+- **Scripts run in a separate, emptier sandbox.** Boop scripts and the
+  JavaScript formatters run in a bundled XPC service whose only entitlement
+  is the sandbox itself (`App/ScriptService.entitlements`, ADR 0007): no
+  network, no files, none of your notes beyond the text a script is given. A
+  script that runs too long is stopped by ending that process.
 - **Files: only where you point it.** Beyond its own container, the app can
   write only into a folder you choose in an open panel, which is how export
   works. It cannot read or write anything else on disk.

@@ -61,6 +61,7 @@ struct BoopstashApp: App {
                 // chain, so it follows the editor's focus explicitly (#25).
                 .disabled(!(delegate.model?.editorHasFocus ?? false))
             }
+            ScriptCommands(model: delegate.model)
             CommandGroup(after: .textEditing) {
                 // Shortcuts come from the key-binding preset (⇧⌥F in VS Code,
                 // ⌥⌘L in JetBrains), so the menu shows none of its own.
@@ -138,6 +139,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 struct MainWindow: View {
     @Bindable var model: AppModel
+    /// This window's script picker; every window has its own.
+    @State private var scriptPickerShown = false
     let keymap: Keymap
     let appearance: EditorAppearance
 
@@ -158,6 +161,10 @@ struct MainWindow: View {
             model.flush(old)
             if let note = model.note(id: old) { model.requestModelTitle(for: note) }
         }
+        .sheet(isPresented: $scriptPickerShown) {
+            ScriptPicker(model: model)
+        }
+        .focusedSceneValue(\.scriptPickerShown, $scriptPickerShown)
         .safeAreaInset(edge: .bottom) {
             if let banner = model.banner {
                 HStack {
