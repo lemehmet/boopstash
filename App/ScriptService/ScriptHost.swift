@@ -7,13 +7,28 @@ import JavaScriptCore
 /// or file access unless they are injected, and none are. A run past its
 /// time limit ends this process; the app starts a new one for the next run.
 final class ScriptHost: NSObject, ScriptServiceProtocol {
+    /// One request at a time in the whole process, across connections
+    /// (#111): the formatters' contexts are cached and shared, and their
+    /// request globals must not be written by two requests at once. Each
+    /// connection's queue is serial, but connections run in parallel.
+    private static let turn = NSLock()
+
+    /// Runs `work` in its turn, with the watchdog started only once the
+    /// turn is its own, so waiting never counts against its time limit and
+    /// one request's watchdog never ends another's run.
+    static func inTurn<T>(timeLimit: TimeInterval, _ work: () -> T) -> T {
+        turn.lock()
+        defer { turn.unlock() }
+        let watchdog = DispatchWorkItem { exit(0) }
+        DispatchQueue.global().asyncAfter(deadline: .now() + timeLimit, execute: watchdog)
+        defer { watchdog.cancel() }
+        return work()
+    }
+
     func run(_ request: Data, reply: @escaping @Sendable (Data) -> Void) {
         let response: ScriptResponse
         if let request = try? JSONDecoder().decode(ScriptRequest.self, from: request) {
-            let watchdog = DispatchWorkItem { exit(0) }
-            DispatchQueue.global().asyncAfter(deadline: .now() + request.timeLimit, execute: watchdog)
-            response = Self.run(request)
-            watchdog.cancel()
+            response = Self.inTurn(timeLimit: request.timeLimit) { Self.run(request) }
         } else {
             response = ScriptResponse(outputs: [], errors: ["The script request could not be read."])
         }
@@ -23,10 +38,7 @@ final class ScriptHost: NSObject, ScriptServiceProtocol {
     func format(_ request: Data, reply: @escaping @Sendable (Data) -> Void) {
         let response: JSFormatResponse
         if let request = try? JSONDecoder().decode(JSFormatRequest.self, from: request) {
-            let watchdog = DispatchWorkItem { exit(0) }
-            DispatchQueue.global().asyncAfter(deadline: .now() + request.timeLimit, execute: watchdog)
-            response = Formatters.format(request)
-            watchdog.cancel()
+            response = Self.inTurn(timeLimit: request.timeLimit) { Formatters.format(request) }
         } else {
             response = JSFormatResponse(error: FormatError(message: "The format request could not be read.", line: nil, column: nil))
         }

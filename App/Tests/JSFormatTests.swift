@@ -73,6 +73,21 @@ struct JSFormatTests {
         #expect(second == .success("let a = 1;\n"))
     }
 
+    /// Two clients formatting at once each get their own result: the
+    /// service takes their requests in turn, not in parallel on its shared
+    /// formatter contexts (#111).
+    @Test func twoClientsGetTheirOwnResults() async throws {
+        let other = LiveScriptRunner()
+        try await withThrowingTaskGroup(of: Bool.self) { group in
+            for index in 0..<24 {
+                let client = index.isMultiple(of: 2) ? runner : other
+                let request = try #require(JSFormatting.request(for: "let v\(index)={a:\(index)}", as: .javascript))
+                group.addTask { await client.format(request) == .success("let v\(index) = { a: \(index) };\n") }
+            }
+            for try await matched in group { #expect(matched) }
+        }
+    }
+
     /// A format cancelled while it waits behind another is never sent.
     @Test func aCancelledQueuedFormatIsSkipped() async throws {
         let huge = "const a = [" + Array(repeating: "{ b: 1 }", count: 100_000).joined(separator: ", ") + "];"
