@@ -20,6 +20,8 @@ public struct RuleTitler: Titler {
     }
 
     public static func title(for body: String, kind: ContentKind) -> String {
+        // A byte-order mark is not content, as detection already treats it.
+        let body = body.hasPrefix("\u{FEFF}") ? String(body.dropFirst()) : body
         // Titles come from the start of a note (and, for Python, the end);
         // never scan a whole multi-megabyte body on every edit.
         // Leading whitespace is skipped, as detection skips it, so an

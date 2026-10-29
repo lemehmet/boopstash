@@ -14,6 +14,55 @@ final class BoopTextView: NSTextView {
     /// that only make sense in an editor can be disabled elsewhere (#25).
     var onFocusChange: ((Bool) -> Void)?
 
+    // MARK: Chips (#52)
+
+    /// An attachment's file, or nil when it is missing; set by the host.
+    /// While nil, references show as their markdown.
+    var attachmentURL: ((UUID) -> URL?)? {
+        didSet { scheduleChipUpdate() }
+    }
+    var chipViews: [ChipView] = []
+    var chipRanges: [NSRange] = []
+    var chipUpdate: Task<Void, Never>?
+    var quickLookSource: QuickLookSource?
+    @MainActor static let thumbnails = NSCache<NSURL, NSImage>()
+
+    override func didChangeText() {
+        super.didChangeText()
+        // Ranges at once, for the next keystroke's snapping and deletion;
+        // only the chip views wait for layout.
+        chipRanges = attachmentURL == nil ? [] : AttachmentReference.matches(in: string).map(\.range)
+        scheduleChipUpdate()
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        let widthChanged = newSize.width != frame.width
+        super.setFrameSize(newSize)
+        if widthChanged { scheduleChipUpdate() }
+    }
+
+    override func setSelectedRanges(_ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting: Bool) {
+        let previous = selectedRange()
+        super.setSelectedRanges(stillSelecting ? ranges : snapped(ranges, from: previous), affinity: affinity, stillSelecting: stillSelecting)
+    }
+
+    /// A reference goes in one keystroke, as one undo step.
+    override func deleteBackward(_ sender: Any?) {
+        let selection = selectedRange()
+        if selection.length == 0, let chip = chipRanges.first(where: { NSMaxRange($0) == selection.location }) {
+            setSelectedRange(chip)
+        }
+        super.deleteBackward(sender)
+    }
+
+    override func deleteForward(_ sender: Any?) {
+        let selection = selectedRange()
+        if selection.length == 0, let chip = chipRanges.first(where: { $0.location == selection.location }) {
+            setSelectedRange(chip)
+        }
+        super.deleteForward(sender)
+    }
+
     override func becomeFirstResponder() -> Bool {
         let became = super.becomeFirstResponder()
         if became { onFocusChange?(true) }
@@ -93,6 +142,8 @@ final class BoopTextView: NSTextView {
         enclosingScrollView?.backgroundColor = backgroundColor
         syntax.theme = theme
         SyntaxPainter.markForRedisplay(self)
+        // Chips take the theme's colours.
+        scheduleChipUpdate()
     }
 
     /// Light and dark themes switch with the system appearance.
@@ -103,7 +154,12 @@ final class BoopTextView: NSTextView {
 
     /// Replaces the whole text with another note's, and highlights it.
     func load(_ text: String, syntax choice: SyntaxChoice = .automatic) {
+        // A format still running belongs to the previous note.
+        formatting?.cancel()
+        documentGeneration += 1
         syntax.replacingDocument { string = text }
+        // A replaced document sends no didChangeText.
+        scheduleChipUpdate()
         // The new text arrives in the default font and colour.
         applyAppearance()
         syntax.load(text, choice: choice)
@@ -241,11 +297,51 @@ final class BoopTextView: NSTextView {
         format(style: .sortedKeys)
     }
 
-    func format(style: DocumentFormatter.Style) {
-        let whole = selectedRange().length == 0
-        let range = whole ? NSRange(location: 0, length: (string as NSString).length) : selectedRange()
-        let source = (string as NSString).substring(with: range)
-        switch DocumentFormatter.format(source, as: syntax.currentLanguage, style: style) {
+    /// Formats on another thread (#81): detection and a large JSON or XML
+    /// document must not stall the window (ADR 0006). The result is applied
+    /// only if the text and selection are as they were when it started.
+    @discardableResult
+    func format(style: DocumentFormatter.Style) -> Task<Void, Never> {
+        let snapshot = string
+        let selection = selectedRange()
+        let whole = selection.length == 0
+        let range = whole ? NSRange(location: 0, length: (snapshot as NSString).length) : selection
+        let source = (snapshot as NSString).substring(with: range)
+        let choice = syntax.choice
+        let formatter = self.formatter
+        let generation = documentGeneration
+        formatting?.cancel()
+        let task = Task { [weak self] in
+            // The worker is cancelled with this task, so a superseded format
+            // stops parsing instead of running to the end.
+            let worker = Task.detached(priority: .userInitiated) {
+                formatter(source, choice.resolve(for: snapshot), style)
+            }
+            let result = await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
+            guard let self, !Task.isCancelled else { return }
+            // Another note in this reused editor, even one with the same
+            // text, is not the note that was formatted.
+            guard self.documentGeneration == generation, self.string == snapshot, self.selectedRange() == selection else {
+                self.showMessage?("The note changed while it was being formatted, so it was left as it is.")
+                return
+            }
+            self.apply(result, source: source, range: range, whole: whole, style: style)
+        }
+        formatting = task
+        return task
+    }
+
+    /// The formatter Format Document uses; replaceable for tests.
+    var formatter: @Sendable (String, SyntaxLanguage?, DocumentFormatter.Style) -> Result<String, FormatError> = {
+        DocumentFormatter.format($0, as: $1, style: $2)
+    }
+    private var formatting: Task<Void, Never>?
+    /// Counts loaded documents, so work started for one is not applied to
+    /// the next.
+    private var documentGeneration = 0
+
+    private func apply(_ result: Result<String, FormatError>, source: String, range: NSRange, whole: Bool, style: DocumentFormatter.Style) {
+        switch result {
         case .failure(let error):
             NSSound.beep()
             showMessage?("Not formatted. \(error.description)")
