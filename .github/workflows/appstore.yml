@@ -29,6 +29,12 @@ on:
 permissions:
   contents: read
 
+# One run per platform at a time: two betas would pick the same next
+# TestFlight build number (#130). A queued run waits; none is cancelled.
+concurrency:
+  group: appstore-${{ inputs.platform }}
+  cancel-in-progress: false
+
 defaults:
   run:
     shell: bash
