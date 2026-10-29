@@ -26,6 +26,30 @@ struct ImageTextTests {
         #expect(await LiveTextRecognizer.text(in: Data([1, 2, 3])) == nil, "not an image")
     }
 
+    /// A request that arrives while the worker is busy is not lost.
+    @Test func aRequestDuringAPassIsRunAfterIt() async throws {
+        let model = AppModel(store: try .inMemory())
+        let gate = Gate()
+        model.recognizeText = { _ in await gate.wait(); return "first" }
+        let first = try model.store.addAttachment(Data([1]), contentType: "public.png", noteID: nil)
+        model.recognizePendingImages()
+        let second = try model.store.addAttachment(Data([2]), contentType: "public.png", noteID: nil)
+        model.recognizePendingImages()
+        await gate.open()
+        let deadline = ContinuousClock.now + .seconds(5)
+        while ContinuousClock.now < deadline, (try? model.store.attachmentsAwaitingRecognition().isEmpty) != true {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(try model.store.attachment(id: first.id)?.recognizedText != nil)
+        #expect(try model.store.attachment(id: second.id)?.recognizedText != nil)
+    }
+
+    actor Gate {
+        var isOpen = false
+        func wait() async { while !isOpen { try? await Task.sleep(for: .milliseconds(10)) } }
+        func open() { isOpen = true }
+    }
+
     @Test func aNewImageBecomesSearchable() async throws {
         let model = AppModel(store: try .inMemory())
         model.recognizeText = { _ in "Invoice 4217" }

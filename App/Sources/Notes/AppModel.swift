@@ -129,12 +129,18 @@ final class AppModel {
     /// Reads an image's text on device (#53); replaceable for tests.
     @ObservationIgnored var recognizeText: @Sendable (Data) async -> String? = { await LiveTextRecognizer.text(in: $0) }
     @ObservationIgnored private var recognition: Task<Void, Never>?
+    /// A request that came while the worker was finishing: run again.
+    @ObservationIgnored private var recognitionRequested = false
 
     /// Reads the text of images not read yet, one at a time at low
     /// priority, so screenshots become searchable. Images from before this
     /// existed are read too. An image deleted meanwhile is skipped.
     func recognizePendingImages() {
-        guard recognition == nil else { return }
+        guard recognition == nil else {
+            recognitionRequested = true
+            return
+        }
+        recognitionRequested = false
         let store = self.store
         let recognize = recognizeText
         recognition = Task { [weak self] in
@@ -154,7 +160,11 @@ final class AppModel {
                     }
                 }
             }.value
-            self?.recognition = nil
+            guard let self else { return }
+            self.recognition = nil
+            // An image added after the worker's last look would otherwise
+            // wait for the next change or launch.
+            if self.recognitionRequested { self.recognizePendingImages() }
         }
     }
 
