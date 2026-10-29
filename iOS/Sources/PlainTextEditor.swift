@@ -77,6 +77,8 @@ struct PlainTextEditor: UIViewRepresentable {
         private var queue: Task<Void, Never>?
         private var paintTask: Task<Void, Never>?
         private var pendingChanges: [TextChange] = []
+        /// Whether colours were painted, so clearing them needs a redraw.
+        private var hasColours = false
         /// Characters either side of the viewport that are painted too, so a
         /// short scroll shows colour at once.
         static let margin = 2_000
@@ -155,7 +157,10 @@ struct PlainTextEditor: UIViewRepresentable {
             guard let target = textRange(visible, in: content) else { return }
             layout.removeRenderingAttribute(.foregroundColor, for: target)
             guard let engine else {
-                Self.redisplay(view)
+                // Plain text: redraw only if colours were just cleared, not
+                // on every edit and scroll (as the Mac painter does).
+                if hasColours { Self.redisplay(view) }
+                hasColours = false
                 return
             }
             let text = view.text
@@ -165,6 +170,7 @@ struct PlainTextEditor: UIViewRepresentable {
                 guard let role = HighlightRole.role(for: highlight.name), let range = textRange(highlight.range, in: content) else { continue }
                 layout.addRenderingAttribute(.foregroundColor, value: Self.color(for: role), for: range)
             }
+            hasColours = true
             Self.redisplay(view)
         }
 

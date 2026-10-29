@@ -42,6 +42,9 @@ final class NotesModel {
     static func live() throws -> NotesModel {
         let support = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
         let store = try NoteStore.open(at: support.appendingPathComponent("Boopstash/notes.sqlite"))
+        // Images nothing refers to, after a day's grace, as on the Mac: also
+        // the clean-up a delete leaves when a draft would not save.
+        try? store.removeUnreferencedAttachments()
         return NotesModel(store: store)
     }
 
