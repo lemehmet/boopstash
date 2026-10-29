@@ -98,4 +98,12 @@ import Testing
         #expect(SyntaxLanguage(fenceName: "json") == .json)
         #expect(SyntaxLanguage(fenceName: "brainfuck") == nil)
     }
+
+    /// Only Markdown is previewed (#152).
+    @Test func onlyMarkdownIsPreviewable() {
+        #expect(MarkdownPreview.canPreview(.markdown))
+        #expect(!MarkdownPreview.canPreview(.json))
+        #expect(!MarkdownPreview.canPreview(.swift))
+        #expect(!MarkdownPreview.canPreview(nil), "plain text")
+    }
 }
