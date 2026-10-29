@@ -191,3 +191,90 @@ extension Result where Success == String, Failure == FormatError {
         #expect(!DocumentFormatter.canFormatNatively(.css))
     }
 }
+
+/// The indent width setting reaches the native formatters (#112), and a
+/// superseded format stops inside long tokens (#98).
+@Suite struct FormatFollowUpTests {
+    @Test func jsonTakesTheIndentWidth() {
+        #expect(DocumentFormatter.format(#"{"a":[1]}"#, as: .json, indent: 4) == .success("{\n    \"a\": [\n        1\n    ]\n}\n"))
+        #expect(DocumentFormatter.format(#"{"a":1}"#, as: .json, style: .sortedKeys, indent: 3) == .success("{\n   \"a\": 1\n}\n"))
+    }
+
+    @Test func xmlTakesTheIndentWidth() throws {
+        let xml = "<a><b><c>x</c></b></a>"
+        let two = try DocumentFormatter.format(xml, as: .xml, indent: 2).get()
+        #expect(two.contains("\n  <b>") && two.contains("\n    <c>x</c>"), "\(two)")
+        let four = try DocumentFormatter.format(xml, as: .xml, indent: 4).get()
+        #expect(four.contains("\n    <b>"), "\(four)")
+    }
+
+    /// Text is never re-indented: mixed content, CDATA and comments come
+    /// out exactly as written (#146).
+    @Test func textKeepsItsWhitespace() throws {
+        let source = "<r><p>Hello\n    <b>world</b></p><c><![CDATA[\n    kept\n]]></c><!--\n    also kept\n--><d><e/></d></r>"
+        let out = try XMLFormatter.format(source, indent: 2).get()
+        #expect(out.contains("<p>Hello\n    <b>world</b></p>"), "\(out)")
+        #expect(out.contains("<![CDATA[\n    kept\n]]>"))
+        #expect(out.contains("<!--\n    also kept\n-->"))
+        #expect(out.contains("\n  <d>\n    <e/>\n  </d>"), "\(out)")
+        #expect(try XMLFormatter.format(out, indent: 2).get() == out, "idempotent")
+    }
+
+    @Test func processingInstructionsAndDeclarationsAreKept() throws {
+        let out = try XMLFormatter.format(#"<?xml version="1.0"?><?pi some data?><r a="1"><x/></r>"#, indent: 2).get()
+        #expect(out.hasPrefix("<?xml version=\"1.0\""), "\(out)")
+        #expect(out.contains("<?pi some data?>"))
+        #expect(out.contains("<r a=\"1\">\n  <x/>\n</r>"), "\(out)")
+    }
+
+    /// Cancelled while scanning one huge string: it stops there, instead of
+    /// at the next value.
+    @Test func cancellationStopsInsideALongString() async {
+        let huge = "\"" + String(repeating: "a", count: 1 << 20) + "\""
+        let task = Task { () -> String? in
+            withUnsafeCurrentTask { $0?.cancel() }
+            var parser = JSONFormatter.Parser(huge)
+            return try? parser.string()
+        }
+        #expect(await task.value == nil)
+        // Not cancelled, the same string reads to its end.
+        var parser = JSONFormatter.Parser(huge)
+        #expect((try? parser.string())?.count == (1 << 20) + 2)
+    }
+
+    /// Escapes move two to six bytes a step; the check still comes due.
+    @Test func cancellationStopsInsideAnEscapedString() async {
+        let huge = "\"" + String(repeating: "\\n", count: 1 << 19) + "\""
+        let task = Task { () -> String? in
+            withUnsafeCurrentTask { $0?.cancel() }
+            var parser = JSONFormatter.Parser(huge)
+            return try? parser.string()
+        }
+        #expect(await task.value == nil)
+    }
+
+    /// A processing instruction's data keeps its whitespace.
+    @Test func processingInstructionDataIsKept() throws {
+        let out = try XMLFormatter.format("<r><?p data\n        <kept>?><c/></r>", indent: 2).get()
+        #expect(out.contains("<?p data\n        <kept>?>"), "\(out)")
+    }
+
+    @Test func cancellationStopsWhileWriting() async {
+        let wide = "[" + Array(repeating: "1", count: JSONFormatter.checkEvery * 2).joined(separator: ",") + "]"
+        let task = Task { () -> Result<String, FormatError> in
+            var parser = JSONFormatter.Parser(wide)
+            guard let value = try? parser.document() else { return .failure(FormatError(message: "parse", line: nil, column: nil)) }
+            withUnsafeCurrentTask { $0?.cancel() }
+            var out = "", written = 0
+            do {
+                try JSONFormatter.write(value, into: &out, depth: 0, indent: "  ", sortKeys: false, written: &written)
+                return .success(out)
+            } catch let error as FormatError {
+                return .failure(error)
+            } catch {
+                return .failure(FormatError(message: "\(error)", line: nil, column: nil))
+            }
+        }
+        #expect(await task.value == .failure(.cancelled))
+    }
+}

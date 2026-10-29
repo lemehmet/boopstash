@@ -6,6 +6,9 @@ public struct FormatError: Error, Equatable, Sendable, Codable {
     public var line: Int?
     public var column: Int?
 
+    /// A format superseded before it finished.
+    public static let cancelled = FormatError(message: "cancelled", line: nil, column: nil)
+
     public init(message: String, line: Int?, column: Int?) {
         self.message = message
         self.line = line
@@ -44,11 +47,13 @@ public enum DocumentFormatter {
         canFormatNatively(language, style: style) || (style == .standard && JSFormatting.supports(language))
     }
 
-    public static func format(_ text: String, as language: SyntaxLanguage?, style: Style = .standard) -> Result<String, FormatError> {
+    /// `indent` is the indent width in spaces, the setting Prettier and
+    /// sql-formatter take too (#112).
+    public static func format(_ text: String, as language: SyntaxLanguage?, style: Style = .standard, indent: Int = 2) -> Result<String, FormatError> {
         switch (language, style) {
-        case (.json, .standard): JSONFormatter.format(text)
-        case (.json, .sortedKeys): JSONFormatter.format(text, sortKeys: true)
-        case (.xml, .standard): XMLFormatter.format(text)
+        case (.json, .standard): JSONFormatter.format(text, indent: indent)
+        case (.json, .sortedKeys): JSONFormatter.format(text, indent: indent, sortKeys: true)
+        case (.xml, .standard): XMLFormatter.format(text, indent: indent)
         default: .failure(FormatError(message: "No formatter for \(language?.displayName ?? "plain text")", line: nil, column: nil))
         }
     }

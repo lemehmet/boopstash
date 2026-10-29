@@ -70,9 +70,9 @@ struct FormatDocumentTests {
         let (window, view) = host(#"{"a":1}"#, .json)
         var message: String?
         view.showMessage = { message = $0 }
-        view.formatter = { source, language, style in
+        view.formatter = { source, language, style, indent in
             try? await Task.sleep(for: .milliseconds(300))
-            return DocumentFormatter.format(source, as: language, style: style)
+            return DocumentFormatter.format(source, as: language, style: style, indent: indent)
         }
         let running = view.format(style: .standard)
         view.insertText(" ", replacementRange: NSRange(location: 7, length: 0))
@@ -87,9 +87,9 @@ struct FormatDocumentTests {
     @Test func aFormatIsNotAppliedToTheNextNote() async {
         let (window, view) = host("{}", .json)
         view.setSelectedRange(NSRange(location: 0, length: 0))
-        view.formatter = { source, language, style in
+        view.formatter = { source, language, style, indent in
             try? await Task.sleep(for: .milliseconds(300))
-            return DocumentFormatter.format(source, as: language, style: style)
+            return DocumentFormatter.format(source, as: language, style: style, indent: indent)
         }
         let running = view.format(style: .standard)
         view.load("{}", syntax: .language(.json))
@@ -146,7 +146,9 @@ struct FormatDocumentTests {
         view.load(view.string, syntax: .automatic)
         #expect(view.syntax.currentLanguage == .xml)
         await view.format(style: .standard).value
-        #expect(view.string.contains("\n    <b>1</b>"))
+        // Indented by the indent width setting (#112).
+        let pad = String(repeating: " ", count: EditorSettings.formatSettings().tabWidth)
+        #expect(view.string.contains("\n\(pad)<b>1</b>"), "\(view.string)")
         window.close()
     }
 }
