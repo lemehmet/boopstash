@@ -10,7 +10,8 @@ public enum JSONFormatter {
         do {
             let value = try parser.document()
             var out = ""
-            write(value, into: &out, depth: 0, indent: String(repeating: " ", count: indent), sortKeys: sortKeys)
+            var written = 0
+            try write(value, into: &out, depth: 0, indent: String(repeating: " ", count: indent), sortKeys: sortKeys, written: &written)
             return .success(out + "\n")
         } catch let error as FormatError {
             return .failure(error)
@@ -26,7 +27,12 @@ public enum JSONFormatter {
         case scalar(String)
     }
 
-    static func write(_ value: Value, into out: inout String, depth: Int, indent: String, sortKeys: Bool) {
+    /// Values written between checks for cancellation (#98).
+    static let checkEvery = 4096
+
+    static func write(_ value: Value, into out: inout String, depth: Int, indent: String, sortKeys: Bool, written: inout Int) throws {
+        written += 1
+        if written % checkEvery == 0, Task.isCancelled { throw FormatError.cancelled }
         let pad = String(repeating: indent, count: depth + 1)
         let closing = String(repeating: indent, count: depth)
         switch value {
@@ -37,7 +43,7 @@ public enum JSONFormatter {
             out += "[\n"
             for (index, item) in items.enumerated() {
                 out += pad
-                write(item, into: &out, depth: depth + 1, indent: indent, sortKeys: sortKeys)
+                try write(item, into: &out, depth: depth + 1, indent: indent, sortKeys: sortKeys, written: &written)
                 out += index < items.count - 1 ? ",\n" : "\n"
             }
             out += closing + "]"
@@ -47,7 +53,7 @@ public enum JSONFormatter {
             out += "{\n"
             for (index, member) in ordered.enumerated() {
                 out += pad + member.key + ": "
-                write(member.value, into: &out, depth: depth + 1, indent: indent, sortKeys: sortKeys)
+                try write(member.value, into: &out, depth: depth + 1, indent: indent, sortKeys: sortKeys, written: &written)
                 out += index < ordered.count - 1 ? ",\n" : "\n"
             }
             out += closing + "}"
@@ -75,18 +81,18 @@ public enum JSONFormatter {
         init(_ text: String) { bytes = Array(text.utf8) }
 
         mutating func document() throws -> Value {
-            skipWhitespace()
+            try skipWhitespace()
             // A leading byte-order mark is not JSON, but editors leave one.
-            if bytes[index...].starts(with: [0xEF, 0xBB, 0xBF]) { index += 3; skipWhitespace() }
+            if bytes[index...].starts(with: [0xEF, 0xBB, 0xBF]) { index += 3; try skipWhitespace() }
             let value = try self.value()
-            skipWhitespace()
+            try skipWhitespace()
             guard index == bytes.count else { throw failure("unexpected text after the JSON value") }
             return value
         }
 
         mutating func value() throws -> Value {
             // A superseded format stops here rather than parsing on.
-            if Task.isCancelled { throw FormatError(message: "cancelled", line: nil, column: nil) }
+            if Task.isCancelled { throw FormatError.cancelled }
             guard index < bytes.count else { throw failure("the JSON ends early") }
             switch bytes[index] {
             case UInt8(ascii: "{"): return try object()
@@ -105,18 +111,18 @@ public enum JSONFormatter {
             defer { depth -= 1 }
             index += 1
             var members: [(key: String, value: Value)] = []
-            skipWhitespace()
+            try skipWhitespace()
             if peek("}") { index += 1; return .object(members) }
             while true {
-                skipWhitespace()
+                try skipWhitespace()
                 guard peek("\"") else { throw failure("expected a quoted key") }
                 let key = try string()
-                skipWhitespace()
+                try skipWhitespace()
                 guard peek(":") else { throw failure("expected ':' after the key") }
                 index += 1
-                skipWhitespace()
+                try skipWhitespace()
                 members.append((key, try value()))
-                skipWhitespace()
+                try skipWhitespace()
                 if peek(",") { index += 1; continue }
                 if peek("}") { index += 1; return .object(members) }
                 throw failure("expected ',' or '}'")
@@ -128,12 +134,12 @@ public enum JSONFormatter {
             defer { depth -= 1 }
             index += 1
             var items: [Value] = []
-            skipWhitespace()
+            try skipWhitespace()
             if peek("]") { index += 1; return .array(items) }
             while true {
-                skipWhitespace()
+                try skipWhitespace()
                 items.append(try value())
-                skipWhitespace()
+                try skipWhitespace()
                 if peek(",") { index += 1; continue }
                 if peek("]") { index += 1; return .array(items) }
                 throw failure("expected ',' or ']'")
@@ -151,6 +157,8 @@ public enum JSONFormatter {
             let start = index
             index += 1
             while index < bytes.count {
+                // A multi-megabyte string stops part way when superseded.
+                try checkCancellation()
                 switch bytes[index] {
                 case UInt8(ascii: "\""):
                     index += 1
@@ -184,17 +192,17 @@ public enum JSONFormatter {
             if peek("-") { index += 1 }
             if peek("0") {
                 index += 1
-            } else if digits() == 0 {
+            } else if try digits() == 0 {
                 throw failure("expected a digit")
             }
             if peek(".") {
                 index += 1
-                guard digits() > 0 else { throw failure("expected a digit after '.'") }
+                guard try digits() > 0 else { throw failure("expected a digit after '.'") }
             }
             if peek("e") || peek("E") {
                 index += 1
                 if peek("+") || peek("-") { index += 1 }
-                guard digits() > 0 else { throw failure("expected a digit in the exponent") }
+                guard try digits() > 0 else { throw failure("expected a digit in the exponent") }
             }
             return String(decoding: bytes[start..<index], as: UTF8.self)
         }
@@ -206,14 +214,26 @@ public enum JSONFormatter {
         }
 
         @discardableResult
-        mutating func digits() -> Int {
+        mutating func digits() throws -> Int {
             let start = index
-            while index < bytes.count, (UInt8(ascii: "0")...UInt8(ascii: "9")).contains(bytes[index]) { index += 1 }
+            while index < bytes.count, (UInt8(ascii: "0")...UInt8(ascii: "9")).contains(bytes[index]) {
+                index += 1
+                try checkCancellation()
+            }
             return index - start
         }
 
-        mutating func skipWhitespace() {
-            while index < bytes.count, [0x20, 0x09, 0x0A, 0x0D].contains(bytes[index]) { index += 1 }
+        mutating func skipWhitespace() throws {
+            while index < bytes.count, [0x20, 0x09, 0x0A, 0x0D].contains(bytes[index]) {
+                index += 1
+                try checkCancellation()
+            }
+        }
+
+        /// Every 64 KiB of input, whether the format was superseded (#98):
+        /// a check per byte would cost more than the scan.
+        func checkCancellation() throws {
+            if index & 0xFFFF == 0, Task.isCancelled { throw FormatError.cancelled }
         }
 
         func peek(_ character: Unicode.Scalar) -> Bool {

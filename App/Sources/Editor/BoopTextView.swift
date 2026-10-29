@@ -311,7 +311,6 @@ final class BoopTextView: NSTextView {
         let selection = selectedRange()
         let whole = selection.length == 0
         let range = whole ? NSRange(location: 0, length: (snapshot as NSString).length) : selection
-        let source = (snapshot as NSString).substring(with: range)
         let choice = syntax.choice
         let formatter = self.formatter
         let jsFormat = self.jsFormat
@@ -319,17 +318,31 @@ final class BoopTextView: NSTextView {
         let generation = documentGeneration
         formatting?.cancel()
         let task = Task { [weak self] in
-            // The worker is cancelled with this task, so a superseded format
-            // stops parsing instead of running to the end.
-            let worker = Task.detached(priority: .userInitiated) { () -> Result<String, FormatError> in
+            // Everything that reads the whole text (the source, the
+            // formatting, where the caret goes) happens in the worker, so a
+            // large note never stalls the window (#97). It is cancelled with
+            // this task, so a superseded format stops instead of running on.
+            let worker = Task.detached(priority: .userInitiated) { () -> Result<Formatted, FormatError> in
+                let source = (snapshot as NSString).substring(with: range)
                 let language = choice.resolve(for: snapshot)
                 // Prettier and sql-formatter run in the script service (#56,
                 // #57); JSON and XML natively.
+                let result: Result<String, FormatError>
                 if !DocumentFormatter.canFormatNatively(language, style: style), let jsFormat,
                    let request = JSFormatting.request(for: source, as: language, settings: settings) {
-                    return await jsFormat(request)
+                    result = await jsFormat(request)
+                } else {
+                    result = await formatter(source, language, style, settings.tabWidth)
                 }
-                return await formatter(source, language, style)
+                return result.map { formatted in
+                    var text = formatted
+                    // A selection keeps its own trailing newline, or lack of one.
+                    if !whole, !source.hasSuffix("\n"), text.hasSuffix("\n") { text.removeLast() }
+                    // Sorting moves keys, so no character keeps its place; the
+                    // caret goes to the start rather than onto some other key.
+                    let caret = !whole || style == .sortedKeys ? 0 : DocumentFormatter.caret(selection.location, from: snapshot, to: text)
+                    return Formatted(text: text, unchanged: text == source, caret: caret)
+                }
             }
             let result = await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
             guard let self, !Task.isCancelled else { return }
@@ -339,15 +352,23 @@ final class BoopTextView: NSTextView {
                 self.showMessage?("The note changed while it was being formatted, so it was left as it is.")
                 return
             }
-            self.apply(result, source: source, range: range, whole: whole, style: style)
+            self.apply(result, range: range, whole: whole)
         }
         formatting = task
         return task
     }
 
-    /// The native formatter Format Document uses; replaceable for tests.
-    var formatter: @Sendable (String, SyntaxLanguage?, DocumentFormatter.Style) async -> Result<String, FormatError> = {
-        DocumentFormatter.format($0, as: $1, style: $2)
+    /// A format's result, worked out off the main actor.
+    struct Formatted: Sendable {
+        var text: String
+        var unchanged: Bool
+        var caret: Int
+    }
+
+    /// The native formatter Format Document uses, with the indent width;
+    /// replaceable for tests.
+    var formatter: @Sendable (String, SyntaxLanguage?, DocumentFormatter.Style, Int) async -> Result<String, FormatError> = {
+        DocumentFormatter.format($0, as: $1, style: $2, indent: $3)
     }
     /// The script service's formatters, set by the host; nil leaves only
     /// the native ones.
@@ -357,25 +378,20 @@ final class BoopTextView: NSTextView {
     /// the next.
     private var documentGeneration = 0
 
-    private func apply(_ result: Result<String, FormatError>, source: String, range: NSRange, whole: Bool, style: DocumentFormatter.Style) {
+    private func apply(_ result: Result<Formatted, FormatError>, range: NSRange, whole: Bool) {
         switch result {
         case .failure(let error):
             NSSound.beep()
             showMessage?("Not formatted. \(error.description)")
-        case .success(var formatted):
-            // A selection keeps its own trailing newline, or lack of one.
-            if !whole, !source.hasSuffix("\n"), formatted.hasSuffix("\n") { formatted.removeLast() }
-            guard formatted != source else { return }
-            // Sorting moves keys, so no character keeps its place; the caret
-            // goes to the start rather than onto some other key.
-            let caret = style == .sortedKeys ? 0 : DocumentFormatter.caret(selectedRange().location, from: string, to: formatted)
-            guard shouldChangeText(in: range, replacementString: formatted) else { return }
-            textStorage?.replaceCharacters(in: range, with: formatted)
+        case .success(let formatted):
+            guard !formatted.unchanged else { return }
+            guard shouldChangeText(in: range, replacementString: formatted.text) else { return }
+            textStorage?.replaceCharacters(in: range, with: formatted.text)
             didChangeText()
             undoManager?.setActionName("Format")
             setSelectedRange(whole
-                ? NSRange(location: caret, length: 0)
-                : NSRange(location: range.location, length: (formatted as NSString).length))
+                ? NSRange(location: formatted.caret, length: 0)
+                : NSRange(location: range.location, length: (formatted.text as NSString).length))
             scrollRangeToVisible(selectedRange())
         }
     }

@@ -191,3 +191,81 @@ extension Result where Success == String, Failure == FormatError {
         #expect(!DocumentFormatter.canFormatNatively(.css))
     }
 }
+
+/// The indent width setting reaches the native formatters (#112), and a
+/// superseded format stops inside long tokens (#98).
+@Suite struct FormatFollowUpTests {
+    @Test func jsonTakesTheIndentWidth() {
+        #expect(DocumentFormatter.format(#"{"a":[1]}"#, as: .json, indent: 4) == .success("{\n    \"a\": [\n        1\n    ]\n}\n"))
+        #expect(DocumentFormatter.format(#"{"a":1}"#, as: .json, style: .sortedKeys, indent: 3) == .success("{\n   \"a\": 1\n}\n"))
+    }
+
+    @Test func xmlTakesTheIndentWidth() throws {
+        let xml = "<a><b><c>x</c></b></a>"
+        let two = try DocumentFormatter.format(xml, as: .xml, indent: 2).get()
+        #expect(two.contains("\n  <b>") && two.contains("\n    <c>x</c>"), "\(two)")
+        let four = try DocumentFormatter.format(xml, as: .xml, indent: 4).get()
+        #expect(four.contains("\n    <b>"), "\(four)")
+    }
+
+    /// Lines inside CDATA and comments keep their own whitespace.
+    @Test func reindentingLeavesCDATAAndCommentsAlone() {
+        let pretty = """
+            <a>
+                <b><![CDATA[
+                    <kept/>
+                ]]></b>
+                <!--
+                    <also kept/>
+                -->
+                <c/>
+            </a>
+            """
+        let expected = """
+            <a>
+              <b><![CDATA[
+                    <kept/>
+                ]]></b>
+              <!--
+                    <also kept/>
+                -->
+              <c/>
+            </a>
+            """
+        #expect(XMLFormatter.reindent(pretty, to: 2) == expected)
+    }
+
+    /// Cancelled while scanning one huge string: it stops there, instead of
+    /// at the next value.
+    @Test func cancellationStopsInsideALongString() async {
+        let huge = "\"" + String(repeating: "a", count: 1 << 20) + "\""
+        let task = Task { () -> String? in
+            withUnsafeCurrentTask { $0?.cancel() }
+            var parser = JSONFormatter.Parser(huge)
+            return try? parser.string()
+        }
+        #expect(await task.value == nil)
+        // Not cancelled, the same string reads to its end.
+        var parser = JSONFormatter.Parser(huge)
+        #expect((try? parser.string())?.count == (1 << 20) + 2)
+    }
+
+    @Test func cancellationStopsWhileWriting() async {
+        let wide = "[" + Array(repeating: "1", count: JSONFormatter.checkEvery * 2).joined(separator: ",") + "]"
+        let task = Task { () -> Result<String, FormatError> in
+            var parser = JSONFormatter.Parser(wide)
+            guard let value = try? parser.document() else { return .failure(FormatError(message: "parse", line: nil, column: nil)) }
+            withUnsafeCurrentTask { $0?.cancel() }
+            var out = "", written = 0
+            do {
+                try JSONFormatter.write(value, into: &out, depth: 0, indent: "  ", sortKeys: false, written: &written)
+                return .success(out)
+            } catch let error as FormatError {
+                return .failure(error)
+            } catch {
+                return .failure(FormatError(message: "\(error)", line: nil, column: nil))
+            }
+        }
+        #expect(await task.value == .failure(.cancelled))
+    }
+}

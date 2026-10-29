@@ -14,13 +14,13 @@ public enum XMLFormatter {
         #endif
     }
 
-    public static func format(_ text: String) -> Result<String, FormatError> {
+    public static func format(_ text: String, indent: Int = 4) -> Result<String, FormatError> {
         #if os(macOS)
         do {
             // External entities and DTDs are never loaded: formatting must not
             // reach the network or the disk (ADR 0001).
             let document = try XMLDocument(xmlString: text, options: [.nodePreserveCDATA, .nodeLoadExternalEntitiesNever])
-            var out = document.xmlString(options: [.nodePrettyPrint, .nodePreserveCDATA, .nodeCompactEmptyElement])
+            var out = reindent(document.xmlString(options: [.nodePrettyPrint, .nodePreserveCDATA, .nodeCompactEmptyElement]), to: indent)
             if !out.hasSuffix("\n") { out += "\n" }
             return .success(out)
         } catch let error as NSError {
@@ -29,6 +29,45 @@ public enum XMLFormatter {
         #else
         return .failure(FormatError(message: "XML formatting needs macOS", line: nil, column: nil))
         #endif
+    }
+
+    /// `XMLDocument` always indents by four spaces; this scales the
+    /// indentation of lines that start with markup to `width`. Lines inside
+    /// CDATA, comments or text keep their own whitespace, which may matter.
+    static func reindent(_ xml: String, to width: Int) -> String {
+        guard width != 4 else { return xml }
+        // Inside a CDATA section or comment, and what ends it.
+        var closer: String?
+        var lines: [String] = []
+        for line in xml.split(separator: "\n", omittingEmptySubsequences: false) {
+            let content = line.drop { $0 == " " }
+            if closer == nil, content.hasPrefix("<") {
+                lines.append(String(repeating: " ", count: (line.count - content.count) / 4 * width) + content)
+            } else {
+                lines.append(String(line))
+            }
+            closer = openSection(after: Substring(line), inside: closer)
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    /// Whether `line` leaves a CDATA section or comment open, given the one
+    /// open before it: returns what still has to close it.
+    static func openSection(after line: Substring, inside: String?) -> String? {
+        var rest = line[...]
+        var closer = inside
+        while true {
+            if let open = closer {
+                guard let end = rest.range(of: open) else { return open }
+                rest = rest[end.upperBound...]
+                closer = nil
+            } else {
+                let starts = [("<![CDATA[", "]]>"), ("<!--", "-->")].compactMap { pair in rest.range(of: pair.0).map { ($0, pair.1) } }
+                guard let first = starts.min(by: { $0.0.lowerBound < $1.0.lowerBound }) else { return nil }
+                rest = rest[first.0.upperBound...]
+                closer = first.1
+            }
+        }
     }
 
     /// libxml2's message reads "Line 3: Opening and ending tag mismatch…";
