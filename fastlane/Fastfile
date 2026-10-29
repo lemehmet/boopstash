@@ -33,7 +33,10 @@ end
 
 def signing(platform, readonly:, **extra)
   match(
-    type: "appstore", platform: platform, app_identifier: [APP_ID],
+    # Apple Distribution for the app on both platforms (match's default,
+    # stated): the Mac's installer certificate keeps its own name, 3rd Party
+    # Mac Developer Installer.
+    type: "appstore", platform: platform, app_identifier: [APP_ID], generate_apple_certs: true,
     api_key: api_key, team_id: ENV["APPLE_TEAM_ID"], readonly: readonly,
     s3_access_key: ENV["MATCH_S3_ACCESS_KEY"], s3_secret_access_key: ENV["MATCH_S3_SECRET_ACCESS_KEY"],
     **extra
