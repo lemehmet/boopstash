@@ -20,7 +20,7 @@ struct NoteDetail: View {
             Divider()
             EditorView(noteID: note.id, initialText: note.body, keymap: keymap, syntax: syntax, appearance: appearance, showMessage: { model.banner = $0 }, attachmentURL: { [store = model.store] id in
             (try? store.attachment(id: id)).map { store.fileURL(for: $0) }
-        }, onFocusChange: { model.editorFocusMayHaveChanged() }) { text in
+        }, storeImage: { [id = note.id] data, type in model.addImage(data, type: type, to: id) }, onFocusChange: { model.editorFocusMayHaveChanged() }) { text in
                 model.updateBody(note.id, to: text)
             }
         }

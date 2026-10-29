@@ -1,6 +1,7 @@
 import AppKit
 import BoopstashCore
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// Hosts `BoopTextView` for one note. The text view owns the text while it
 /// is on screen; SwiftUI only swaps documents when the note changes, so a
@@ -14,6 +15,8 @@ struct EditorView: NSViewRepresentable {
     var showMessage: (String) -> Void = { _ in }
     /// An attachment's file for its chip, nil when missing.
     var attachmentURL: ((UUID) -> URL?)?
+    /// Stores a pasted or dropped image for this note; returns its markdown.
+    var storeImage: (Data, UTType) -> String? = { _, _ in nil }
     /// Called when this editor gains or loses focus, goes away, or its
     /// language changes: what the editor-only menu commands depend on.
     var onFocusChange: () -> Void = {}
@@ -33,6 +36,7 @@ struct EditorView: NSViewRepresentable {
         view.editorAppearance = appearance
         view.showMessage = showMessage
         if view.attachmentURL == nil { view.attachmentURL = attachmentURL }
+        view.storeImage = storeImage
         view.onFocusChange = { _ in onFocusChange() }
         view.syntax.onLanguageChange = onFocusChange
         context.coordinator.onFocusChange = onFocusChange

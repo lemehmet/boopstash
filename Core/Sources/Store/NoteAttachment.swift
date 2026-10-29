@@ -73,11 +73,17 @@ public enum AttachmentReference {
         return pattern.matches(in: body, range: NSRange(location: 0, length: ns.length)).compactMap { match in
             guard let id = UUID(uuidString: ns.substring(with: match.range(at: 1))) else { return nil }
             let whole = ns.substring(with: match.range)
-            let altEnd = (whole as NSString).range(of: "](attachment:", options: .backwards).location
+            let altEnd = (whole as NSString).range(of: "](attachment:", options: [.backwards, .caseInsensitive]).location
             let escaped = (whole as NSString).substring(with: NSRange(location: 2, length: max(0, altEnd - 2)))
             let alt = escaped.replacingOccurrences(of: #"\\(.)"#, with: "$1", options: .regularExpression)
             return (match.range, id, alt)
         }
+    }
+
+    /// The body without its image references: its text alone, for deciding
+    /// whether there is anything to read beyond the images.
+    public static func removingReferences(from body: String) -> String {
+        pattern.stringByReplacingMatches(in: body, range: NSRange(location: 0, length: (body as NSString).length), withTemplate: "")
     }
 
     /// The body with each reference's destination replaced by `destination`

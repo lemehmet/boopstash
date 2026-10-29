@@ -6,10 +6,11 @@ breaking changes may land in a minor release.
 
 ## Unreleased
 
-- Images in a note show as chips in the editor: a thumbnail and the image's
-  description in place of its `![](attachment:…)` reference. A chip is one
-  unit: one Backspace removes it, the caret steps over it, and copying it
-  copies its markdown. Double-click a chip to see the image in Quick Look.
+- Images: paste an image into a note (⌘V with an image on the clipboard),
+  drop one on the editor or the note list, or capture an image-only
+  clipboard with New Note from Clipboard, ⌃⌥⌘V or Services. Images are kept
+  with the note, up to 20 MB each, and a note holding only an image is
+  titled "Image" (or the file's name).
 
 - Scripts ▸ Run Script… (⌘B) runs Boop's scripts on the selection, or each
   part of a multiple selection, or the whole note: Base64, URL and HTML
