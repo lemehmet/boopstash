@@ -71,19 +71,28 @@ import Testing
         #expect(elapsed < .milliseconds(200), "took \(elapsed)")
     }
 
+    /// Bounded work takes about as long on a buffer as on a hundredth of
+    /// it, on any machine; a full scan would take a hundred times longer.
+    /// The fastest of three runs of each, to keep scheduling noise out.
+    func expectBounded(_ huge: String, small: String) {
+        func fastest(_ text: String) -> Duration {
+            (0..<3).map { _ in ContinuousClock().measure { _ = ContentKind.detect(text) } }.min()!
+        }
+        let large = fastest(huge), base = fastest(small)
+        #expect(large < base * 10 + .milliseconds(50), "took \(large) against \(base)")
+    }
+
     @Test func whitespaceFreeBuffersAreBounded() {
-        let blob = String(repeating: "a", count: 20_000_000) // e.g. a base64 dump
-        let elapsed = ContinuousClock().measure { _ = ContentKind.detect(blob) }
-        #expect(elapsed < .seconds(1), "took \(elapsed)")
+        // e.g. a base64 dump
+        expectBounded(String(repeating: "a", count: 20_000_000), small: String(repeating: "a", count: 200_000))
         #expect(ContentKind.detect("https://example.com/" + String(repeating: "a", count: 5_000)) != .url)
     }
 
     @Test func detectionReadsOnlyASample() {
         // A huge buffer must not be scanned in full; this would take seconds
         // if every heuristic walked 20 MB.
-        let huge = String(repeating: "plain words without structure ", count: 700_000)
-        let elapsed = ContinuousClock().measure { _ = ContentKind.detect(huge) }
-        #expect(elapsed < .seconds(1), "took \(elapsed)")
+        expectBounded(String(repeating: "plain words without structure ", count: 700_000),
+                      small: String(repeating: "plain words without structure ", count: 7_000))
     }
 }
 
