@@ -84,6 +84,8 @@ struct NoteEditorView: View {
     let model: NotesModel
     let note: Note
     @State private var title = ""
+    /// The rendered note in place of the editor (#65), as on the Mac.
+    @AppStorage("previewShown") private var previewShown = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -100,7 +102,23 @@ struct NoteEditorView: View {
                     if changed { model.drafts.rename(note.id, to: title) }
                 }
             Divider()
-            PlainTextEditor(text: note.body, choice: note.syntaxChoice, showMessage: { model.banner = $0 }) { model.drafts.edit(note.id, body: $0) }
+            if previewShown {
+                // The draft, which may be newer than what was saved.
+                PreviewView(markdown: model.drafts.note(id: note.id)?.body ?? note.body, appearance: EditorAppearance()) { [store = model.store] id in
+                    guard let attachment = try? store.attachment(id: id) else { return nil }
+                    return UIImage(contentsOfFile: store.fileURL(for: attachment).path)
+                }
+            } else {
+                PlainTextEditor(text: model.drafts.note(id: note.id)?.body ?? note.body, choice: note.syntaxChoice, showMessage: { model.banner = $0 }) {
+                    model.drafts.edit(note.id, body: $0)
+                }
+            }
+        }
+        .toolbar {
+            Button(previewShown ? "Edit" : "Preview", systemImage: previewShown ? "pencil" : "eye") {
+                model.drafts.flush(note.id)
+                previewShown.toggle()
+            }
         }
         .onAppear { title = note.titleIsUserSet ? note.title : "" }
         .onDisappear { model.drafts.flush(note.id) }

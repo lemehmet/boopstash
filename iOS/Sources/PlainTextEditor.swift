@@ -207,7 +207,7 @@ struct PlainTextEditor: UIViewRepresentable {
             return NSTextRange(location: start, end: end)
         }
 
-        static func color(for role: HighlightRole) -> UIColor {
+        nonisolated static func color(for role: HighlightRole) -> UIColor {
             switch role {
             case .comment: .secondaryLabel
             case .string, .removed: .systemRed
