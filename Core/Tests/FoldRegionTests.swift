@@ -25,6 +25,18 @@ import Testing
         #expect(found.contains(FoldRegion(startLine: 1, hidden: 2...3, lastLine: 4)), "\(found)")
     }
 
+    /// Node.range is already UTF-16 (SwiftTreeSitter halves the UTF-16LE
+    /// byte offsets), so text before the closer, accented or astral, does
+    /// not shift the closer check (#167).
+    @Test func nonASCIITextBeforeTheCloser() async throws {
+        // No trailing newline: a doubled offset would clamp to the end and
+        // find one there, passing by accident.
+        let found = try await regions("{\n  \"é🙂中\": \"ünïcødé 🙂🙂\"\n}", .json)
+        #expect(found == [FoldRegion(startLine: 0, hidden: 1...1, lastLine: 2)], "\(found)")
+        let nested = try await regions("[\n  {\n    \"ü\": [1, 2]\n  },\n  3\n]", .json)
+        #expect(nested.contains(FoldRegion(startLine: 1, hidden: 2...2, lastLine: 3)), "\(nested)")
+    }
+
     /// A closing bracket after other text on its line hides with it.
     @Test func aCompactClosingLineFolds() async throws {
         let found = try await regions("{\n  \"a\": 1 }", .json)
