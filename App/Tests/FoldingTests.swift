@@ -134,4 +134,23 @@ struct FoldingTests {
         #expect(view.folding.folded.isEmpty)
         try await eventually { view.folding.regions == [FoldRegion(startLine: 0, hidden: 1...1)] }
     }
+
+    /// The gutter paints only itself: views do not clip to their bounds, and
+    /// a fill of the whole dirty rect hid the text beside it (0.4.0).
+    @Test func theGutterDoesNotPaintOverTheText() async throws {
+        let (window, view) = try await host(json)
+        defer { window.close() }
+        let gutter = try #require(view.enclosingScrollView?.verticalRulerView)
+        #expect(gutter.clipsToBounds)
+        let width = Int(gutter.bounds.width) * 4, height = Int(gutter.bounds.height)
+        let bitmap = try #require(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: width, pixelsHigh: height, bitsPerSample: 8,
+                                                   samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
+                                                   bytesPerRow: 0, bitsPerPixel: 0))
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
+        gutter.draw(NSRect(x: 0, y: 0, width: width, height: height))
+        NSGraphicsContext.restoreGraphicsState()
+        #expect(bitmap.colorAt(x: width - 1, y: height / 2)?.alphaComponent == 0, "nothing drawn past the gutter")
+        #expect(bitmap.colorAt(x: 1, y: height / 2)?.alphaComponent ?? 0 > 0, "the gutter itself is filled")
+    }
 }

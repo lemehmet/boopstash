@@ -166,6 +166,9 @@ final class FoldGutter: NSRulerView {
         super.init(scrollView: scrollView, orientation: .verticalRuler)
         ruleThickness = 14
         clientView = editor
+        // Views no longer clip to their bounds by default: the gutter's fill
+        // would paint over the text beside it.
+        clipsToBounds = true
     }
 
     required init(coder: NSCoder) { fatalError("unused") }
@@ -204,7 +207,7 @@ final class FoldGutter: NSRulerView {
     override func draw(_ dirtyRect: NSRect) {
         guard let editor else { return }
         (editor.drawsBackground ? editor.backgroundColor : NSColor.textBackgroundColor).setFill()
-        dirtyRect.fill()
+        dirtyRect.intersection(bounds).fill()
         drawHashMarksAndLabels(in: dirtyRect)
     }
 

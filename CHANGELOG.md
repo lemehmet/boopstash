@@ -6,6 +6,11 @@ breaking changes may land in a minor release.
 
 ## Unreleased
 
+### Fixed
+
+- **The Mac editor showed no text.** The folding gutter painted over the
+  note beside it, so the editor looked empty; the text was there all along.
+
 ## v0.4.0 — 2026-10-30
 
 ### New
