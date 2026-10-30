@@ -56,6 +56,9 @@ import Testing
         #expect(ContinuousClock.now - started < .milliseconds(1500))
         #expect(ids(String(repeating: "b", count: 2000) + " invoice") == [101, 100, 1999, 6767, 6610, 102])
         #expect(ids(String(repeating: "c", count: 150) + ".invoice") == [101, 100, 1012, 1999, 6767, 6610, 102])
+        // Characters folding removes do not make a word long.
+        #expect(ids(String(repeating: "\u{200B}", count: 5000) + "invoice") == [101, 1999, 6767, 6610, 102])
+        #expect(ids("in" + String(repeating: "\u{0301}", count: 2000) + "voice") == [101, 1999, 6767, 6610, 102])
     }
 
     /// A huge note is encoded from its start only, quickly.

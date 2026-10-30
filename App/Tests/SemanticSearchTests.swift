@@ -14,17 +14,26 @@ final class Flag: Sendable {
 @Suite(.serialized)
 struct SemanticSearchTests {
     /// The bundled model, as the app loads it: meaning, not words.
-    @Test func theBundledModelRanksByMeaning() throws {
+    @Test func theBundledModelRanksByMeaning() async throws {
         let embedder = LiveEmbedder.shared
         #expect(embedder.isAvailable)
-        let invoice = try #require(embedder.embed("invoice"))
-        let bill = try #require(embedder.embed("bill for March"))
-        let sql = try #require(embedder.embed("Weekly signups by region SELECT region"))
+        let invoice = try #require(await embedder.embed("invoice"))
+        let bill = try #require(await embedder.embed("bill for March"))
+        let sql = try #require(await embedder.embed("Weekly signups by region SELECT region"))
         func dot(_ a: [Float], _ b: [Float]) -> Float { zip(a, b).reduce(0) { $0 + $1.0 * $1.1 } }
         #expect(invoice.count == 384)
         #expect(abs(dot(invoice, invoice) - 1) < 0.01, "unit length")
         #expect(dot(invoice, bill) > NoteStore.similarityThreshold)
         #expect(dot(invoice, sql) < NoteStore.similarityThreshold)
+    }
+
+    /// A cancelled search runs no inference with the real model (#165).
+    @Test func theBundledModelStopsWhenCancelled() async {
+        let task = Task.detached { () -> [Float]? in
+            withUnsafeCurrentTask { $0?.cancel() }
+            return await LiveEmbedder.shared.embed("invoice")
+        }
+        #expect(await task.value == nil)
     }
 
     /// A stand-in embedder: the axis a note's first word names.

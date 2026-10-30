@@ -312,7 +312,7 @@ final class AppModel {
         didSet { if similarTo != oldValue { findRelated() } }
     }
     /// The bundled model, on device; replaceable for tests.
-    @ObservationIgnored var embed: Embedder = { LiveEmbedder.shared.embed($0) }
+    @ObservationIgnored var embed: Embedder = { await LiveEmbedder.shared.embed($0) }
     @ObservationIgnored private var embedding: Task<Void, Never>?
     @ObservationIgnored private var embeddingRequested = false
     @ObservationIgnored private var relating: Task<Void, Never>?

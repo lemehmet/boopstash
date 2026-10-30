@@ -93,7 +93,10 @@ public struct WordPieceTokenizer: Sendable {
         for scalar in text.unicodeScalars {
             let ends = scalar.properties.isWhitespace || Self.isPunctuation(scalar) || Self.isCJK(scalar)
             guard ends else {
-                if skipping { continue }
+                // Scalars folding drops (marks, control and format
+                // characters) are dropped here, so they neither count toward
+                // the long-run cut nor pile up in memory.
+                if skipping || Self.isDropped(scalar) { continue }
                 run.append(scalar)
                 // Far past the 100-character limit (only a few marks are
                 // dropped in folding): the word is [UNK] whatever it holds,
@@ -117,6 +120,14 @@ public struct WordPieceTokenizer: Sendable {
         }
         chunk.append(contentsOf: run)
         if !chunk.isEmpty, !skipping || !run.isEmpty { process() }
+    }
+
+    /// What folding removes from a word: combining marks (after accents are
+    /// decomposed), control and format characters, NUL and U+FFFD.
+    static func isDropped(_ scalar: Unicode.Scalar) -> Bool {
+        let category = scalar.properties.generalCategory
+        return scalar.value == 0 || scalar.value == 0xFFFD || category == .nonspacingMark || category == .format
+            || (category == .control && !scalar.properties.isWhitespace)
     }
 
     /// BERT's limit: a longer word is [UNK].
