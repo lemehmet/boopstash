@@ -56,8 +56,8 @@ public struct WordPieceTokenizer: Sendable {
 
     /// The words of `words(in:)`, one at a time, until `body` returns false.
     /// The text is folded (lower-cased, decomposed) a chunk at a time, each
-    /// ending at whitespace, so stopping early skips the rest; whitespace
-    /// ends words anyway, so the words are the same as folding it whole.
+    /// ending where a word ends (whitespace, punctuation, CJK), so stopping
+    /// early skips the rest and the words are the same as folding it whole.
     func forEachWord(in text: String, _ body: (String) -> Bool) {
         var chunk = String.UnicodeScalarView()
         var stopped = false
@@ -86,21 +86,49 @@ public struct WordPieceTokenizer: Sendable {
             }
             if !flush() { stopped = true }
         }
+        // `run` is the word being read: scalars since the last whitespace,
+        // punctuation or CJK character, each of which ends a word.
+        var run = String.UnicodeScalarView()
+        var skipping = false
         for scalar in text.unicodeScalars {
+            let ends = scalar.properties.isWhitespace || Self.isPunctuation(scalar) || Self.isCJK(scalar)
+            guard ends else {
+                if skipping { continue }
+                run.append(scalar)
+                // Far past the 100-character limit (only a few marks are
+                // dropped in folding): the word is [UNK] whatever it holds,
+                // so the rest of it is neither kept nor folded.
+                if run.count > Self.longWord {
+                    process()
+                    if stopped || !body(String(repeating: "a", count: Self.maxWordLength + 1)) { return }
+                    run = String.UnicodeScalarView()
+                    skipping = true
+                }
+                continue
+            }
+            skipping = false
+            chunk.append(contentsOf: run)
             chunk.append(scalar)
-            if chunk.count >= 1024, scalar.properties.isWhitespace {
+            run = String.UnicodeScalarView()
+            if chunk.count >= 1024 {
                 process()
                 if stopped { return }
             }
         }
-        if !chunk.isEmpty { process() }
+        chunk.append(contentsOf: run)
+        if !chunk.isEmpty, !skipping || !run.isEmpty { process() }
     }
+
+    /// BERT's limit: a longer word is [UNK].
+    static let maxWordLength = 100
+    /// A run this long is over the limit even after folding drops marks.
+    static let longWord = 1024
 
     /// The longest pieces from the start, later ones prefixed "##"; a word
     /// with no such split, or over 100 characters, is [UNK].
     func pieces(of word: String) -> [Int32] {
         let characters = Array(word.unicodeScalars)
-        guard characters.count <= 100 else { return [unknown] }
+        guard characters.count <= Self.maxWordLength else { return [unknown] }
         var result: [Int32] = []
         var startIndex = 0
         while startIndex < characters.count {

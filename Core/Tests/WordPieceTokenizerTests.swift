@@ -48,6 +48,16 @@ import Testing
         #expect(tokenizer.words(in: text).count > 1500)
     }
 
+    /// A long run without a word break is one [UNK], found without folding
+    /// all of it (#170 review).
+    @Test func anUnbrokenRunIsOneUnknownQuickly() {
+        let started = ContinuousClock.now
+        #expect(ids(String(repeating: "a", count: 5_000_000)) == [101, 100, 102])
+        #expect(ContinuousClock.now - started < .milliseconds(1500))
+        #expect(ids(String(repeating: "b", count: 2000) + " invoice") == [101, 100, 1999, 6767, 6610, 102])
+        #expect(ids(String(repeating: "c", count: 150) + ".invoice") == [101, 100, 1012, 1999, 6767, 6610, 102])
+    }
+
     /// A huge note is encoded from its start only, quickly.
     @Test func hugeTextStopsEarly() {
         let huge = String(repeating: "word ", count: 1_000_000)
