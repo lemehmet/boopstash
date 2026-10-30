@@ -87,6 +87,16 @@ struct BoopstashApp: App {
                 }
                 .disabled(!(delegate.model?.editorHasFocus ?? false))
             }
+            // A local note for bug reports (#185); nothing is sent anywhere.
+            CommandGroup(after: .help) {
+                Divider()
+                Button("Report a Problem…") {
+                    if let model = delegate.model { ProblemReportSheet.run(model: model) }
+                }
+                .disabled(delegate.model == nil)
+                Button("Copy as GitHub Issue") { delegate.model?.copySelectionAsGitHubIssue() }
+                    .disabled(delegate.model?.selection == nil)
+            }
         }
 
         Settings {

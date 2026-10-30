@@ -13,6 +13,15 @@ struct LiveModelTitler: Titler {
         SystemLanguageModel.default.isAvailable
     }
 
+    /// The model's availability for a problem report (#185): "available",
+    /// or why not.
+    static var availabilityDescription: String {
+        switch SystemLanguageModel.default.availability {
+        case .available: "available"
+        case .unavailable(let reason): "unavailable (\(reason))"
+        }
+    }
+
     func title(for body: String, kind: ContentKind) async -> String {
         await modelTitle(for: body, kind: kind) ?? RuleTitler.title(for: body, kind: kind)
     }
