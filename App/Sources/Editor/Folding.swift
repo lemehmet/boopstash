@@ -13,7 +13,7 @@ final class Folding: NSObject, NSTextContentManagerDelegate {
     /// The first lines of folded regions.
     private(set) var folded: Set<Int> = []
     /// Where each line starts (UTF-16), for finding a paragraph's line.
-    private var lineStarts: [Int] = [0]
+    private var lines = LineIndex()
     /// Lines left out of layout.
     private var hiddenLines = IndexSet()
     var onChange: () -> Void = {}
@@ -22,7 +22,7 @@ final class Folding: NSObject, NSTextContentManagerDelegate {
 
     /// A new document: no folds, and its lines.
     func load(_ text: String) {
-        lineStarts = Self.lineStarts(of: text)
+        lines = LineIndex(text)
         regions = []
         setFolded([])
     }
@@ -45,7 +45,8 @@ final class Folding: NSObject, NSTextContentManagerDelegate {
         let removed = last - first
         let added = (text as NSString).substring(with: edited).reduce(0) { $0 + ($1 == "\n" ? 1 : 0) }
         let shift = added - removed
-        lineStarts = Self.lineStarts(of: text)
+        // Incremental: a keystroke must not rescan a large note (#168).
+        lines.apply(edited: edited, delta: delta, in: text as NSString)
         regions = regions.compactMap { region in
             if region.hidden.upperBound < first { return region }
             guard region.startLine > last else { return nil }
@@ -59,30 +60,9 @@ final class Folding: NSObject, NSTextContentManagerDelegate {
         }))
     }
 
-    static func lineStarts(of text: String) -> [Int] {
-        var starts = [0]
-        let ns = text as NSString
-        var search = NSRange(location: 0, length: ns.length)
-        while true {
-            let found = ns.range(of: "\n", options: .literal, range: search)
-            guard found.location != NSNotFound else { break }
-            starts.append(found.location + 1)
-            search = NSRange(location: found.location + 1, length: ns.length - found.location - 1)
-        }
-        return starts
-    }
-
     // MARK: Commands
 
-    func line(at offset: Int) -> Int {
-        // The last line start at or before `offset`.
-        var low = 0, high = lineStarts.count - 1
-        while low < high {
-            let middle = (low + high + 1) / 2
-            if lineStarts[middle] <= offset { low = middle } else { high = middle - 1 }
-        }
-        return low
-    }
+    func line(at offset: Int) -> Int { lines.line(at: offset) }
 
     func isFolded(_ region: FoldRegion) -> Bool { folded.contains(region.startLine) }
 
@@ -258,6 +238,6 @@ extension Folding {
         return regions[low..<end]
     }
 
-    var lineCount: Int { lineStarts.count }
-    func start(of line: Int) -> Int { lineStarts[min(line, lineStarts.count - 1)] }
+    var lineCount: Int { lines.count }
+    func start(of line: Int) -> Int { lines.start(of: line) }
 }
