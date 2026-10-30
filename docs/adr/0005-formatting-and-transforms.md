@@ -30,7 +30,9 @@ These are three different features, kept apart:
      TypeScript, CSS/SCSS/Less, HTML, YAML, Markdown, GraphQL. A JavaScript SQL
      formatter alongside it.
   3. Later, formatters compiled to WebAssembly (for example ruff for Python)
-     through a Swift WebAssembly runtime. Not committed to yet.
+     through a Swift WebAssembly runtime. Not committed to yet. *Amended
+     2026-10-29 (#158): done in the script service's JavaScriptCore instead,
+     without JIT; see ADR 0010.*
 - **Transforms are Boop-compatible scripts** in JavaScriptCore, implementing
   Boop's script API (the `/** … **/` metadata header, `main(state)`, `state.text`,
   `state.selection`, `postError`, `postInfo`) so existing scripts run
