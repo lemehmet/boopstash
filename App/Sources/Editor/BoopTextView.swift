@@ -64,7 +64,7 @@ final class BoopTextView: NSTextView {
     override func setSelectedRanges(_ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting: Bool) {
         let previous = selectedRange()
         super.setSelectedRanges(stillSelecting ? ranges : snapped(ranges, from: previous), affinity: affinity, stillSelecting: stillSelecting)
-        if !stillSelecting { folding.reveal(selectedRange()) }
+        if !stillSelecting { selectedRanges.forEach { folding.reveal($0.rangeValue) } }
     }
 
     /// A reference goes in one keystroke, as one undo step.

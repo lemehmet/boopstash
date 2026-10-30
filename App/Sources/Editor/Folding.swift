@@ -49,7 +49,7 @@ final class Folding: NSObject, NSTextContentManagerDelegate {
         regions = regions.compactMap { region in
             if region.hidden.upperBound < first { return region }
             guard region.startLine > last else { return nil }
-            return FoldRegion(startLine: region.startLine + shift, hidden: (region.hidden.lowerBound + shift)...(region.hidden.upperBound + shift))
+            return region.shifted(by: shift)
         }
         let starts = Set(regions.map(\.startLine))
         setFolded(Set(folded.compactMap { start -> Int? in
@@ -84,11 +84,6 @@ final class Folding: NSObject, NSTextContentManagerDelegate {
         return low
     }
 
-    /// The innermost region the line is in or starts.
-    func region(containing line: Int) -> FoldRegion? {
-        regions.filter { $0.startLine == line || $0.hidden.contains(line) }.max { $0.startLine < $1.startLine }
-    }
-
     func isFolded(_ region: FoldRegion) -> Bool { folded.contains(region.startLine) }
 
     func toggle(_ region: FoldRegion) {
@@ -99,14 +94,15 @@ final class Folding: NSObject, NSTextContentManagerDelegate {
 
     func fold(at line: Int) {
         // The innermost open region around the line.
-        guard let region = regions.filter({ ($0.startLine == line || $0.hidden.contains(line)) && !folded.contains($0.startLine) })
+        guard let region = regions.filter({ $0.lines.contains(line) && !folded.contains($0.startLine) })
             .max(by: { $0.startLine < $1.startLine }) else { return }
         setFolded(folded.union([region.startLine]))
     }
 
+    /// Opens the folds around the line, its visible closing line included.
     func unfold(at line: Int) {
         let opened = folded.filter { start in
-            start == line || regions.first { $0.startLine == start }?.hidden.contains(line) == true
+            regions.first { $0.startLine == start }?.lines.contains(line) == true
         }
         if !opened.isEmpty { setFolded(folded.subtracting(opened)) }
     }
@@ -138,6 +134,7 @@ final class Folding: NSObject, NSTextContentManagerDelegate {
         }
         if hidden != hiddenLines {
             hiddenLines = hidden
+            moveSelectionOutOfHiddenLines()
             if let view, let layout = view.textLayoutManager {
                 layout.invalidateLayout(for: layout.documentRange)
                 layout.textViewportLayoutController.layoutViewport()
@@ -145,6 +142,29 @@ final class Folding: NSObject, NSTextContentManagerDelegate {
             }
         }
         onChange()
+    }
+
+    /// A fold never hides the caret: an end of the selection in hidden
+    /// lines moves to the end of the fold's first line, so typing never
+    /// edits text that cannot be seen.
+    private func moveSelectionOutOfHiddenLines() {
+        guard let view, !hiddenLines.isEmpty else { return }
+        let ranges = view.selectedRanges.map(\.rangeValue)
+        let moved = ranges.map { range -> NSRange in
+            let ends = [range.location, NSMaxRange(range)].map(visibleOffset)
+            return NSRange(location: ends[0], length: max(ends[1] - ends[0], 0))
+        }
+        guard moved != ranges else { return }
+        view.setSelectedRanges(moved.map { NSValue(range: $0) }, affinity: .downstream, stillSelecting: false)
+    }
+
+    /// `offset`, or the end of the visible line before it when hidden.
+    private func visibleOffset(_ offset: Int) -> Int {
+        var line = line(at: offset)
+        guard hiddenLines.contains(line) else { return offset }
+        while line > 0, hiddenLines.contains(line) { line -= 1 }
+        // The end of that line, before its "\n".
+        return start(of: line + 1) - 1
     }
 
     // MARK: NSTextContentManagerDelegate
@@ -176,8 +196,18 @@ final class FoldGutter: NSRulerView {
     private func visibleStarts() -> [(FoldRegion, NSRect)] {
         guard let editor, let layout = editor.textLayoutManager, let content = layout.textContentManager else { return [] }
         let visible = editor.visibleRect
+        // Only blocks starting in the lines on screen: the fragments at the
+        // top and bottom of the view give their range.
+        let origin = editor.textContainerOrigin
+        func offset(atY y: CGFloat) -> Int? {
+            layout.textLayoutFragment(for: CGPoint(x: 0, y: y - origin.y)).map {
+                content.offset(from: content.documentRange.location, to: $0.rangeInElement.location)
+            }
+        }
+        let first = editor.folding.line(at: offset(atY: visible.minY) ?? 0)
+        let last = offset(atY: visible.maxY).map { editor.folding.line(at: $0) } ?? editor.folding.lineCount - 1
         var found: [(FoldRegion, NSRect)] = []
-        for region in editor.folding.regions {
+        for region in editor.folding.regions(startingIn: first...last) {
             guard region.startLine < editor.folding.lineCount, !editor.folding.isHidden(region.startLine),
                   let location = content.location(content.documentRange.location, offsetBy: editor.folding.start(of: region.startLine)),
                   let fragment = layout.textLayoutFragment(for: location)
@@ -216,6 +246,18 @@ final class FoldGutter: NSRulerView {
 }
 
 extension Folding {
+    /// Regions are sorted by first line: a binary search finds the first.
+    func regions(startingIn lines: ClosedRange<Int>) -> ArraySlice<FoldRegion> {
+        var low = 0, high = regions.count
+        while low < high {
+            let middle = (low + high) / 2
+            if regions[middle].startLine < lines.lowerBound { low = middle + 1 } else { high = middle }
+        }
+        var end = low
+        while end < regions.count, regions[end].startLine <= lines.upperBound { end += 1 }
+        return regions[low..<end]
+    }
+
     var lineCount: Int { lineStarts.count }
     func start(of line: Int) -> Int { lineStarts[min(line, lineStarts.count - 1)] }
 }

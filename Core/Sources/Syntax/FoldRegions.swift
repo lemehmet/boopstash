@@ -2,14 +2,26 @@ import Foundation
 import SwiftTreeSitter
 
 /// A block the editor can fold (#155): its first line stays visible, the
-/// lines in `hidden` go. Lines are 0-based, counted at "\n".
+/// lines in `hidden` go, and `lastLine` is where the block ends (after
+/// `hidden` when a closing bracket stays visible). Lines are 0-based,
+/// counted at "\n".
 public struct FoldRegion: Hashable, Sendable {
     public let startLine: Int
     public let hidden: ClosedRange<Int>
+    public let lastLine: Int
 
-    public init(startLine: Int, hidden: ClosedRange<Int>) {
+    public init(startLine: Int, hidden: ClosedRange<Int>, lastLine: Int? = nil) {
         self.startLine = startLine
         self.hidden = hidden
+        self.lastLine = lastLine ?? hidden.upperBound
+    }
+
+    /// The whole block, first line to last.
+    public var lines: ClosedRange<Int> { startLine...lastLine }
+
+    /// The same block `offset` lines further down.
+    public func shifted(by offset: Int) -> FoldRegion {
+        FoldRegion(startLine: startLine + offset, hidden: (hidden.lowerBound + offset)...(hidden.upperBound + offset), lastLine: lastLine + offset)
     }
 }
 
@@ -25,10 +37,22 @@ public enum FoldRegions {
     }
 
     /// Blocks in a syntax tree: every node spanning several lines folds
-    /// under its first. A closing token alone at the end (`}`, `]`, `)`, a
-    /// closing tag) stays visible, as editors show it; a block without one
-    /// (a Markdown section, a Python body) hides to its last line.
-    static func fromTree(_ root: Node) -> [FoldRegion] {
+    /// under its first. A closing token alone on the last line (`}`, `]`,
+    /// `)`, a closing tag) stays visible, as editors show it; one after
+    /// other text there (`"a": 1 }`), or a block without one (a Markdown
+    /// section, a Python body), hides to its last line.
+    static func fromTree(_ root: Node, text: NSString) -> [FoldRegion] {
+        /// Only whitespace before `location` on its line.
+        func startsLine(_ location: Int) -> Bool {
+            var index = min(location, text.length) - 1
+            while index >= 0 {
+                let unit = text.character(at: index)
+                if unit == 10 { return true }
+                if unit != 32, unit != 9, unit != 13 { return false }
+                index -= 1
+            }
+            return true
+        }
         var regions: [FoldRegion] = []
         var stack: [Node] = [root]
         while let node = stack.popLast() {
@@ -44,12 +68,13 @@ public enum FoldRegions {
                 var tail = node.lastChild
                 while let current = tail, Int(current.pointRange.upperBound.row) == Int(range.upperBound.row) {
                     if !current.isNamed {
-                        if Int(current.pointRange.lowerBound.row) == endRow { last -= 1 }
+                        // Alone: nothing before it on its line.
+                        if Int(current.pointRange.lowerBound.row) == endRow, startsLine(current.range.location) { last -= 1 }
                         break
                     }
                     tail = current.lastChild
                 }
-                if last > startRow { regions.append(FoldRegion(startLine: startRow, hidden: (startRow + 1)...last)) }
+                if last > startRow { regions.append(FoldRegion(startLine: startRow, hidden: (startRow + 1)...last, lastLine: endRow)) }
             }
             for index in 0..<node.childCount {
                 if let child = node.child(at: index) { stack.append(child) }
@@ -89,6 +114,6 @@ extension SyntaxEngine {
     /// The foldable blocks of the text as last parsed.
     public func foldRegions() -> [FoldRegion] {
         guard let root = currentRoot else { return [] }
-        return FoldRegions.fromTree(root)
+        return FoldRegions.fromTree(root, text: currentText)
     }
 }

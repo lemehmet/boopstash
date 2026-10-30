@@ -21,8 +21,14 @@ import Testing
             }
             """
         let found = try await regions(json, .json)
-        #expect(found.contains(FoldRegion(startLine: 0, hidden: 1...5)), "\(found)")
-        #expect(found.contains(FoldRegion(startLine: 1, hidden: 2...3)), "\(found)")
+        #expect(found.contains(FoldRegion(startLine: 0, hidden: 1...5, lastLine: 6)), "\(found)")
+        #expect(found.contains(FoldRegion(startLine: 1, hidden: 2...3, lastLine: 4)), "\(found)")
+    }
+
+    /// A closing bracket after other text on its line hides with it.
+    @Test func aCompactClosingLineFolds() async throws {
+        let found = try await regions("{\n  \"a\": 1 }", .json)
+        #expect(found == [FoldRegion(startLine: 0, hidden: 1...1)], "\(found)")
     }
 
     @Test func markdownSectionsFoldToTheNextHeading() async throws {
@@ -34,7 +40,7 @@ import Testing
     @Test func swiftBodiesFold() async throws {
         let swift = "func a() {\n    let x = 1\n    print(x)\n}\n"
         let found = try await regions(swift, .swift)
-        #expect(found.contains(FoldRegion(startLine: 0, hidden: 1...2)), "\(found)")
+        #expect(found.contains(FoldRegion(startLine: 0, hidden: 1...2, lastLine: 3)), "\(found)")
     }
 
     @Test func plainTextFoldsByIndentation() {

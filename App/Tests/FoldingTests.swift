@@ -76,7 +76,7 @@ struct FoldingTests {
         #expect(view.folding.folded == [2])
         #expect(laidOutLines(view) == 6)
         // The next parse agrees, and the fold stays.
-        try await eventually { view.folding.regions.contains { $0.startLine == 2 && $0.hidden == 3...4 } }
+        try await eventually { view.folding.regions.contains { $0.startLine == 2 && $0.hidden == 3...4 && $0.lastLine == 5 } }
         #expect(view.folding.folded == [2])
     }
 
@@ -86,6 +86,43 @@ struct FoldingTests {
         view.folding.fold(at: 1)
         let hidden = (json as NSString).range(of: "2").location
         view.setSelectedRange(NSRange(location: hidden, length: 0))
+        #expect(view.folding.folded.isEmpty)
+    }
+
+    /// Folding around the caret moves it to the end of the fold's first
+    /// line, never leaving it in hidden text.
+    @Test func foldingMovesTheCaretOutOfHiddenLines() async throws {
+        let (window, view) = try await host(json)
+        defer { window.close() }
+        let one = (json as NSString).range(of: "1,").location
+        view.setSelectedRange(NSRange(location: one, length: 0))
+        #expect(view.perform(.fold))
+        #expect(view.folding.folded == [1])
+        let lineOneEnd = (json as NSString).range(of: "[").location + 1
+        #expect(view.selectedRange() == NSRange(location: lineOneEnd, length: 0))
+        #expect(view.folding.folded == [1], "the move does not reopen it")
+    }
+
+    /// Unfold from the visible closing line opens its block.
+    @Test func unfoldFromTheClosingLine() async throws {
+        let (window, view) = try await host(json)
+        defer { window.close() }
+        view.folding.fold(at: 1)
+        let closing = (json as NSString).range(of: "],").location
+        view.setSelectedRange(NSRange(location: closing, length: 0))
+        #expect(view.perform(.unfold))
+        #expect(view.folding.folded.isEmpty)
+    }
+
+    /// Any selection range reaching into a fold opens it, not only the first.
+    @Test func everySelectionRangeIsRevealed() async throws {
+        let (window, view) = try await host(json)
+        defer { window.close() }
+        view.folding.fold(at: 1)
+        let hidden = (json as NSString).range(of: "2").location
+        // NSTextView keeps extra ranges only when they select something.
+        view.setSelectedRanges([NSValue(range: NSRange(location: 0, length: 1)), NSValue(range: NSRange(location: hidden, length: 1))],
+                               affinity: .downstream, stillSelecting: false)
         #expect(view.folding.folded.isEmpty)
     }
 

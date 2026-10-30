@@ -218,7 +218,8 @@ struct ChipTests {
         func hasPicture(_ view: BoopTextView) -> Bool {
             view.chipViews.first?.subviews.contains { ($0 as? NSImageView)?.image?.isTemplate == false } ?? false
         }
-        for _ in 0..<100 where !(hasPicture(first) && hasPicture(second)) {
+        // Up to 5 s: two decodes under the full suite's load took over 2 s once.
+        for _ in 0..<250 where !(hasPicture(first) && hasPicture(second)) {
             try await Task.sleep(for: .milliseconds(20))
         }
         #expect(hasPicture(first) && hasPicture(second))
