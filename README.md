@@ -42,6 +42,24 @@ changes three things:
 
 Boop's scripts keep working.
 
+## Command line
+
+The app carries a sandboxed `boopstash` command. The Homebrew cask puts
+it on your `PATH`. With the App Store version, link it yourself:
+`ln -s /Applications/BoopStash.app/Contents/Helpers/boopstash /usr/local/bin/`.
+
+```sh
+kubectl get pods -o yaml | boopstash --title "pods before the upgrade"
+boopstash < notes.txt              # the command reads only standard input
+boopstash list --days 7
+boopstash search retry backoff --json
+boopstash show 1a2b3c4d            # the ID list and search print
+```
+
+It works on the notes the app keeps, and the app shows what it adds at
+once. Like the app, the command has no network
+access and can't read files you name; it only reads what is piped in.
+
 ## Privacy
 
 - Your notes stay on your devices and in your own iCloud. There is no

@@ -17,10 +17,16 @@ cask "boopstash" do
   depends_on macos: :tahoe
 
   app "BoopStash.app"
+  # The sandboxed command (ADR 0009): `some-command | boopstash`.
+  binary "#{appdir}/BoopStash.app/Contents/Helpers/boopstash"
 
-  # The sandbox keeps everything in the app's container.
+  # The sandbox keeps everything in the containers: the app's, the
+  # command's, and the App Group's, which holds the notes.
   zap trash: [
     "~/Library/Application Scripts/com.lemehmet.boopstash",
+    "~/Library/Application Scripts/com.lemehmet.boopstash.cli",
     "~/Library/Containers/com.lemehmet.boopstash",
+    "~/Library/Containers/com.lemehmet.boopstash.cli",
+    "~/Library/Group Containers/A658882T2K.com.lemehmet.boopstash",
   ]
 end

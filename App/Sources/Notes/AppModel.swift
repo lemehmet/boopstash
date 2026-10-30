@@ -1,5 +1,6 @@
 import AppKit
 import BoopstashCore
+import notify
 import UniformTypeIdentifiers
 import Observation
 
@@ -233,6 +234,8 @@ final class AppModel {
 
     isolated deinit {
         if let dayObserver { NotificationCenter.default.removeObserver(dayObserver) }
+        if let activeObserver { NotificationCenter.default.removeObserver(activeObserver) }
+        if changeToken != NOTIFY_TOKEN_INVALID { notify_cancel(changeToken) }
         keyObservers.forEach(notifications.removeObserver)
     }
 
@@ -264,14 +267,50 @@ final class AppModel {
         }
         #endif
         let support = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
-        let store = try NoteStore.open(at: support.appendingPathComponent("Boopstash/notes.sqlite"))
+        let own = support.appendingPathComponent("Boopstash", isDirectory: true)
+        // In the App Group, where the `boopstash` command reaches it too
+        // (ADR 0009): moved there once, merged if both have a store, and
+        // left at home if the move cannot happen. Only a build signed by the
+        // team may use the group; an ad hoc one (Debug) stays at home.
+        var folder = own, shared = false, merged = 0
+        if let group = SharedStore.folder {
+            (folder, shared, merged) = try NoteStore.sharedStoreFolder(own: own, group: group)
+        }
+        let store = try NoteStore.open(at: folder.appendingPathComponent(SharedStore.fileName), shared: shared)
         // Attachments nothing refers to any more, after a day's grace so an
         // undo can still bring a deleted image back within a session.
         _ = try? store.removeUnreferencedAttachments()
         let model = AppModel(store: store)
+        if merged > 0 {
+            model.banner = "\(merged) notes from an earlier copy of BoopStash on this Mac were added to your notes."
+        }
+        if shared { model.watchOtherProcesses() }
         model.watchScripts()
         if UserDefaults.standard.bool(forKey: syncKey) { model.setSyncEnabled(true) }
         return model
+    }
+
+    /// Notes another process wrote (the `boopstash` command): GRDB's
+    /// observation sees only this process's commits.
+    func refresh() {
+        observe()
+        syncEngine?.takeChangesFromElsewhere()
+        recognizePendingImages()
+    }
+
+    @ObservationIgnored private var changeToken: Int32 = NOTIFY_TOKEN_INVALID
+    @ObservationIgnored private var activeObserver: NSObjectProtocol?
+
+    /// The command posts `SharedStore.changedNotification` after a write;
+    /// coming to the front catches one missed while suspended.
+    func watchOtherProcesses() {
+        guard changeToken == NOTIFY_TOKEN_INVALID else { return }
+        notify_register_dispatch(SharedStore.changedNotification, &changeToken, .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refresh() }
+        }
+        activeObserver = NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refresh() }
+        }
     }
 
     private func observe() {

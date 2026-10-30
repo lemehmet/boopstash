@@ -79,7 +79,8 @@ def release_notes
 end
 
 # What the App Store build may claim: the same as the Developer ID release
-# (ADR 0008), and the script service the sandbox alone (ADR 0007). Checked
+# (ADR 0008, 0009), the script service the sandbox alone (ADR 0007), and
+# the command the sandbox and the App Group (ADR 0009). Checked
 # before anything is uploaded.
 def check_entitlements!(pkg)
   root = Dir.mktmpdir
@@ -90,6 +91,7 @@ def check_entitlements!(pkg)
     app => {
       "com.apple.security.app-sandbox" => true,
       "com.apple.security.files.user-selected.read-write" => true,
+      "com.apple.security.application-groups" => ["A658882T2K.com.lemehmet.boopstash"],
       "com.apple.developer.icloud-container-identifiers" => ["iCloud.com.lemehmet.boopstash"],
       "com.apple.developer.icloud-services" => ["CloudKit"],
       "com.apple.developer.icloud-container-environment" => "Production",
@@ -97,9 +99,14 @@ def check_entitlements!(pkg)
       "com.apple.application-identifier" => "#{team}.#{APP_ID}",
       "com.apple.developer.team-identifier" => team
     },
-    File.join(app, "Contents/XPCServices/BoopStashScripts.xpc") => { "com.apple.security.app-sandbox" => true }
+    File.join(app, "Contents/XPCServices/BoopStashScripts.xpc") => { "com.apple.security.app-sandbox" => true },
+    # The `boopstash` command (ADR 0009).
+    File.join(app, "Contents/Helpers/boopstash") => {
+      "com.apple.security.app-sandbox" => true,
+      "com.apple.security.application-groups" => ["A658882T2K.com.lemehmet.boopstash"]
+    }
   }.each do |bundle, expected|
-    UI.user_error!("missing #{bundle}") unless File.directory?(bundle)
+    UI.user_error!("missing #{bundle}") unless File.exist?(bundle)
     # stdout only: codesign reports the executable on stderr.
     xml, status = Open3.capture2("codesign", "-d", "--entitlements", "-", "--xml", bundle)
     UI.user_error!("could not read the entitlements of #{bundle}") unless status.success?

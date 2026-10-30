@@ -16,7 +16,15 @@ around that, and each point is enforceable rather than aspirational:
 - **The app is sandboxed in every build.** Homebrew and App Store builds are the
   same code with the same entitlements. `App/Boopstash.entitlements` is the
   complete list of what the app may reach, and released builds add only
-  iCloud for sync (`App/BoopstashCloud.entitlements`, ADR 0008).
+  iCloud for sync (`App/BoopstashCloud.entitlements`, ADR 0008). On the
+  Mac the notes live in the container of an App Group,
+  `A658882T2K.com.lemehmet.boopstash`, so the bundled command can reach
+  them; only programs signed by the same team can open it (ADR 0009).
+- **The `boopstash` command is sandboxed too.** It is in the app at
+  `Contents/Helpers/boopstash`, and its entitlements are the sandbox and
+  that App Group, nothing else (`App/CommandLine.entitlements`). It reads
+  standard input and writes standard output. It opens no files, has no
+  network access, and never talks to iCloud.
 - **Scripts run in a separate, emptier sandbox.** Boop scripts and the
   JavaScript formatters run in a bundled XPC service whose only entitlement
   is the sandbox itself (`App/ScriptService.entitlements`, ADR 0007): no

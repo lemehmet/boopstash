@@ -5,6 +5,8 @@
   SECURITY.md; adding one needs an ADR (see docs/adr/0001).
   - user-selected read-write: export writes only into a folder the user picks
     in an open panel (ADR 0002).
+  - application-groups: the team-prefixed group whose container holds the
+    notes, so the bundled `boopstash` command can reach them (ADR 0009).
   Builds that embed a provisioning profile use BoopstashCloud.entitlements,
   which adds iCloud for sync (ADR 0008). There is deliberately no
   network-client entitlement.
@@ -15,5 +17,9 @@
 	<true/>
 	<key>com.apple.security.files.user-selected.read-write</key>
 	<true/>
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>A658882T2K.com.lemehmet.boopstash</string>
+	</array>
 </dict>
 </plist>
