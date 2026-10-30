@@ -192,7 +192,8 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
 
     func nextRecordZoneChangeBatch(_ context: CKSyncEngine.SendChangesContext, syncEngine: CKSyncEngine) async -> CKSyncEngine.RecordZoneChangeBatch? {
         let scope = context.options.scope
-        // Notes before attachments, so an attachment's note is there first.
+        // Labels before notes before attachments, so what a record refers to
+        // is there first.
         let changes = syncEngine.state.pendingRecordZoneChanges.filter { scope.contains($0) }
         let ranks = changes.map { (change: $0, rank: rank($0)) }
         let ordered = ranks.sorted { $0.rank < $1.rank }.map(\.change)
@@ -384,7 +385,7 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
     }
 
     private func acknowledgeDelete(_ id: CKRecord.ID) {
-        for kind in [SyncRecord.Kind.note, .attachment] {
+        for kind in SyncRecord.Kind.allCases {
             try? store.acknowledgeDelete(kind: kind, name: id.recordName)
         }
     }
@@ -395,7 +396,7 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
     /// it any more (the engine then drops the change).
     private func record(for id: CKRecord.ID, engine: CKSyncEngine) -> CKRecord? {
         do {
-            for kind in [SyncRecord.Kind.note, .attachment] {
+            for kind in SyncRecord.Kind.allCases {
                 if case .save(let record, let systemFields, let version)? = try store.pendingSave(kind: kind, name: id.recordName) {
                     state.withLock { $0.sentVersions[id] = version }
                     return Self.ckRecord(from: record, systemFields: systemFields)
@@ -415,9 +416,12 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
 
     private func rank(_ change: CKSyncEngine.PendingRecordZoneChange) -> Int {
         switch change {
-        case .saveRecord(let id): (try? store.pendingSave(kind: .note, name: id.recordName)) != nil ? 0 : 1
-        case .deleteRecord: 2
-        @unknown default: 3
+        case .saveRecord(let id):
+            if (try? store.pendingSave(kind: .label, name: id.recordName)) != nil { 0 }
+            else if (try? store.pendingSave(kind: .note, name: id.recordName)) != nil { 1 }
+            else { 2 }
+        case .deleteRecord: 3
+        @unknown default: 4
         }
     }
 
@@ -468,7 +472,9 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
             // Fetched for an account this device no longer syncs with.
             guard state.withLock({ $0.generation }) == generation else { return outcome }
             state.withLock { state in for name in arrived { state.retryingDeletions.remove(name) } }
-            for item in incoming {
+            // Labels first, so the notes of the same batch find theirs.
+            let ordered = incoming.filter { $0.record.kind == .label } + incoming.filter { $0.record.kind != .label }
+            for item in ordered {
                 do {
                     let copy = try store.applyServerRecord(item.record, systemFields: item.systemFields, assetData: item.asset)
                     // A newer version arrived: an older deletion waiting to be
@@ -543,10 +549,18 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
     /// Every field the app defines goes in `encryptedValues` (ADR 0002);
     /// in the clear are only the record's name, type, its note reference and
     /// the asset, whose key CloudKit keeps in an encrypted field.
+    ///
+    /// A record rebuilt from system fields holds no values, and CloudKit
+    /// sends only the keys set on it: a field of this app's schema that the
+    /// record leaves out (a note's last label removed, an override reset) is
+    /// set to nil explicitly, or the server would keep the old value (ADR
+    /// 0011). Fields this app does not know are never touched, so a newer
+    /// app's fields survive an edit here.
     static func ckRecord(from sync: SyncRecord, systemFields: Data?) -> CKRecord {
         let record = systemFields.flatMap(record(fromSystemFields:))
             ?? CKRecord(recordType: sync.kind.rawValue, recordID: recordID(sync.name))
-        for key in record.encryptedValues.allKeys() where sync.encrypted[key] == nil {
+        let cleared = Set(record.encryptedValues.allKeys()).union(SyncMapping.schemaFields[sync.kind] ?? [])
+        for key in cleared where sync.encrypted[key] == nil {
             record.encryptedValues[key] = nil
         }
         for (key, value) in sync.encrypted {
@@ -555,6 +569,7 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
             case .date(let date): record.encryptedValues[key] = date
             case .bool(let bool): record.encryptedValues[key] = bool
             case .int(let int): record.encryptedValues[key] = int
+            case .strings(let strings): record.encryptedValues[key] = strings
             }
         }
         record["note"] = sync.parent.map { CKRecord.Reference(recordID: recordID($0), action: .none) }
@@ -567,7 +582,9 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
         var fields: [String: SyncValue] = [:]
         for key in record.encryptedValues.allKeys() {
             let value = record.encryptedValues[key]
-            if let string = value as? String {
+            if let strings = value as? [String] {
+                fields[key] = .strings(strings)
+            } else if let string = value as? String {
                 fields[key] = .string(string)
             } else if let date = value as? Date {
                 fields[key] = .date(date)

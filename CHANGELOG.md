@@ -6,6 +6,11 @@ breaking changes may land in a minor release.
 
 ## Unreleased
 
+### Fixed
+
+- **Clearing a note's setting syncs.** Setting a note's highlighting back to
+  automatic on one device left the old language on the others.
+
 ## v0.4.1 — 2026-10-30
 
 ### Fixed

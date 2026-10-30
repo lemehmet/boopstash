@@ -18,8 +18,8 @@ public enum DemoNotes {
         return store
     }
 
-    /// One note and one image with every field the sync records can carry
-    /// set, in an in-memory store: syncing it from a development build
+    /// One note, one image and one label with every field the sync records
+    /// can carry set, in an in-memory store: syncing it from a development build
     /// creates the complete CloudKit schema in the Development environment,
     /// to be deployed to Production (see CONTRIBUTING ▸ iCloud schema).
     /// Made-up content, like the rest.
@@ -35,6 +35,8 @@ public enum DemoNotes {
         note.body = "Every synced field, set. " + AttachmentReference.markdown(for: image.id)
         note.modelTitledHash = Note.contentHash(note.body)
         try store.save(note)
+        let label = try store.createLabel(name: "Seed", color: "#1d76db", details: "Every label field, set.")
+        try store.assignLabel(label.id, to: note.id)
         return store
     }
 

@@ -1,7 +1,7 @@
 import Foundation
 
-/// What the note list shows: an optional text filter, where it looks, and an
-/// optional age limit. Results are always newest-edited first.
+/// What the note list shows: an optional text filter, where it looks, an
+/// optional age limit and labels. Results are always newest-edited first.
 public struct NoteQuery: Hashable, Sendable {
     public enum Scope: String, CaseIterable, Sendable {
         case everywhere
@@ -15,12 +15,16 @@ public struct NoteQuery: Hashable, Sendable {
     /// the first: 1 is "today", 7 is "today and the six days before". Nil is
     /// no limit.
     public var days: Int?
+    /// Label IDs: a note matches only if it carries all of them. Empty is
+    /// no label filter.
+    public var labels: Set<UUID>
     public var limit: Int
 
-    public init(text: String = "", scope: Scope = .everywhere, days: Int? = nil, limit: Int = 500) {
+    public init(text: String = "", scope: Scope = .everywhere, days: Int? = nil, labels: Set<UUID> = [], limit: Int = 500) {
         self.text = text
         self.scope = scope
         self.days = days
+        self.labels = labels
         self.limit = limit
     }
 

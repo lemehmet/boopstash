@@ -4,15 +4,18 @@ import Foundation
 /// the `LiveSyncEngine` adapter turns these into `CKRecord`s and back. Every
 /// field the app defines travels in `encrypted`, which the adapter writes to
 /// `encryptedValues` (ADR 0002); in the clear are only the record name (a
-/// random UUID), the type, the parent reference and the asset.
+/// random UUID), the type, the parent reference and the asset. Labels add
+/// nothing in the clear (ADR 0011).
 public struct SyncRecord: Equatable, Sendable {
-    public enum Kind: String, Codable, Sendable {
+    public enum Kind: String, Codable, CaseIterable, Sendable {
         case note = "Note"
         case attachment = "Attachment"
+        /// A label of the catalog (ADR 0011).
+        case label = "Label"
     }
 
     public var kind: Kind
-    /// The record name: the note's or attachment's ID, lowercased.
+    /// The record name: the note's, attachment's or label's ID, lowercased.
     public var name: String
     public var encrypted: [String: SyncValue]
     /// An attachment's note, as a `CKRecord.Reference`, which CloudKit
@@ -35,11 +38,14 @@ public enum SyncValue: Equatable, Sendable {
     case date(Date)
     case bool(Bool)
     case int(Int)
+    /// A string list, such as a note's label IDs (ADR 0011).
+    case strings([String])
 
     var string: String? { if case .string(let value) = self { value } else { nil } }
     var date: Date? { if case .date(let value) = self { value } else { nil } }
     var bool: Bool? { if case .bool(let value) = self { value } else { nil } }
     var int: Int? { if case .int(let value) = self { value } else { nil } }
+    var strings: [String]? { if case .strings(let value) = self { value } else { nil } }
 }
 
 /// Every record waiting to be sent, by name.
@@ -84,6 +90,18 @@ public enum SyncMapping {
         ("syntaxOverride", { $0.syntaxOverride.map(SyncValue.string) }),
     ]
 
+    /// A note's labels travel as a list of label IDs, never names (ADR
+    /// 0011); absent when it has none, so clearing them clears the field.
+    static let labelIDsField = "labelIDs"
+
+    static let labelFields: [(name: String, value: @Sendable (NoteLabel) -> SyncValue?)] = [
+        ("name", { .string($0.name) }),
+        ("color", { .string($0.color) }),
+        ("details", { .string($0.details) }),
+        ("createdAt", { .date($0.createdAt) }),
+        ("updatedAt", { .date($0.updatedAt) }),
+    ]
+
     static let attachmentFields: [(name: String, value: @Sendable (NoteAttachment) -> SyncValue?)] = [
         ("contentType", { .string($0.contentType) }),
         ("byteSize", { .int($0.byteSize) }),
@@ -93,13 +111,44 @@ public enum SyncMapping {
 
     /// Every encrypted field each record type can carry: the CloudKit schema.
     public static let schemaFields: [SyncRecord.Kind: Set<String>] = [
-        .note: Set(noteFields.map(\.name)),
+        .note: Set(noteFields.map(\.name) + [labelIDsField]),
         .attachment: Set(attachmentFields.map(\.name)),
+        .label: Set(labelFields.map(\.name)),
     ]
 
-    public static func record(for note: Note) -> SyncRecord {
-        let fields = Dictionary(uniqueKeysWithValues: noteFields.compactMap { field in field.value(note).map { (field.name, $0) } })
+    /// `labelIDs`: the labels the note carries, sent sorted so the same set
+    /// is always the same record.
+    public static func record(for note: Note, labelIDs: Set<UUID> = []) -> SyncRecord {
+        var fields = Dictionary(uniqueKeysWithValues: noteFields.compactMap { field in field.value(note).map { (field.name, $0) } })
+        if !labelIDs.isEmpty {
+            fields[labelIDsField] = .strings(labelIDs.map { $0.uuidString.lowercased() }.sorted())
+        }
         return SyncRecord(kind: .note, name: note.id.uuidString.lowercased(), encrypted: fields)
+    }
+
+    /// The label IDs a note record carries; none when the field is absent
+    /// (no labels, or a record from before labels). Entries that are not
+    /// IDs are skipped.
+    public static func labelIDs(from record: SyncRecord) -> Set<UUID> {
+        Set((record.encrypted[labelIDsField]?.strings ?? []).compactMap(UUID.init(uuidString:)))
+    }
+
+    public static func record(for label: NoteLabel) -> SyncRecord {
+        let fields = Dictionary(uniqueKeysWithValues: labelFields.compactMap { field in field.value(label).map { (field.name, $0) } })
+        return SyncRecord(kind: .label, name: label.id.uuidString.lowercased(), encrypted: fields)
+    }
+
+    /// Nil when the record is not a usable label. The name is trimmed; a
+    /// colour this app cannot read becomes the palette's first.
+    public static func label(from record: SyncRecord) -> NoteLabel? {
+        let fields = record.encrypted
+        guard record.kind == .label, let id = UUID(uuidString: record.name),
+              let name = fields["name"]?.string?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty,
+              let createdAt = fields["createdAt"]?.date
+        else { return nil }
+        return NoteLabel(id: id, name: name, color: fields["color"]?.string.flatMap(LabelColor.parse) ?? LabelColor.palette[0],
+                         details: fields["details"]?.string ?? "", createdAt: createdAt,
+                         updatedAt: fields["updatedAt"]?.date ?? createdAt)
     }
 
     /// Nil when the record is not a usable note (a newer app's record with
@@ -145,13 +194,18 @@ public enum SyncMerge {
         /// Whether the merged note still differs from the server's and must
         /// be sent.
         public var stillPending: Bool
+        /// The labels the note carries here: both sides' (ADR 0011).
+        public var labelIDs: Set<UUID> = []
     }
 
     /// `local` has unsent changes. Field by field: a body changed on both
     /// sides keeps the server's and saves this device's as a copy; a title
     /// the user set beats a generated one, and between two the newer wins;
-    /// other settings follow the newer edit.
-    public static func merge(local: Note, server: Note, now: Date = Date()) -> Outcome {
+    /// other settings follow the newer edit. Labels merge by union: one
+    /// added on either side stays, so a removal made while the other side
+    /// also changed the note can come back (ADR 0011).
+    public static func merge(local: Note, server: Note, localLabels: Set<UUID> = [], serverLabels: Set<UUID> = [],
+                             now: Date = Date()) -> Outcome {
         var merged = server
         var copy: Note?
         if local.body != server.body {
@@ -172,6 +226,9 @@ public enum SyncMerge {
         }
         if localNewer { merged.syntaxOverride = local.syntaxOverride }
         merged.updatedAt = max(local.updatedAt, server.updatedAt)
-        return Outcome(note: merged, conflictCopy: copy, stillPending: SyncMapping.record(for: merged) != SyncMapping.record(for: server))
+        let labels = localLabels.union(serverLabels)
+        return Outcome(note: merged, conflictCopy: copy,
+                       stillPending: SyncMapping.record(for: merged, labelIDs: labels) != SyncMapping.record(for: server, labelIDs: serverLabels),
+                       labelIDs: labels)
     }
 }
