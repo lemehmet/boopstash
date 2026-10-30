@@ -95,7 +95,11 @@ public final class NoteStore: Sendable {
         func bringHome(from folder: URL) {
             for name in keepingAtHome {
                 let there = folder.appendingPathComponent(name), here = own.appendingPathComponent(name)
-                guard files.fileExists(atPath: there.path), !files.fileExists(atPath: here.path) else { continue }
+                guard files.fileExists(atPath: there.path) else { continue }
+                // An empty folder at home (the script watcher makes one) is
+                // no reason to leave the real one away (#177).
+                if (try? files.contentsOfDirectory(atPath: here.path))?.isEmpty == true { try? files.removeItem(at: here) }
+                guard !files.fileExists(atPath: here.path) else { continue }
                 try? files.createDirectory(at: own, withIntermediateDirectories: true)
                 try? files.moveItem(at: there, to: here)
             }
