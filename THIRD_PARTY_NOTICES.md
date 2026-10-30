@@ -33,6 +33,19 @@ unmodified, pinned in `Vendor/`:
 |---|---|---|
 | [Prettier](https://prettier.io) (standalone and its babel, estree, typescript, postcss, html, yaml and markdown plugins) | 3.9.9 | MIT (`Vendor/Prettier/LICENSE`); the code Prettier bundles is listed with its licences in `Vendor/Prettier/THIRD-PARTY-NOTICES.md`, as Prettier ships it |
 | [sql-formatter](https://github.com/sql-formatter-org/sql-formatter) | 15.9.0 | MIT (`Vendor/SQLFormatter/LICENSE`); its bundle includes [nearley](https://github.com/kach/nearley) (MIT) |
+| [Ruff](https://github.com/astral-sh/ruff)'s formatter, as [@wasm-fmt/ruff_fmt](https://github.com/wasm-fmt/ruff_fmt) | 0.15.20 | MIT (`Vendor/WasmFormatters/ruff_fmt/LICENSE.ruff`, which lists what Ruff includes); wrapper MIT (`LICENSE`) |
+| [gofmt](https://pkg.go.dev/go/format), as [@wasm-fmt/gofmt](https://github.com/wasm-fmt/gofmt) | 0.7.3 | BSD-3-Clause (`Vendor/WasmFormatters/gofmt/LICENSE.go`); wrapper MIT (`LICENSE`) |
+| [shfmt](https://github.com/mvdan/sh), as [@wasm-fmt/shfmt](https://github.com/wasm-fmt/shfmt) | 0.2.7 | BSD-3-Clause (`Vendor/WasmFormatters/shfmt/LICENSE.sh`); wrapper MIT (`LICENSE`) |
+| [clang-format](https://clang.llvm.org/docs/ClangFormat.html), as [@wasm-fmt/clang-format](https://github.com/wasm-fmt/clang-format) | 23.1.1 | Apache-2.0 WITH LLVM-exception (`Vendor/WasmFormatters/clang-format/LICENSE.llvm`); wrapper MIT (`LICENSE`) |
+
+## Models
+
+Semantic search (#157) runs this model on the device, never sending
+anything off it:
+
+| Model | Revision | Licence |
+|---|---|---|
+| [all-MiniLM-L6-v2](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2) (sentence-transformers) | c9745ed | Apache-2.0 (`Vendor/MiniLM/LICENSE`); converted to Core ML by `scripts/models/convert-minilm.py` |
 
 ## Boop scripts
 

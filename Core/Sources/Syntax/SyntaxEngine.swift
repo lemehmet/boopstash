@@ -77,6 +77,10 @@ public actor SyntaxEngine {
         return version
     }
 
+    /// The parse's root, for structure such as folding.
+    var currentRoot: Node? { tree?.rootNode }
+    var currentText: NSString { text }
+
     /// Highlights intersecting `range`, with the version they describe.
     public func highlights(in range: NSRange) -> (version: Int, highlights: [SyntaxHighlight]) {
         guard let tree, let root = tree.rootNode else { return (version, []) }

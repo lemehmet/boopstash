@@ -11,7 +11,12 @@ final class AppModel {
     private(set) var notes: [Note] = []
     var selection: UUID?
     var query = NoteQuery() {
-        didSet { if query != oldValue { observe() } }
+        didSet {
+            guard query != oldValue else { return }
+            // A new search ends "similar to" (#157).
+            if query.text != oldValue.text, !query.text.isEmpty { similarTo = nil }
+            observe()
+        }
     }
     /// A one-line message for the window, such as why a capture was refused.
     var banner: String?
@@ -218,6 +223,7 @@ final class AppModel {
         drafts = NoteDrafts(store: store)
         drafts.onError = { [weak self] in self?.banner = $0 }
         observe()
+        if semanticSearchEnabled() { watchPendingEmbeddings() }
         // The store re-evaluates "last N days" on every fetch, but with no
         // edits nothing fetches; at midnight, start over so "Today" is today.
         dayObserver = NotificationCenter.default.addObserver(forName: .NSCalendarDayChanged, object: nil, queue: .main) { [weak self] _ in
@@ -341,11 +347,116 @@ final class AppModel {
                     self?.titleCommandNotes(notes)
                     // A change may have added an image to read.
                     self?.recognizePendingImages()
+                    self?.findRelated()
                 }
             } catch {
                 self?.banner = "Could not read notes: \(error.localizedDescription)"
             }
         }
+    }
+
+    // MARK: Semantic search (#157)
+
+    /// Settings ▸ General ▸ Search; on unless turned off.
+    static let semanticSearchKey = "semanticSearch"
+    @ObservationIgnored var semanticSearchEnabled: () -> Bool = {
+        UserDefaults.standard.object(forKey: AppModel.semanticSearchKey) as? Bool ?? true
+    }
+    /// Notes close in meaning to the search that its words did not find,
+    /// listed after them.
+    private(set) var related: [Note] = []
+    /// The note whose similar notes the list shows, instead of a search.
+    var similarTo: UUID? {
+        didSet { if similarTo != oldValue { findRelated() } }
+    }
+    /// The bundled model, on device; replaceable for tests.
+    @ObservationIgnored var embed: Embedder = { LiveEmbedder.shared.embed($0) }
+    @ObservationIgnored private var embedding: Task<Void, Never>?
+    @ObservationIgnored private var embeddingRequested = false
+    @ObservationIgnored private var relating: Task<Void, Never>?
+    @ObservationIgnored private var pendingWatch: Task<Void, any Error>?
+
+    /// Keeps every note's embedding current, off the main actor, as the
+    /// image-text worker does.
+    func embedPendingNotes() {
+        guard semanticSearchEnabled() else { return }
+        guard embedding == nil else {
+            embeddingRequested = true
+            return
+        }
+        embeddingRequested = false
+        let store = self.store, embed = self.embed
+        let work = Task.detached(priority: .utility) { await store.embedPendingNotes(with: embed) }
+        embedding = Task { [weak self] in
+            await withTaskCancellationHandler { await work.value } onCancel: { work.cancel() }
+            guard let self, !Task.isCancelled else { return }
+            self.embedding = nil
+            if self.embeddingRequested { self.embedPendingNotes() } else { self.findRelated() }
+        }
+    }
+
+    /// Runs the worker whenever notes await embedding: new or changed
+    /// notes, here or synced, but not a change of search.
+    func watchPendingEmbeddings() {
+        pendingWatch?.cancel()
+        let counts = store.pendingEmbeddings()
+        pendingWatch = Task { [weak self] in
+            for try await count in counts where count > 0 {
+                self?.embedPendingNotes()
+            }
+        }
+    }
+
+    /// Settings ▸ General ▸ Search ▸ Find notes by meaning, changed: start
+    /// or stop now, not at the next edit.
+    func semanticSearchChanged() {
+        if semanticSearchEnabled() {
+            watchPendingEmbeddings()
+            findRelated()
+        } else {
+            pendingWatch?.cancel()
+            pendingWatch = nil
+            embedding?.cancel()
+            embedding = nil
+            embeddingRequested = false
+            relating?.cancel()
+            related = []
+            similarTo = nil
+        }
+    }
+
+    /// Fills `related`: notes similar to the open "similar to" note, or to
+    /// the search text (three or more characters) and not already found by
+    /// its words. After a short pause, so typing is not held up.
+    func findRelated() {
+        relating?.cancel()
+        let text = query.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard semanticSearchEnabled(), similarTo != nil || text.count >= 3 else {
+            related = []
+            return
+        }
+        let store = self.store, embed = self.embed, query = self.query, similarTo = self.similarTo
+        let shown = similarTo.map { Set([$0]) } ?? Set(notes.map(\.id))
+        relating = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(250))
+            guard !Task.isCancelled else { return }
+            let found = await Task.detached(priority: .userInitiated) { () -> [Note] in
+                let vector: [Float]?
+                if let similarTo { vector = try? store.embedding(of: similarTo) } else { vector = await embed(text) }
+                guard let vector else { return [] }
+                return (try? store.notesSimilar(to: vector, within: similarTo == nil ? query : NoteQuery(), excluding: shown, limit: similarTo == nil ? 10 : 20))?.map(\.note) ?? []
+            }.value
+            guard let self, !Task.isCancelled else { return }
+            self.related = found
+        }
+    }
+
+    /// Note ▸ Show Similar Notes: the list shows the notes closest in
+    /// meaning to this one.
+    func showSimilar(to id: UUID) {
+        flush(id)
+        query.text = ""
+        similarTo = id
     }
 
     // MARK: Image text

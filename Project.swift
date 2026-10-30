@@ -158,8 +158,10 @@ let project = Project(
                     ],
                 ],
             ]),
-            sources: ["App/Sources/**", "App/Shared/**", "App/Adapters/**", "App/SharedViews/**"],
+            // The semantic search model (#157), compiled by Xcode.
+            sources: ["App/Sources/**", "App/Shared/**", "App/Adapters/**", "App/SharedViews/**", "Vendor/MiniLM/MiniLM.mlpackage"],
             resources: [
+                "Vendor/MiniLM/vocab.txt",
                 "App/Resources/**",
                 // Boop's scripts (ADR 0005); the app lists and sends them.
                 .folderReference(path: "Vendor/Boop/scripts"),
@@ -230,8 +232,8 @@ let project = Project(
                 // Changes from other devices arrive while in the background.
                 "UIBackgroundModes": ["remote-notification"],
             ]),
-            sources: ["iOS/Sources/**", "iOS/Shared/**", "App/Adapters/**", "App/SharedViews/**"],
-            resources: ["iOS/Resources/**"],
+            sources: ["iOS/Sources/**", "iOS/Shared/**", "App/Adapters/**", "App/SharedViews/**", "Vendor/MiniLM/MiniLM.mlpackage"],
+            resources: ["iOS/Resources/**", "Vendor/MiniLM/vocab.txt"],
             dependencies: [.target(name: "BoopstashCore"), .target(name: "BoopStashShare")],
             settings: .settings(base: [
                 "PRODUCT_MODULE_NAME": "BoopStashMobile",
@@ -306,6 +308,9 @@ let project = Project(
                 // Prettier 3.9.9 and sql-formatter 15.9.0 (#56, #57).
                 .folderReference(path: "Vendor/Prettier"),
                 .folderReference(path: "Vendor/SQLFormatter"),
+                // Ruff, gofmt, shfmt and clang-format as WebAssembly (#158).
+                .folderReference(path: "Vendor/WasmFormatters"),
+                "App/ScriptService/WasmHost.js",
             ],
             entitlements: .file(path: "App/ScriptService.entitlements"),
             dependencies: [.target(name: "BoopstashCore")],

@@ -24,12 +24,20 @@ struct GeneralSettings: View {
     let model: AppModel?
     @AppStorage(AppModel.modelTitlesKey) private var modelTitles = true
     @AppStorage(AppDelegate.hotKeyKey) private var globalShortcut = true
+    @AppStorage(AppModel.semanticSearchKey) private var semanticSearch = true
 
     var body: some View {
         Form {
             Section("Capture") {
                 Toggle("⌃⌥⌘V saves the clipboard from any app", isOn: $globalShortcut)
                 Text("Also in every app's Services menu: select text, then Services ▸ Save to BoopStash.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Section("Search") {
+                Toggle("Find notes by meaning", isOn: $semanticSearch)
+                    .onChange(of: semanticSearch) { model?.semanticSearchChanged() }
+                Text("A small language model bundled with BoopStash reads each note on this Mac, so a search also finds notes that say the same in other words. Nothing leaves this Mac.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -149,7 +157,7 @@ struct EditorSettingsView: View {
                     Text("UPPER CASE").tag(FormatSettings.KeywordCase.upper.rawValue)
                     Text("lower case").tag(FormatSettings.KeywordCase.lower.rawValue)
                 }
-                Text("Edit ▸ Format Document formats JSON and XML natively; JavaScript, TypeScript, CSS, HTML, YAML and Markdown with Prettier, and SQL with sql-formatter, in BoopStash's sandboxed script process.")
+                Text("Edit ▸ Format Document formats JSON and XML natively; JavaScript, TypeScript, CSS, HTML, YAML and Markdown with Prettier; SQL with sql-formatter; Python with Ruff, Go with gofmt, shell with shfmt, and C, C++ and Java with clang-format, all in BoopStash's sandboxed script process.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

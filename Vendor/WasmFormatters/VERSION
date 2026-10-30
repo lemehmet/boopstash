@@ -1,0 +1,12 @@
+Formatters compiled to WebAssembly by the wasm-fmt project (#158, ADR 0010),
+from https://registry.npmjs.org, unmodified: only the files the script service
+loads, with each package's LICENSE (MIT, the wrapper) and the formatter's own.
+
+ruff_fmt/      @wasm-fmt/ruff_fmt 0.15.20      Ruff's Python formatter (LICENSE.ruff, MIT)
+gofmt/         @wasm-fmt/gofmt 0.7.3           Go's go/format (LICENSE.go, BSD-3-Clause)
+shfmt/         @wasm-fmt/shfmt 0.2.7           mvdan/sh's shfmt (LICENSE.sh, BSD-3-Clause)
+clang-format/  @wasm-fmt/clang-format 23.1.1   LLVM's clang-format (LICENSE.llvm, Apache-2.0 WITH LLVM-exception)
+
+Each tarball is https://registry.npmjs.org/@wasm-fmt/<name>/-/<name>-<version>.tgz.
+The ES-module files are loaded as they are: the service drops their `export`
+keywords when it reads them, rather than this folder holding edited copies.

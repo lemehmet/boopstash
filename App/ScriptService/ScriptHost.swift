@@ -141,13 +141,16 @@ final class ScriptExecution: NSObject, ScriptExecutionExports {
     func insert(_ value: String) { state.insert(value) }
 }
 
-/// Prettier and sql-formatter (#56, #57), each loaded once per service
-/// process into a context of its own and reused: they keep no state
-/// between calls, and loading Prettier with its plugins is most of the
-/// cost. Like scripts, they get nothing beyond JavaScriptCore itself.
+/// Prettier and sql-formatter (#56, #57), and formatters compiled to
+/// WebAssembly (#158, ADR 0010), each loaded once per service process into
+/// a context of its own and reused: they keep no state between calls, and
+/// loading is most of the cost. Like scripts, they get nothing beyond
+/// JavaScriptCore itself; WebAssembly runs in its interpreter, as the
+/// service has no JIT entitlement.
 enum Formatters {
     nonisolated(unsafe) private static var prettier: JSContext?
     nonisolated(unsafe) private static var sql: JSContext?
+    nonisolated(unsafe) private static var wasm: [JSFormatRequest.Engine: JSContext] = [:]
 
     static func format(_ request: JSFormatRequest) -> JSFormatResponse {
         let context: JSContext?
@@ -161,6 +164,9 @@ enum Formatters {
         case .sqlFormatter:
             if sql == nil { sql = load(["SQLFormatter/sql-formatter.min"]) }
             context = sql
+        case .ruff, .gofmt, .shfmt, .clangFormat:
+            if wasm[request.engine] == nil { wasm[request.engine] = loadWasm(request.engine) }
+            context = wasm[request.engine]
         }
         guard let context else {
             return JSFormatResponse(error: FormatError(message: "The formatter could not be loaded.", line: nil, column: nil))
@@ -169,6 +175,14 @@ enum Formatters {
         context.setObject(request.options, forKeyedSubscript: "__options" as NSString)
         // Prettier answers with a promise; JavaScriptCore settles it before
         // evaluateScript returns, so the result is there to read.
+        let call = switch request.engine {
+        case .prettier: ""
+        case .sqlFormatter: "sqlFormatter.format(__source, __o)"
+        case .ruff: "__module.format(__source, 'note.py', __o)"
+        case .gofmt: "__formatWithMemory(__wasm, __source, null, null)"
+        case .shfmt: "__formatWithMemory(__wasm, __source, __o, null)"
+        case .clangFormat: "__module.format(__source, __o.filename, __o.style)"
+        }
         let script = request.engine == .prettier
             ? """
               var __result = null, __error = null;
@@ -177,7 +191,7 @@ enum Formatters {
               """
             : """
               var __result = null, __error = null;
-              try { __result = sqlFormatter.format(__source, JSON.parse(__options)) } catch (e) { __error = e }
+              try { var __o = JSON.parse(__options); __result = \(call) } catch (e) { __error = e }
               """
         context.evaluateScript(script)
         if let result = context.objectForKeyedSubscript("__result"), result.isString {
@@ -200,7 +214,72 @@ enum Formatters {
         // The location is also in the message as "(line:column)": drop it,
         // since FormatError says where.
         let trimmed = reason.replacingOccurrences(of: #"\s*\(\d+:\d+\)$"#, with: "", options: .regularExpression)
+        // gofmt and shfmt start theirs with "line:column: ".
+        if line == nil, let match = trimmed.firstMatch(of: /^(?:<[^>]*>:)?(\d+):(\d+): (.+)$/) {
+            return FormatError(message: String(match.3), line: Int(match.1), column: Int(match.2))
+        }
         return FormatError(message: trimmed, line: line, column: column)
+    }
+
+    /// A formatter compiled to WebAssembly: the host's TextEncoder and
+    /// helpers, the package's own glue, and the module, instantiated once.
+    private static func loadWasm(_ engine: JSFormatRequest.Engine) -> JSContext? {
+        let context = JSContext()!
+        var failed = false
+        context.exceptionHandler = { _, _ in failed = true }
+        func resource(_ name: String, _ type: String) -> URL? { Bundle.main.url(forResource: name, withExtension: type) }
+        guard let host = resource("WasmHost", "js").flatMap({ try? String(contentsOf: $0, encoding: .utf8) }) else { return nil }
+        context.evaluateScript(host)
+        /// An ES module of the package, unmodified on disk: its exports
+        /// become the properties of `__module` (one module per context).
+        func evaluateModule(_ name: String) -> Bool {
+            guard let url = resource(name, "js"), let code = try? String(contentsOf: url, encoding: .utf8) else { return false }
+            let exported = code.matches(of: /(?m)^export (?:async )?(?:function|class|const|let|var) ([A-Za-z0-9_$]+)/).map { String($0.1) }
+            let body = code.replacing(/(?m)^export (?=(?:async )?(?:function|class|const|let|var) )/, with: "")
+            context.evaluateScript("var __module = Object.assign(globalThis.__module || {}, (function () {\n\(body)\nreturn { \(exported.joined(separator: ", ")) };\n})());",
+                                   withSourceURL: url)
+            return !failed
+        }
+        /// The module's bytes, as `__bytes`.
+        func setBytes(_ name: String) -> Bool {
+            guard let data = resource(name, "wasm").flatMap({ try? Data(contentsOf: $0) }),
+                  let array = context.evaluateScript("new Uint8Array(\(data.count))"),
+                  let pointer = JSObjectGetTypedArrayBytesPtr(context.jsGlobalContextRef, array.jsValueRef, nil)
+            else { return false }
+            data.copyBytes(to: pointer.assumingMemoryBound(to: UInt8.self), count: data.count)
+            context.setObject(array, forKeyedSubscript: "__bytes" as NSString)
+            return true
+        }
+        let ready: Bool
+        switch engine {
+        case .gofmt, .shfmt:
+            let name = engine == .gofmt ? "gofmt" : "shfmt"
+            ready = setBytes("WasmFormatters/\(name)/\(name)")
+            context.evaluateScript("var __wasm = new WebAssembly.Instance(new WebAssembly.Module(__bytes), {}).exports; if (__wasm._initialize) __wasm._initialize();")
+        case .ruff:
+            ready = evaluateModule("WasmFormatters/ruff_fmt/ruff_fmt_bg") && setBytes("WasmFormatters/ruff_fmt/ruff_fmt_bg")
+            context.evaluateScript("""
+                (function () {
+                  const { __wbg_set_wasm, format, format_range, ...imports } = __module;
+                  const instance = new WebAssembly.Instance(new WebAssembly.Module(__bytes), { "./ruff_fmt_bg.js": imports });
+                  __wbg_set_wasm(instance.exports);
+                  if (instance.exports.__wbindgen_start) instance.exports.__wbindgen_start();
+                })();
+                """)
+        case .clangFormat:
+            ready = evaluateModule("WasmFormatters/clang-format/clang-format") && evaluateModule("WasmFormatters/clang-format/clang-format-binding")
+                && setBytes("WasmFormatters/clang-format/clang-format")
+            context.evaluateScript("__module.set_wasm(__module.createModule({ wasm: new WebAssembly.Module(__bytes) }));")
+        case .prettier, .sqlFormatter:
+            return nil
+        }
+        context.evaluateScript("__bytes = null;")
+        guard ready, !failed else { return nil }
+        // Not nil: JavaScriptCore crashes reporting an exception with no
+        // handler, and reading an error without `loc` (sql-formatter's,
+        // gofmt's) raises one.
+        context.exceptionHandler = { _, _ in }
+        return context
     }
 
     private static func load(_ names: [String]) -> JSContext? {
@@ -214,7 +293,10 @@ enum Formatters {
             context.evaluateScript(code, withSourceURL: url)
             if failed { return nil }
         }
-        context.exceptionHandler = nil
+        // Not nil: JavaScriptCore crashes reporting an exception with no
+        // handler, and reading an error without `loc` (sql-formatter's,
+        // gofmt's) raises one.
+        context.exceptionHandler = { _, _ in }
         return context
     }
 }
