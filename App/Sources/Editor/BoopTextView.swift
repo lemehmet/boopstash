@@ -40,8 +40,11 @@ final class BoopTextView: NSTextView {
     /// start another decode.
     @MainActor static var decoding: [URL: NSHashTable<BoopTextView>] = [:]
 
+    private var foldScrollObserver: NSObjectProtocol?
+
     isolated deinit {
         if let chipScrollObserver { NotificationCenter.default.removeObserver(chipScrollObserver) }
+        if let foldScrollObserver { NotificationCenter.default.removeObserver(foldScrollObserver) }
     }
 
     override func didChangeText() {
@@ -61,6 +64,7 @@ final class BoopTextView: NSTextView {
     override func setSelectedRanges(_ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting: Bool) {
         let previous = selectedRange()
         super.setSelectedRanges(stillSelecting ? ranges : snapped(ranges, from: previous), affinity: affinity, stillSelecting: stillSelecting)
+        if !stillSelecting { selectedRanges.forEach { folding.reveal($0.rangeValue) } }
     }
 
     /// A reference goes in one keystroke, as one undo step.
@@ -92,6 +96,9 @@ final class BoopTextView: NSTextView {
         return resigned
     }
     let syntax = SyntaxPainter()
+    /// Folded blocks (#155), the view's alone.
+    let folding = Folding()
+    private var foldGutter: FoldGutter?
 
     /// Always `init(usingTextLayoutManager: true)`: the frame-based
     /// initializers can build a TextKit 1 view (ADR 0006).
@@ -116,9 +123,39 @@ final class BoopTextView: NSTextView {
         view.disableSubstitutions()
         scroll.documentView = view
         view.syntax.attach(to: view)
+        view.attachFolding(to: scroll)
         assert(view.textLayoutManager != nil, "the editor fell back to TextKit 1")
         return (scroll, view)
     }
+
+    // MARK: - Folding (#155)
+
+    private func attachFolding(to scroll: NSScrollView) {
+        folding.view = self
+        textLayoutManager?.textContentManager?.delegate = folding
+        let gutter = FoldGutter(scrollView: scroll, editor: self)
+        foldGutter = gutter
+        scroll.verticalRulerView = gutter
+        scroll.hasVerticalRuler = true
+        scroll.rulersVisible = true
+        folding.onChange = { [weak gutter] in gutter?.needsDisplay = true }
+        syntax.onFoldRegions = { [weak self] in self?.folding.setRegions($0) }
+        syntax.onEdit = { [weak self] edited, delta, text in self?.folding.edited(edited, delta: delta, text: text) }
+        if let clip = scroll.contentView as NSClipView? {
+            clip.postsBoundsChangedNotifications = true
+            foldScrollObserver = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification, object: clip, queue: .main) { [weak gutter] _ in
+                MainActor.assumeIsolated { gutter?.needsDisplay = true }
+            }
+        }
+    }
+
+    private var caretLine: Int { folding.line(at: selectedRange().location) }
+
+    /// View ▸ Fold: the innermost open block around the caret.
+    @objc func fold(_ sender: Any?) { folding.fold(at: caretLine) }
+    @objc func unfold(_ sender: Any?) { folding.unfold(at: caretLine) }
+    @objc func foldAll(_ sender: Any?) { folding.foldAll() }
+    @objc func unfoldAll(_ sender: Any?) { folding.unfoldAll() }
 
     // MARK: - Appearance
 
@@ -175,6 +212,8 @@ final class BoopTextView: NSTextView {
         formatting?.cancel()
         documentGeneration += 1
         syntax.replacingDocument { string = text }
+        // Folds are offsets into one note (ADR 0006).
+        folding.load(text)
         // The previous note's chips and ranges go now, not after the
         // deferred rebuild: a keystroke in between would act on them (#94).
         chipViews.forEach { $0.removeFromSuperview() }
@@ -630,9 +669,13 @@ final class BoopTextView: NSTextView {
         case .pasteAsMarkdown: pasteAsMarkdown(nil)
         case .formatDocument: formatDocument(nil)
         case .formatJSONSortingKeys: formatJSONSortingKeys(nil)
-        case .fold, .unfold, .toggleComment:
-            // Folding is deferred (ADR 0003); comments need the note's
-            // language. Unbound until then, so the key does what AppKit does.
+        case .fold: fold(nil)
+        case .unfold: unfold(nil)
+        case .foldAll: foldAll(nil)
+        case .unfoldAll: unfoldAll(nil)
+        case .toggleComment:
+            // Comments need the note's language. Unbound until then, so the
+            // key does what AppKit does.
             return false
         }
         return true

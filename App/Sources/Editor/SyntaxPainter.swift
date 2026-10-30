@@ -47,6 +47,13 @@ final class SyntaxPainter {
         }
     }
 
+    /// Foldable blocks (#155), from the parse or, with no grammar, from
+    /// indentation; delivered a moment after typing pauses.
+    var onFoldRegions: (([FoldRegion]) -> Void)?
+    /// Every edit of the text, as storage reports it, not a document load.
+    var onEdit: ((NSRange, Int, String) -> Void)?
+    private var structure: Task<Void, Never>?
+
     /// Called after each paint; tests use it to observe the view between the
     /// paint and the next display.
     var didPaint: (() -> Void)?
@@ -83,7 +90,10 @@ final class SyntaxPainter {
                 let edited = storage.editedRange
                 let delta = storage.changeInLength
                 let text = storage.string
-                MainActor.assumeIsolated { self?.textDidChange(edited: edited, delta: delta, text: text) }
+                MainActor.assumeIsolated {
+                    self?.textDidChange(edited: edited, delta: delta, text: text)
+                    if self?.loading == false { self?.onEdit?(edited, delta, text) }
+                }
             })
         }
         if let clip = view.enclosingScrollView?.contentView {
@@ -173,6 +183,27 @@ final class SyntaxPainter {
             appliedVersion = version
         }
         schedulePaint()
+        scheduleStructure()
+    }
+
+    private func scheduleStructure() {
+        guard onFoldRegions != nil else { return }
+        structure?.cancel()
+        let engine = self.engine
+        structure = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(200))
+            guard !Task.isCancelled, let self, let text = self.view?.string else { return }
+            let version = self.shownVersion
+            guard self.appliedVersion == version else { return } // a newer edit will ask
+            let regions: [FoldRegion]
+            if let engine {
+                regions = await engine.foldRegions()
+            } else {
+                regions = await Task.detached(priority: .utility) { FoldRegions.byIndentation(text) }.value
+            }
+            guard !Task.isCancelled, version == self.shownVersion else { return }
+            self.onFoldRegions?(regions)
+        }
     }
 
     private func schedulePaint() {

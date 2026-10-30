@@ -10,7 +10,7 @@ public enum EditorCommand: String, CaseIterable, Codable, Sendable {
     case deleteWordBackward, deleteWordForward, deleteToLineEnd, deleteLine, deleteForward
     case duplicateLineDown, duplicateLineUp, swapLineUp, swapLineDown
     case indentLines, unindentLines
-    case fold, unfold
+    case fold, unfold, foldAll, unfoldAll
     case toggleComment
     case pasteAsMarkdown
     case formatDocument, formatJSONSortingKeys
@@ -137,6 +137,8 @@ public enum KeymapPreset: String, CaseIterable, Codable, Sendable {
         KeyChord("down", [.option, .shift]): .swapLineDown,
         KeyChord("-", .command): .fold,
         KeyChord("=", .command): .unfold,
+        KeyChord("-", [.command, .shift]): .foldAll,
+        KeyChord("=", [.command, .shift]): .unfoldAll,
         KeyChord("l", [.command, .option]): .formatDocument,
     ]
 
