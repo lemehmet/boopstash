@@ -150,8 +150,32 @@ import Testing
             """
         let issue = ProblemReport.issueMarkdown(body)
         #expect(!issue.lowercased().contains("attachment:"))
-        #expect(issue.components(separatedBy: ProblemReport.attachmentPlaceholder).count - 1 == 4)
+        // The reference-style use and its definition are both replaced.
+        #expect(issue.components(separatedBy: ProblemReport.attachmentPlaceholder).count - 1 == 5)
         #expect(issue.contains("text \(ProblemReport.attachmentPlaceholder) more"))
+        #expect(!issue.contains("[img]"))
+    }
+
+    /// Reference-style images in the forms only the parser sees: inside a
+    /// quote, with CRLF line ends, with a title, by shortcut (#185).
+    @Test(arguments: [
+        "> ![plot][img]\n>\n> [img]: attachment:%@",
+        "![plot][img]\r\n\r\n[img]:\r\n attachment:%@",
+        "![plot][img]\n\n[img]: <attachment:%@> \"A title\"",
+        "![img]\n\n[img]: attachment:%@",
+    ])
+    func issueMarkdownReplacesReferenceStyleImages(_ form: String) {
+        let body = "Before\n\n" + String(format: form, UUID().uuidString)
+        let issue = ProblemReport.issueMarkdown(body)
+        #expect(!issue.lowercased().contains("attachment:"), "\(issue.debugDescription)")
+        #expect(!issue.contains("[img]"), "\(issue.debugDescription)")
+        #expect(!issue.contains("![plot]"), "\(issue.debugDescription)")
+        #expect(issue.hasPrefix("Before"))
+    }
+
+    @Test func issueMarkdownKeepsOtherReferenceImages() {
+        let body = "![logo][web]\n\n[web]: https://example.com/logo.png"
+        #expect(ProblemReport.issueMarkdown(body) == body)
     }
 
     // MARK: Logs and lines

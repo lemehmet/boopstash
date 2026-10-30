@@ -94,12 +94,17 @@ extension AppModel {
             if let attachment { try? store.deleteAttachment(id: attachment.id) }
             return nil
         }
+        var labelled: Set<UUID> = []
         do {
             let label = try store.labelCreatingIfMissing(named: ProblemReport.labelName, color: ProblemReport.labelColor, now: now)
             try store.assignLabel(label.id, to: note.id)
+            labelled = [label.id]
         } catch {
             banner = "The report was made, but could not be labelled \(ProblemReport.labelName): \(error.localizedDescription)"
         }
+        // A label filter the report does not carry would hide it while it
+        // is selected: only `bug`, if filtered by, stays.
+        if !query.labels.isSubset(of: labelled) { query.labels.formIntersection(labelled) }
         Log.diagnostics.info("problem report made: screenshot \(attachment != nil), logs \(logLines != nil)")
         return note
     }
@@ -143,7 +148,8 @@ enum ProblemReportSheet {
         alert.messageText = "Report a Problem"
         alert.informativeText = """
             Makes a note labelled \(ProblemReport.labelName) describing BoopStash and this window, without the text of any note. \
-            The report stays on this Mac until you share it.
+            It is an ordinary note: with Sync with iCloud on, it syncs to your devices like any other. \
+            Nobody else sees it unless you share it.
             """
         let shot = NSButton(checkboxWithTitle: "Include a screenshot of this window", target: nil, action: nil)
         shot.state = screenshot == nil ? .off : .on

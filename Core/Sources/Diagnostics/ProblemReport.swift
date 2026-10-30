@@ -1,4 +1,5 @@
 import Foundation
+import Markdown
 
 /// Help ▸ Report a Problem… (#185): what a bug report needs about the app
 /// and what was on screen, as a note the user fills in and keeps. It holds
@@ -206,12 +207,17 @@ public struct ProblemReport: Equatable, Sendable {
     /// A note as the body of a GitHub issue: every attachment reference
     /// (inline images and link definitions) becomes a line asking the user
     /// to drag the image in by hand, since GitHub cannot reach the store.
+    /// Images the parser resolves to an attachment are found by the parser,
+    /// so reference-style uses (`![plot][img]`) go too; definitions, which
+    /// the parser consumes, are found by pattern, inside quotes and across
+    /// CRLF line breaks as well.
     public static func issueMarkdown(_ body: String) -> String {
         let ns = body as NSString
         let whole = NSRange(location: 0, length: ns.length)
-        let ranges = (AttachmentReference.pattern.matches(in: body, range: whole)
-            + AttachmentReference.definitionPattern.matches(in: body, range: whole)).map(\.range)
-            .sorted { $0.location < $1.location }
+        let inline = AttachmentReference.pattern.matches(in: body, range: whole).map(\.range)
+        let definitions = issueDefinitionPattern.matches(in: body, range: whole).map { $0.range(at: 1) }
+        let ranges = (inline + definitions + parsedAttachmentImageRanges(in: body))
+            .sorted { $0.location != $1.location ? $0.location < $1.location : $0.length > $1.length }
         var out = ""
         var cursor = 0
         for range in ranges where range.location >= cursor {
@@ -221,6 +227,42 @@ public struct ProblemReport: Equatable, Sendable {
         }
         out += ns.substring(from: cursor)
         return out
+    }
+
+    /// A link reference definition naming an attachment, after any quote
+    /// markers, its destination on the same line or the next, with an
+    /// optional title. Group 1 is the definition without the quote markers.
+    static let issueDefinitionPattern = try! NSRegularExpression(
+        pattern: #"^(?:[ \t]*>)*[ \t]*(\[(?:[^\]\\]|\\.)+\]:[ \t]*(?:\r?\n(?:[ \t]*>)*)?[ \t]*<?(?i:attachment):[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}>?(?:[ \t]+(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|\((?:[^)\\]|\\.)*\)))?)"#,
+        options: [.anchorsMatchLines]
+    )
+
+    /// Where each image the parser resolves to an attachment is written,
+    /// whatever its form, as UTF-16 ranges of `body`.
+    static func parsedAttachmentImageRanges(in body: String) -> [NSRange] {
+        guard body.range(of: AttachmentReference.scheme, options: .caseInsensitive) != nil else { return [] }
+        var walker = AttachmentImageRanges()
+        walker.visit(Document(parsing: body))
+        guard !walker.ranges.isEmpty else { return [] }
+        // Line starts in UTF-8 bytes, as the parser counts: after \n, after
+        // a \r not followed by \n.
+        let bytes = Array(body.utf8)
+        var starts = [0]
+        for (index, byte) in bytes.enumerated() {
+            if byte == 0x0A || (byte == 0x0D && (index + 1 == bytes.count || bytes[index + 1] != 0x0A)) {
+                starts.append(index + 1)
+            }
+        }
+        func offset(_ location: SourceLocation) -> String.Index? {
+            guard location.line >= 1, location.line <= starts.count else { return nil }
+            let byte = starts[location.line - 1] + location.column - 1
+            guard byte >= 0, byte <= bytes.count else { return nil }
+            return body.utf8.index(body.utf8.startIndex, offsetBy: byte, limitedBy: body.utf8.endIndex)
+        }
+        return walker.ranges.compactMap { range in
+            guard let lower = offset(range.lowerBound), let upper = offset(range.upperBound), lower <= upper else { return nil }
+            return NSRange(lower..<upper, in: body)
+        }
     }
 
     /// The newest `maxLines` lines, each cut to `maxLineLength` characters.
@@ -274,5 +316,17 @@ public struct ProblemReport: Equatable, Sendable {
             }
         }
         return String(repeating: "`", count: max(3, longest + 1))
+    }
+}
+
+/// Walks parsed markdown for the source ranges of images that show an
+/// attachment.
+private struct AttachmentImageRanges: MarkupWalker {
+    var ranges: [SourceRange] = []
+
+    mutating func visitImage(_ image: Markdown.Image) {
+        if let source = image.source, AttachmentReference.id(fromSource: source) != nil, let range = image.range {
+            ranges.append(range)
+        }
     }
 }

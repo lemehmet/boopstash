@@ -41,12 +41,14 @@ around that, and each point is enforceable rather than aspirational:
   under your Apple Account, reached through the system's iCloud service. The
   app does not contact it, or check your account, until you turn on Sync with
   iCloud, which is off by default.
-- **Problem reports stay on your Mac.** Help ▸ Report a Problem… makes an
-  ordinary note, labelled `bug`, with the app's version and settings, counts
+- **Problem reports are ordinary notes, sent to no one.** Help ▸ Report a
+  Problem… makes an ordinary note, labelled `bug`, with the app's version and settings, counts
   and IDs describing what was on screen (never the text or title of a note),
   and, if you leave them ticked, a screenshot of the window drawn from the
   app's own views (no Screen Recording permission) and the last 10 minutes
-  of BoopStash's own log. Help ▸ Copy as GitHub Issue writes the selected
+  of BoopStash's own log. With Sync with iCloud on, the report and its
+  screenshot sync to your private iCloud database like any other note, and
+  nowhere else. Help ▸ Copy as GitHub Issue writes the selected
   note to the clipboard and asks the system to open
   `https://github.com/lemehmet/boopstash/issues/new` in your browser, with
   nothing in the URL. The app makes no request itself; what reaches GitHub

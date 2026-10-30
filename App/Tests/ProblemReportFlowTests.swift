@@ -87,6 +87,22 @@ struct ProblemReportFlowTests {
         #expect(again.id != label.id)
     }
 
+    @Test func aLabelFilterThatWouldHideTheReportIsCleared() throws {
+        let work = try model.store.createLabel(name: "work", color: "#0e8a16")
+        model.query.labels = [work.id]
+        let note = try report(logs: nil, screenshot: false)
+        #expect(model.selection == note.id)
+        #expect(model.query.labels.isEmpty)
+    }
+
+    @Test func aBugLabelFilterStays() throws {
+        let bug = try model.store.labelCreatingIfMissing(named: "bug", color: ProblemReport.labelColor)
+        let work = try model.store.createLabel(name: "work", color: "#0e8a16")
+        model.query.labels = [bug.id, work.id]
+        _ = try report(logs: nil, screenshot: false)
+        #expect(model.query.labels == [bug.id])
+    }
+
     @Test func theListFilterIsDescribedWithoutItsText() throws {
         let label = try model.store.createLabel(name: "work", color: "#0e8a16")
         model.query = NoteQuery(text: marker, scope: .content, days: 7, labels: [label.id])
