@@ -14,6 +14,9 @@ struct CommandLineRefreshTests {
         let url = folder.appendingPathComponent("notes.sqlite")
         let model = AppModel(store: try NoteStore.open(at: url, shared: true))
         model.watchOtherProcesses()
+        // The model's first fetch is asynchronous: let it finish, or it can
+        // read the write below and pass without the notification.
+        try await Task.sleep(for: .milliseconds(300))
         // Another pool on the same file stands in for the other process:
         // GRDB's observation does not see its commits either.
         let other = try NoteStore.open(at: url, shared: true)
