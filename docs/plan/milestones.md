@@ -10,8 +10,7 @@ Each milestone ends in something that runs. Decisions behind them are in
 | M4 — Preview, images, formatting, scripts | Done; v0.2.0 |
 | M5 — Sync and iOS | Done; v0.3.0 |
 | M6 — Mac App Store | Done; 0.3.0 in App Review (macOS and iOS) |
-| v0.3.1 | On `main`, released after 0.3.0 is approved |
-| M7 — Folding, command line, semantic search, more formatters | In progress |
+| M7 — Folding, command line, semantic search, more formatters | Done; v0.4.0, with the planned v0.3.1 changes |
 
 Releases stay at most one version ahead of the App Store: while a version
 is in review, work lands on `main` and waits.
@@ -83,7 +82,7 @@ is in review, work lands on `main` and waits.
   mode of made-up notes.
 - Privacy policy and support pages on GitHub Pages.
 
-## v0.3.1 (on `main`)
+## v0.4.0 (was v0.3.1, folded into M7's release)
 
 - The language menu shows the language in use, marked when detected.
 - The preview renders Markdown only, with a placeholder for other notes.
@@ -91,7 +90,7 @@ is in review, work lands on `main` and waits.
   Beside the Editor.
 - Settings screenshots for the App Store.
 
-## M7 — Folding, command line, semantic search, more formatters
+## M7 — Folding, command line, semantic search, more formatters (done, v0.4.0)
 
 - Folding by structure: braces, elements, Markdown sections, indentation;
   view-only, with a gutter and commands (#155).

@@ -2,6 +2,7 @@ BoopStash for iPhone and iPad keeps the notes from BoopStash on your Mac close a
 
 • Every note, titled and listed newest first.
 • Search titles and text, and narrow by age: today, this week, the last 30 days.
+• Search by meaning too, with a small language model on your device: "invoice" finds "bill for March".
 • Read and make quick edits, with syntax highlighting for the common languages.
 • Plain text editing that stays out of the way: no smart quotes, no autocorrect.
 
