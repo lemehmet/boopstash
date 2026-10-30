@@ -72,8 +72,13 @@ def build_number(platform)
                                  version: version, initial_build_number: 0) + 1
 end
 
-# What's new: the changelog section for this version, as plain text.
-def release_notes
+# What's new for a platform: its metadata folder's release_notes.txt when
+# there is one (the iOS app has fewer features than the changelog lists),
+# otherwise the changelog section for this version, as plain text.
+def release_notes(metadata)
+  file = File.join(metadata, "en-US", "release_notes.txt")
+  return File.read(file).strip[0, 4000] if File.exist?(file)
+
   section = File.read("../CHANGELOG.md")[/^## v#{Regexp.escape(version)}.*?\n(.*?)(?=^## |\z)/m, 1].to_s
   section.gsub(/^### /, "").gsub(/\*\*(.+?)\*\*/, '\1').gsub(/`([^`]*)`/, '\1').strip[0, 4000]
 end
@@ -115,6 +120,18 @@ def check_entitlements!(pkg)
     actual = JSON.parse(json)
     UI.user_error!("#{File.basename(bundle)} entitlements are #{actual}, expected #{expected}") unless actual == expected
   end
+  # The embedded profile must authorise the App Group (ADR 0009): an
+  # unauthorised claim clears the app's entitlements-validated flag.
+  profile, status = Open3.capture2("security", "cms", "-D", "-i", File.join(app, "Contents/embedded.provisionprofile"))
+  UI.user_error!("could not read the app's provisioning profile") unless status.success?
+  # PlistBuddy, as plutil cannot turn a profile's dates and data into JSON.
+  profile_path = File.join(root, "profile.plist")
+  File.write(profile_path, profile)
+  listing, = Open3.capture2("/usr/libexec/PlistBuddy", "-c", "Print :Entitlements:com.apple.security.application-groups", profile_path)
+  groups = listing.lines.map(&:strip).reject { |line| line.empty? || line.end_with?("{") || line == "}" }
+  unless groups.include?("#{team}.*") || groups.include?("A658882T2K.com.lemehmet.boopstash")
+    UI.user_error!("the provisioning profile does not authorise the App Group (#{groups}); regenerate it")
+  end
   UI.success("entitlements checked")
 ensure
   FileUtils.rm_rf(root) if root
@@ -154,7 +171,7 @@ platform :mac do
     next if options[:upload] == false
 
     upload_to_testflight(api_key: api_key, app_platform: "osx", skip_waiting_for_build_processing: true,
-                         changelog: release_notes)
+                         changelog: release_notes("metadata"))
   end
 
   desc "Submit the newest TestFlight build with the metadata for review"
@@ -164,7 +181,7 @@ platform :mac do
             metadata_path: "./fastlane/metadata",
             screenshots_path: "./fastlane/screenshots", overwrite_screenshots: true,
             skip_binary_upload: true, force: true, precheck_include_in_app_purchases: false,
-            release_notes: { "en-US" => release_notes }, automatic_release: false,
+            release_notes: { "en-US" => release_notes("metadata") }, automatic_release: false,
             submission_information: { add_id_info_uses_idfa: false, export_compliance_uses_encryption: false })
   end
 end
@@ -201,7 +218,7 @@ platform :ios do
     next if options[:upload] == false
 
     upload_to_testflight(api_key: api_key, app_platform: "ios", skip_waiting_for_build_processing: true,
-                         changelog: release_notes)
+                         changelog: release_notes("metadata-ios"))
   end
 
   desc "Submit the newest TestFlight build with the metadata for review"
@@ -211,7 +228,7 @@ platform :ios do
             metadata_path: "./fastlane/metadata-ios",
             screenshots_path: "./fastlane/screenshots-ios", overwrite_screenshots: true,
             skip_binary_upload: true, force: true, precheck_include_in_app_purchases: false,
-            release_notes: { "en-US" => release_notes }, automatic_release: false,
+            release_notes: { "en-US" => release_notes("metadata-ios") }, automatic_release: false,
             submission_information: { add_id_info_uses_idfa: false, export_compliance_uses_encryption: false })
   end
 end

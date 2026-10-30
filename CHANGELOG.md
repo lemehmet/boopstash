@@ -6,6 +6,58 @@ breaking changes may land in a minor release.
 
 ## Unreleased
 
+## v0.4.0 — 2026-10-30
+
+### New
+
+- **Search by meaning.** A search also lists notes that say the same thing
+  in other words, under "Similar in meaning": "invoice" finds "bill for
+  March". Show Similar Notes on a note lists the notes closest to it. A
+  small language model bundled with BoopStash reads each note on your
+  device. Nothing leaves it, and the index is never synced. On the Mac,
+  Settings ▸ General ▸ Search ▸ Find notes by meaning turns it off.
+- **Folding** on the Mac. Blocks of code, JSON, XML and HTML elements,
+  Markdown sections and indented text fold from an arrow beside their
+  first line, or with Edit ▸ Folding (⌥⌘[ and ⌥⌘] in VS Code's bindings,
+  ⌘- and ⌘= in JetBrains'). Folding only hides lines: the note's text,
+  search, copy and export are unchanged.
+- **A `boopstash` command** on the Mac. `some-command | boopstash` keeps
+  the output as a note, and `boopstash list`, `search` and `show` read
+  notes in a terminal, with `--json`. The Homebrew cask puts it on your
+  PATH. It is sandboxed like the app: it reads only what is piped to it.
+- **Format Document for Python, Go, shell, C, C++ and Java**, with Ruff,
+  gofmt, shfmt and clang-format, run in BoopStash's sandboxed script
+  process.
+- **The language in use** shows in the language menu, marked when it was
+  detected rather than chosen.
+- **Toolbar buttons** for Paste as Markdown, Run Script, Show Preview and
+  Preview Beside the Editor.
+
+### Changed
+
+- The preview renders Markdown notes only. Other notes show a placeholder,
+  with a button to treat the note as Markdown.
+- On the Mac, notes move into a folder shared with the `boopstash`
+  command (an App Group container) on first launch. Your scripts and
+  `keybindings.json` stay where they were.
+
+### Fixed
+
+- XML formatting keeps text, CDATA and processing instructions exactly,
+  and leaves documents using `xml:space="preserve"` alone.
+- Image chips are built for the visible part of a note only, with small
+  thumbnails decoded off the main thread, so long notes with many images
+  scroll smoothly.
+- Formatting a large document can be cancelled at any point, and uses the
+  indent width setting everywhere.
+
+### Privacy
+
+- No new network access. The language model, the formatters and the
+  command all run on your device, inside the sandbox. The script process
+  still has only the sandbox: WebAssembly runs without JIT (ADR 0010).
+- The App Group is the only new entitlement (ADR 0009).
+
 ## v0.3.0 — 2026-10-29
 
 ### New

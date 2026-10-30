@@ -191,6 +191,13 @@ jobs:
           if actual != expected:
               sys.exit(f"::error::entitlements are {actual}, expected {expected}")
           PY
+          # The embedded profile must authorise the App Group (ADR 0009): an
+          # unauthorised claim still launches but clears the app's
+          # entitlements-validated flag, which iCloud may then refuse.
+          security cms -D -i "$app/Contents/embedded.provisionprofile" > "$RUNNER_TEMP/profile.plist"
+          /usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.security.application-groups' "$RUNNER_TEMP/profile.plist" \
+            | grep -Eq "^ *($APPLE_TEAM_ID\.\*|A658882T2K\.com\.lemehmet\.boopstash)$" \
+            || { echo "::error::the provisioning profile does not authorise the App Group; regenerate it"; exit 1; }
           # The script service (ADR 0007) may have the sandbox and nothing else.
           service="$app/Contents/XPCServices/BoopStashScripts.xpc"
           [ -d "$service" ] || { echo "::error::the script service is missing"; exit 1; }

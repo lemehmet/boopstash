@@ -105,13 +105,16 @@ The Mac App Store and TestFlight builds go through fastlane (`fastlane/Fastfile`
   again after the App ID gains a capability. It is the only lane that may
   create anything in the developer account.
 - `beta` builds the same sandboxed app as the Homebrew release, signed for the
-  App Store, checks the entitlements of the app and its script service (Mac)
+  App Store, checks the entitlements of the app, its script service and the
+  `boopstash` command, and that the profile authorises the App Group (Mac),
   before anything is uploaded, and uploads it to TestFlight.
   With *upload* off it only builds.
 - `release` submits the newest TestFlight build for review with the metadata
   in `fastlane/metadata/` (Mac) or `fastlane/metadata-ios/` (iOS, which says
-  only what the iOS app does) and the changelog's section for the version as
-  What's New. It never releases automatically.
+  only what the iOS app does). What's New is the platform's
+  `en-US/release_notes.txt` there, or, without one, the changelog's
+  section for the version. The files outlive a version: update or delete
+  them with each release. It never releases automatically.
 
 Screenshots come from `scripts/screenshots/take.sh`, which runs the debug build's
 demo mode (made-up notes in memory, never a real store) on the Mac and in the

@@ -1,0 +1,2 @@
+• Search by meaning: a search also finds notes that say the same thing in other words, using a small language model on your device. Show Similar Notes lists a note's closest neighbours.
+• Notes shared from other apps are found by meaning too.
