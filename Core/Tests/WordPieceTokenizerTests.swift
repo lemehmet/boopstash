@@ -61,6 +61,15 @@ import Testing
         #expect(ids("in" + String(repeating: "\u{0301}", count: 2000) + "voice") == [101, 1999, 6767, 6610, 102])
     }
 
+    /// Chunked folding (#164) is exact only because Swift's lowercased() maps
+    /// each scalar on its own: no final-sigma rule, no other context. If that
+    /// ever changes, chunks must be cut only where case has no context (#175).
+    @Test func lowerCasingHasNoContext() {
+        #expect("ΟΣ'".lowercased() == "οσ'" && "ΟΣ".lowercased() == "οσ")
+        let text = String(repeating: "a", count: 1020) + " ΟΣ'Α ΟΣ"
+        #expect(tokenizer.words(in: text) == tokenizer.words(in: text.lowercased()))
+    }
+
     /// A huge note is encoded from its start only, quickly.
     @Test func hugeTextStopsEarly() {
         let huge = String(repeating: "word ", count: 1_000_000)
