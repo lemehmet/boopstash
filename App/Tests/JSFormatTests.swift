@@ -3,7 +3,8 @@ import Foundation
 import Testing
 @testable import Boopstash
 
-/// Prettier and sql-formatter in the script service (#56, #57).
+/// Prettier, sql-formatter and the WebAssembly formatters in the script
+/// service (#56, #57, #158).
 @MainActor
 @Suite(.serialized, .timeLimit(.minutes(2)))
 struct JSFormatTests {
@@ -24,6 +25,43 @@ struct JSFormatTests {
     ])
     func prettierFormatsEachLanguage(_ language: SyntaxLanguage, _ source: String, _ expected: String) async throws {
         #expect(try await format(source, as: language) == .success(expected))
+    }
+
+    /// Formatters compiled to WebAssembly (#158, ADR 0010), through the
+    /// real service.
+    @Test(arguments: [
+        (SyntaxLanguage.python, "def f( a,b ):\n  return {'k':a}", "def f(a, b):\n    return {\"k\": a}\n"),
+        (.go, "package main\nfunc main(){\nx:=1\n_=x}", "package main\n\nfunc main() {\n\tx := 1\n\t_ = x\n}\n"),
+        (.bash, "if [ -n \"$a\" ];then\necho  hi\nfi", "if [ -n \"$a\" ]; then\n  echo hi\nfi\n"),
+        (.c, "int main(){return 0;}", "int main() { return 0; }"),
+        (.java, "class A{void f(){int x=1;}}", "class A {\n  void f() { int x = 1; }\n}"),
+    ])
+    func wasmFormattersFormatEachLanguage(_ language: SyntaxLanguage, _ source: String, _ expected: String) async throws {
+        #expect(try await format(source, as: language) == .success(expected))
+    }
+
+    @Test func wasmSyntaxErrorsSayWhere() async throws {
+        guard case .failure(let error) = try await format("package main\nfunc main( {", as: .go) else {
+            Issue.record("formatted invalid Go")
+            return
+        }
+        #expect(error.line == 2 && error.column == 12, "\(error)")
+        #expect(error.message == "expected ')', found '{'")
+        guard case .failure = try await format("def f(:\n", as: .python) else {
+            Issue.record("formatted invalid Python")
+            return
+        }
+        guard case .failure = try await format("if then fi ((", as: .bash) else {
+            Issue.record("formatted invalid shell")
+            return
+        }
+        // The service lived through the errors.
+        #expect(try await format("x=1", as: .python) == .success("x = 1\n"))
+    }
+
+    /// Non-ASCII text survives the host's own UTF-8 encoder and decoder.
+    @Test func unicodeRoundTrips() async throws {
+        #expect(try await format("s = 'héllo 🌍 中文'", as: .python) == .success("s = \"héllo 🌍 中文\"\n"))
     }
 
     @Test func optionsApply() async throws {

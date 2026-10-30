@@ -54,7 +54,7 @@ struct FormatDocumentTests {
     }
 
     @Test func theMenuItemFollowsTheLanguage() {
-        let (window, view) = host("x = 1", .python)
+        let (window, view) = host("let x = 1;", .rust)
         let item = NSMenuItem(title: "Format Document", action: #selector(BoopTextView.formatDocument(_:)), keyEquivalent: "")
         #expect(!view.validateUserInterfaceItem(item))
         view.load("{}", syntax: .language(.json))
@@ -123,7 +123,7 @@ struct FormatDocumentTests {
     /// they read the model, which follows the key editor's language.
     @Test func theCommandsFollowTheKeyEditorsLanguage() {
         let model = AppModel(store: try! .inMemory())
-        let (window, view) = host("x = 1", .python)
+        let (window, view) = host("let x = 1;", .rust)
         model.keyResponder = { view }
         model.refreshEditorFocus()
         #expect(model.editorHasFocus && !model.canFormatDocument && !model.canSortJSONKeys)

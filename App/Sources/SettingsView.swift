@@ -149,7 +149,7 @@ struct EditorSettingsView: View {
                     Text("UPPER CASE").tag(FormatSettings.KeywordCase.upper.rawValue)
                     Text("lower case").tag(FormatSettings.KeywordCase.lower.rawValue)
                 }
-                Text("Edit ▸ Format Document formats JSON and XML natively; JavaScript, TypeScript, CSS, HTML, YAML and Markdown with Prettier, and SQL with sql-formatter, in BoopStash's sandboxed script process.")
+                Text("Edit ▸ Format Document formats JSON and XML natively; JavaScript, TypeScript, CSS, HTML, YAML and Markdown with Prettier; SQL with sql-formatter; Python with Ruff, Go with gofmt, shell with shfmt, and C, C++ and Java with clang-format, all in BoopStash's sandboxed script process.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

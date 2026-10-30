@@ -135,7 +135,7 @@ import Testing
         #expect(DocumentFormatter.canFormat(.json, style: .sortedKeys))
         #expect(DocumentFormatter.canFormat(.xml))
         #expect(!DocumentFormatter.canFormat(.xml, style: .sortedKeys))
-        #expect(!DocumentFormatter.canFormat(.python))
+        #expect(!DocumentFormatter.canFormat(.rust))
         #expect(!DocumentFormatter.canFormat(nil))
         #expect(DocumentFormatter.format("x", as: .python) == .failure(FormatError(message: "No formatter for Python", line: nil, column: nil)))
     }
@@ -176,7 +176,20 @@ extension Result where Success == String, Failure == FormatError {
         #expect(sql.options == #"{"keywordCase":"upper","language":"sqlite","tabWidth":2}"#)
         let js = try #require(JSFormatting.request(for: "x", as: .javascript, settings: FormatSettings(tabWidth: 4, singleQuote: true)))
         #expect(js.options == #"{"parser":"babel","singleQuote":true,"tabWidth":4}"#)
-        #expect(JSFormatting.request(for: "x", as: .python) == nil)
+        #expect(JSFormatting.request(for: "x", as: .rust) == nil)
+    }
+
+    /// WebAssembly formatters (#158): Python, Go, shell and the C family.
+    @Test func wasmFormattersGetTheirOptions() throws {
+        let settings = FormatSettings(tabWidth: 3, singleQuote: true)
+        let python = try #require(JSFormatting.request(for: "x", as: .python, settings: settings))
+        #expect(python.engine == .ruff && python.options == #"{"indent_width":4,"quote_style":"single"}"#)
+        #expect(JSFormatting.request(for: "x", as: .go, settings: settings)?.engine == .gofmt)
+        #expect(JSFormatting.request(for: "x", as: .bash, settings: settings)?.options == #"{"indent":3}"#)
+        let java = try #require(JSFormatting.request(for: "x", as: .java, settings: settings))
+        #expect(java.engine == .clangFormat && java.options.contains("Note.java") && java.options.contains("IndentWidth: 3"))
+        for language in [SyntaxLanguage.python, .go, .bash, .c, .cpp, .java] { #expect(DocumentFormatter.canFormat(language)) }
+        for language in [SyntaxLanguage.rust, .swift, .ruby, .toml] { #expect(!DocumentFormatter.canFormat(language)) }
     }
 
     @Test func settingsAreClamped() {
