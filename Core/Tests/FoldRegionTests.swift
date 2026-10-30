@@ -43,6 +43,14 @@ import Testing
         #expect(found.contains(FoldRegion(startLine: 0, hidden: 1...2, lastLine: 3)), "\(found)")
     }
 
+    /// A closing tag alone on the last line stays visible, as a bracket does.
+    @Test func closingTagsStayVisible() async throws {
+        let html = try await regions("<div>\ntext\n</div>\n", .html)
+        #expect(html.contains(FoldRegion(startLine: 0, hidden: 1...1, lastLine: 2)), "\(html)")
+        let xml = try await regions("<a>\n  <b/>\n</a>\n", .xml)
+        #expect(xml.contains(FoldRegion(startLine: 0, hidden: 1...1, lastLine: 2)), "\(xml)")
+    }
+
     @Test func plainTextFoldsByIndentation() {
         let text = "top\n  child\n\n  child\nnext\n"
         #expect(FoldRegions.byIndentation(text) == [FoldRegion(startLine: 0, hidden: 1...3)])

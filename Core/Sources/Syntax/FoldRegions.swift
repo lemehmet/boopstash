@@ -36,6 +36,9 @@ public enum FoldRegions {
         return widest.values.sorted { $0.startLine < $1.startLine }
     }
 
+    /// Named nodes that close a block as a bracket does.
+    static let closingTags: Set<String> = ["end_tag", "ETag", "erroneous_end_tag"]
+
     /// Blocks in a syntax tree: every node spanning several lines folds
     /// under its first. A closing token alone on the last line (`}`, `]`,
     /// `)`, a closing tag) stays visible, as editors show it; one after
@@ -67,7 +70,9 @@ public enum FoldRegions {
                 var last = endRow
                 var tail = node.lastChild
                 while let current = tail, Int(current.pointRange.upperBound.row) == Int(range.upperBound.row) {
-                    if !current.isNamed {
+                    // A bracket, or a whole closing tag (HTML's end_tag, XML's
+                    // ETag), whose own last token is the ">".
+                    if !current.isNamed || Self.closingTags.contains(current.nodeType ?? "") {
                         // Alone: nothing before it on its line.
                         if Int(current.pointRange.lowerBound.row) == endRow, startsLine(current.range.location) { last -= 1 }
                         break
