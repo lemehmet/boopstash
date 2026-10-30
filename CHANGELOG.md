@@ -6,6 +6,8 @@ breaking changes may land in a minor release.
 
 ## Unreleased
 
+## v0.4.1 — 2026-10-30
+
 ### Fixed
 
 - **The Mac editor showed no text.** The folding gutter painted over the
