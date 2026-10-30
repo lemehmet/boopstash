@@ -174,7 +174,6 @@ public final class NoteStore: Sendable {
             guard mine != note else { continue }
             // The newer edit stays; the other text, if different, is a copy.
             let theirsIsNewer = note.updatedAt > mine.updatedAt
-            if theirsIsNewer { try save(note) }
             let older = theirsIsNewer ? mine : note
             if mine.body != note.body {
                 // Its ID comes from the note and the text, so a merge run again
@@ -189,6 +188,9 @@ public final class NoteStore: Sendable {
                 copy.syntaxOverride = older.syntaxOverride
                 try save(copy)
             }
+            // After the copy: a crash between the two leaves the notes still
+            // different, so the next merge makes the copy again (same ID).
+            if theirsIsNewer { try save(note) }
             count += 1
         }
         // Deletions `other` had not sent yet: applied here and kept to send.

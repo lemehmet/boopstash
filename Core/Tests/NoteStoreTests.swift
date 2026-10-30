@@ -408,6 +408,28 @@ final class TestClock: @unchecked Sendable {
         try? FileManager.default.removeItem(at: root)
     }
 
+    /// The copy is saved before the newer note replaces the older, so a
+    /// merge stopped between the two still ends with the copy when run
+    /// again (the home note newer).
+    @Test func aMergeStoppedAfterTheCopyCompletesOnRetry() throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let groupStore = try NoteStore.open(at: group.appendingPathComponent("notes.sqlite"))
+        let home = try NoteStore.open(at: own.appendingPathComponent("notes.sqlite"))
+        let base = Note(title: "t", titleIsUserSet: true, body: "group text", createdAt: Date(timeIntervalSince1970: 1000))
+        var newer = base
+        newer.body = "home text"
+        newer.updatedAt = Date(timeIntervalSince1970: 2000)
+        try groupStore.save(base)
+        try home.save(newer)
+        _ = try groupStore.copyMissing(from: home)
+        // Stopped after the copy, before the note: the group's note as it was.
+        try groupStore.save(base)
+        _ = try groupStore.copyMissing(from: home)
+        let notes = try groupStore.notes(matching: NoteQuery())
+        #expect(notes.filter { $0.title == "t (conflict)" }.map(\.body) == ["group text"])
+        #expect(notes.first { $0.id == base.id }?.body == "home text")
+    }
+
     func deletions(_ store: NoteStore) throws -> [String] {
         try store.pendingSyncChanges().compactMap { if case .delete(.note, let name, _) = $0 { name } else { nil } }
     }
