@@ -1,7 +1,10 @@
 import Foundation
 import GRDB
 
-/// A sentence embedding: unit length, so similarity is a dot product.
+/// A sentence embedding, unit length, so similarity is a dot product.
+/// Nil is a failure (the model would not load or run): nothing is stored
+/// and the note is tried again later. Empty means the text has nothing to
+/// embed.
 public typealias Embedder = @Sendable (String) async -> [Float]?
 
 /// On-device semantic search (#157): every note has a sentence embedding of
@@ -22,43 +25,70 @@ extension NoteStore {
             .joined(separator: "\n")
     }
 
-    /// Notes whose embedding is missing or was made from other text, at
-    /// most `limit`, with the text to embed and its hash.
+    static let awaitingEmbeddingSQL = """
+        FROM note LEFT JOIN noteEmbedding ON noteEmbedding.noteID = note.id
+        WHERE noteEmbedding.noteID IS NULL
+        """
+
+    /// Notes without a current embedding, newest first, at most `limit`,
+    /// with the text to embed and its hash.
     public func notesAwaitingEmbedding(limit: Int = 32) throws -> [(id: UUID, text: String, hash: String)] {
         try writer.read { db in
-            let rows = try Row.fetchAll(db, sql: """
-                SELECT note.id, note.title, note.body, note.imageText, noteEmbedding.sourceHash
-                FROM note LEFT JOIN noteEmbedding ON noteEmbedding.noteID = note.id
-                ORDER BY note.updatedAt DESC
-                """)
-            var pending: [(UUID, String, String)] = []
-            for row in rows {
+            try Row.fetchAll(db, sql: "SELECT note.id, note.title, note.body, note.imageText \(Self.awaitingEmbeddingSQL) ORDER BY note.updatedAt DESC LIMIT ?",
+                             arguments: [limit]).map { row in
                 let text = Self.embeddingText(title: row["title"], body: row["body"], imageText: row["imageText"])
-                let hash = Note.contentHash(text)
-                if (row["sourceHash"] as String?) != hash { pending.append((row["id"], text, hash)) }
-                if pending.count >= limit { break }
+                return (row["id"], text, Note.contentHash(text))
             }
-            return pending
         }
     }
 
-    /// Stores a note's embedding, made from text with `hash`; nil records
-    /// that this text has none.
-    public func setEmbedding(_ vector: [Float]?, for noteID: UUID, sourceHash: String) throws {
+    /// How many notes await embedding, re-delivered as that changes; the
+    /// app runs the worker while it is above zero.
+    public func pendingEmbeddings() -> AsyncThrowingStream<Int, any Error> {
+        let values = ValueObservation.tracking { db in
+            try Int.fetchOne(db, sql: "SELECT COUNT(*) \(Self.awaitingEmbeddingSQL)") ?? 0
+        }.removeDuplicates().values(in: writer)
+        return AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    for try await count in values { continuation.yield(count) }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    /// Stores a note's embedding, made from text with `sourceHash`, unless
+    /// the note has changed since (its text no longer has that hash).
+    public func setEmbedding(_ vector: [Float], for noteID: UUID, sourceHash: String) throws {
         try writer.write { db in
-            guard try Note.exists(db, key: noteID) else { return }
-            try db.execute(sql: "INSERT OR REPLACE INTO noteEmbedding (noteID, sourceHash, vector) VALUES (?, ?, ?)",
-                           arguments: [noteID, sourceHash, Self.data(vector ?? [])])
+            guard let row = try Row.fetchOne(db, sql: "SELECT title, body, imageText FROM note WHERE id = ?", arguments: [noteID]),
+                  Note.contentHash(Self.embeddingText(title: row["title"], body: row["body"], imageText: row["imageText"])) == sourceHash
+            else { return }
+            try db.execute(sql: "INSERT OR REPLACE INTO noteEmbedding (noteID, vector) VALUES (?, ?)",
+                           arguments: [noteID, Self.data(vector)])
         }
     }
 
-    /// Embeds every note that needs it, newest first, until none is left.
-    /// Run it off the main actor.
+    /// Embeds every note that needs it, newest first, until none is left,
+    /// the task is cancelled, or the embedder fails (then the rest wait for
+    /// the next run). Run it off the main actor.
     public func embedPendingNotes(with embed: Embedder) async {
-        while let batch = try? notesAwaitingEmbedding(), !batch.isEmpty {
-            for item in batch {
+        var failed: Set<UUID> = []
+        while !Task.isCancelled, let batch = try? notesAwaitingEmbedding(limit: 32 + failed.count) {
+            let todo = batch.filter { !failed.contains($0.id) }
+            guard !todo.isEmpty else { return }
+            for item in todo {
                 if Task.isCancelled { return }
-                let vector = await embed(item.text)
+                guard let vector = await embed(item.text) else {
+                    // The model failed: not recorded, so tried again later.
+                    failed.insert(item.id)
+                    if failed.count >= 3 { return }
+                    continue
+                }
                 do { try setEmbedding(vector, for: item.id, sourceHash: item.hash) } catch { return }
             }
         }

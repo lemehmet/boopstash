@@ -28,6 +28,7 @@ final class NotesModel {
         drafts = NoteDrafts(store: store)
         drafts.onError = { [weak self] in self?.banner = $0 }
         observe()
+        watchPendingEmbeddings()
         // "Today" is re-evaluated on every fetch, but nothing fetches when
         // nothing changes: start over when the day does, as on the Mac.
         dayObserver = NotificationCenter.default.addObserver(forName: .NSCalendarDayChanged, object: nil, queue: .main) { [weak self] _ in
@@ -175,19 +176,34 @@ final class NotesModel {
     @ObservationIgnored private var embedding: Task<Void, Never>?
     @ObservationIgnored private var embeddingRequested = false
     @ObservationIgnored private var relating: Task<Void, Never>?
+    @ObservationIgnored private var pendingWatch: Task<Void, any Error>?
 
     func embedPendingNotes() {
+        guard true else { return }
         guard embedding == nil else {
             embeddingRequested = true
             return
         }
         embeddingRequested = false
         let store = self.store, embed = self.embed
+        let work = Task.detached(priority: .utility) { await store.embedPendingNotes(with: embed) }
         embedding = Task { [weak self] in
-            await Task.detached(priority: .utility) { await store.embedPendingNotes(with: embed) }.value
-            guard let self else { return }
+            await withTaskCancellationHandler { await work.value } onCancel: { work.cancel() }
+            guard let self, !Task.isCancelled else { return }
             self.embedding = nil
             if self.embeddingRequested { self.embedPendingNotes() } else { self.findRelated() }
+        }
+    }
+
+    /// Runs the worker whenever notes await embedding: new or changed
+    /// notes, here or synced, but not a change of search.
+    func watchPendingEmbeddings() {
+        pendingWatch?.cancel()
+        let counts = store.pendingEmbeddings()
+        pendingWatch = Task { [weak self] in
+            for try await count in counts where count > 0 {
+                self?.embedPendingNotes()
+            }
         }
     }
 
@@ -257,7 +273,6 @@ final class NotesModel {
                     self?.notes = notes
                     // A change may have brought an image to read.
                     self?.recognizePendingImages()
-                    self?.embedPendingNotes()
                     self?.findRelated()
                 }
             } catch {

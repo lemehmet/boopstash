@@ -36,6 +36,7 @@ struct GeneralSettings: View {
             }
             Section("Search") {
                 Toggle("Find notes by meaning", isOn: $semanticSearch)
+                    .onChange(of: semanticSearch) { model?.semanticSearchChanged() }
                 Text("A small language model bundled with BoopStash reads each note on this Mac, so a search also finds notes that say the same in other words. Nothing leaves this Mac.")
                     .font(.caption)
                     .foregroundStyle(.secondary)

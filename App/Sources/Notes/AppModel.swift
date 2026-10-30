@@ -222,6 +222,7 @@ final class AppModel {
         drafts = NoteDrafts(store: store)
         drafts.onError = { [weak self] in self?.banner = $0 }
         observe()
+        if semanticSearchEnabled() { watchPendingEmbeddings() }
         // The store re-evaluates "last N days" on every fetch, but with no
         // edits nothing fetches; at midnight, start over so "Today" is today.
         dayObserver = NotificationCenter.default.addObserver(forName: .NSCalendarDayChanged, object: nil, queue: .main) { [weak self] _ in
@@ -288,7 +289,6 @@ final class AppModel {
                     self?.notes = notes
                     // A change may have added an image to read.
                     self?.recognizePendingImages()
-                    self?.embedPendingNotes()
                     self?.findRelated()
                 }
             } catch {
@@ -316,6 +316,7 @@ final class AppModel {
     @ObservationIgnored private var embedding: Task<Void, Never>?
     @ObservationIgnored private var embeddingRequested = false
     @ObservationIgnored private var relating: Task<Void, Never>?
+    @ObservationIgnored private var pendingWatch: Task<Void, any Error>?
 
     /// Keeps every note's embedding current, off the main actor, as the
     /// image-text worker does.
@@ -327,11 +328,42 @@ final class AppModel {
         }
         embeddingRequested = false
         let store = self.store, embed = self.embed
+        let work = Task.detached(priority: .utility) { await store.embedPendingNotes(with: embed) }
         embedding = Task { [weak self] in
-            await Task.detached(priority: .utility) { await store.embedPendingNotes(with: embed) }.value
-            guard let self else { return }
+            await withTaskCancellationHandler { await work.value } onCancel: { work.cancel() }
+            guard let self, !Task.isCancelled else { return }
             self.embedding = nil
             if self.embeddingRequested { self.embedPendingNotes() } else { self.findRelated() }
+        }
+    }
+
+    /// Runs the worker whenever notes await embedding: new or changed
+    /// notes, here or synced, but not a change of search.
+    func watchPendingEmbeddings() {
+        pendingWatch?.cancel()
+        let counts = store.pendingEmbeddings()
+        pendingWatch = Task { [weak self] in
+            for try await count in counts where count > 0 {
+                self?.embedPendingNotes()
+            }
+        }
+    }
+
+    /// Settings ▸ General ▸ Search ▸ Find notes by meaning, changed: start
+    /// or stop now, not at the next edit.
+    func semanticSearchChanged() {
+        if semanticSearchEnabled() {
+            watchPendingEmbeddings()
+            findRelated()
+        } else {
+            pendingWatch?.cancel()
+            pendingWatch = nil
+            embedding?.cancel()
+            embedding = nil
+            embeddingRequested = false
+            relating?.cancel()
+            related = []
+            similarTo = nil
         }
     }
 

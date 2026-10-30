@@ -27,6 +27,12 @@ import Testing
         #expect(cafe == ids("cafe , naive !"))
     }
 
+    /// Hugging Face's tokenizer drops format characters inside words.
+    @Test func formatCharactersAreDropped() {
+        #expect(ids("in\u{200B}voice") == ids("invoice"))
+        #expect(ids("\u{FEFF}bill for\u{200D} March") == [101, 3021, 2005, 2233, 102])
+    }
+
     @Test func paddingAndMaskHaveTheModelsLength() {
         let encoding = tokenizer.encode("hello")
         #expect(encoding.ids.count == 128 && encoding.mask.count == 128)

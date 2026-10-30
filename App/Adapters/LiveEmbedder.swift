@@ -23,8 +23,11 @@ final class LiveEmbedder: @unchecked Sendable {
 
     var isAvailable: Bool { model != nil && tokenizer != nil }
 
+    /// Nil when the model is missing or fails, so the note is tried again;
+    /// empty for text with nothing to embed.
     func embed(_ text: String) -> [Float]? {
-        guard let model, let tokenizer, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        guard let model, let tokenizer else { return nil }
+        guard text.contains(where: { !$0.isWhitespace }) else { return [] }
         let encoding = tokenizer.encode(text)
         guard let ids = try? MLMultiArray(shape: [1, NSNumber(value: tokenizer.length)], dataType: .int32),
               let mask = try? MLMultiArray(shape: [1, NSNumber(value: tokenizer.length)], dataType: .int32)

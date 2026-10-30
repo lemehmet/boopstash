@@ -44,7 +44,7 @@ public struct WordPieceTokenizer: Sendable {
         return Encoding(ids: pieces, mask: Array(repeating: 1, count: used) + Array(repeating: 0, count: length - used))
     }
 
-    /// Lower-cased, accents removed, control characters dropped, split on
+    /// Lower-cased, accents removed, control and format characters dropped, split on
     /// whitespace, with each punctuation mark and CJK character on its own.
     func words(in text: String) -> [String] {
         let folded = text.lowercased().decomposedStringWithCanonicalMapping
@@ -57,7 +57,10 @@ public struct WordPieceTokenizer: Sendable {
         for scalar in folded.unicodeScalars {
             let properties = scalar.properties
             if properties.generalCategory == .nonspacingMark { continue }
-            if scalar.value == 0 || scalar.value == 0xFFFD || (properties.generalCategory == .control && !properties.isWhitespace) { continue }
+            // BERT drops control and format characters (zero-width space,
+            // joiners, the BOM) before splitting.
+            if scalar.value == 0 || scalar.value == 0xFFFD || properties.generalCategory == .format
+                || (properties.generalCategory == .control && !properties.isWhitespace) { continue }
             if properties.isWhitespace {
                 flush()
             } else if Self.isPunctuation(scalar) || Self.isCJK(scalar) {

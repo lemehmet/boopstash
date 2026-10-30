@@ -24,7 +24,7 @@ struct SemanticSearchTests {
     /// A stand-in embedder: the axis a note's first word names.
     static let embed: Embedder = { text in
         let word = text.split(whereSeparator: { !$0.isLetter }).first.map { $0.lowercased() } ?? ""
-        guard let axis = ["money", "invoice", "bill", "code"].firstIndex(of: word) else { return nil }
+        guard let axis = ["money", "invoice", "bill", "code"].firstIndex(of: word) else { return [] }
         // "money", "invoice" and "bill" mean the same here.
         return axis == 3 ? [0, 1] : [1, 0]
     }
@@ -42,7 +42,7 @@ struct SemanticSearchTests {
         let code = Note(title: "code review", titleIsUserSet: true, body: "", createdAt: Date())
         try model.store.save(bill)
         try model.store.save(code)
-        model.embedPendingNotes()
+        // The pending-count observation starts the worker by itself.
         #expect(try await eventually { (try? model.store.notesAwaitingEmbedding().isEmpty) == true })
         model.query.text = "invoice"
         #expect(try await eventually { model.related.map(\.id) == [bill.id] })
@@ -50,5 +50,26 @@ struct SemanticSearchTests {
         model.showSimilar(to: bill.id)
         #expect(model.query.text.isEmpty)
         #expect(try await eventually { model.related.isEmpty }, "nothing else is about money")
+    }
+
+    /// Turning the setting off clears what is shown; on again embeds the
+    /// backlog without waiting for an edit.
+    @Test func theSettingTakesEffectAtOnce() async throws {
+        var enabled = false
+        let model = AppModel(store: try .inMemory())
+        model.embed = Self.embed
+        model.semanticSearchEnabled = { enabled }
+        model.semanticSearchChanged()
+        try model.store.save(Note(title: "bill for March", titleIsUserSet: true, body: "", createdAt: Date()))
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(try model.store.notesAwaitingEmbedding().count == 1, "off: nothing embedded")
+        enabled = true
+        model.semanticSearchChanged()
+        #expect(try await eventually { (try? model.store.notesAwaitingEmbedding().isEmpty) == true })
+        model.query.text = "invoice"
+        #expect(try await eventually { !model.related.isEmpty })
+        enabled = false
+        model.semanticSearchChanged()
+        #expect(model.related.isEmpty)
     }
 }

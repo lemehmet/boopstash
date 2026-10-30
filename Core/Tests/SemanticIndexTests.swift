@@ -14,7 +14,7 @@ import Testing
     static let axes = ["money", "code", "travel"]
     static let embed: Embedder = { text in
         let word = text.split(whereSeparator: { !$0.isLetter }).first.map { $0.lowercased() } ?? ""
-        guard let axis = axes.firstIndex(of: word) else { return nil }
+        guard let axis = axes.firstIndex(of: word) else { return [] }
         var vector = [Float](repeating: 0, count: axes.count)
         vector[axis] = 1
         return vector
@@ -54,7 +54,36 @@ import Testing
         #expect(try store.notesSimilar(to: [1, 0, 0], within: NoteQuery(days: 7)).map(\.note.id) == [recent.id])
     }
 
-    /// Text the model cannot embed is not tried again, and is never found.
+    /// A failing model records nothing: the notes are tried again later.
+    @Test func aFailingEmbedderLeavesNotesPending() async throws {
+        try note("money one")
+        try note("money two")
+        await store.embedPendingNotes(with: { _ in nil })
+        #expect(try store.notesAwaitingEmbedding().count == 2)
+        await store.embedPendingNotes(with: Self.embed)
+        #expect(try store.notesAwaitingEmbedding().isEmpty)
+    }
+
+    /// An embedding made from text that changed meanwhile is not stored.
+    @Test func aStaleEmbeddingIsDropped() async throws {
+        var changing = try note("money first")
+        let pending = try #require(try store.notesAwaitingEmbedding().first)
+        changing.title = "code second"
+        try store.save(changing)
+        try store.setEmbedding([1, 0, 0], for: changing.id, sourceHash: pending.hash)
+        #expect(try store.notesAwaitingEmbedding().map(\.id) == [changing.id])
+    }
+
+    @Test func thePendingCountFollowsChanges() async throws {
+        var counts = store.pendingEmbeddings().makeAsyncIterator()
+        #expect(try await counts.next() == 0)
+        try note("money new")
+        #expect(try await counts.next() == 1)
+        await store.embedPendingNotes(with: Self.embed)
+        #expect(try await counts.next() == 0)
+    }
+
+    /// Text with nothing to embed is not tried again, and is never found.
     @Test func unembeddableTextIsRecordedAsNone() async throws {
         let odd = try note("zzz nothing")
         await store.embedPendingNotes(with: Self.embed)
