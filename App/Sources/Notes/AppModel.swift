@@ -306,6 +306,8 @@ final class AppModel {
         observe()
         syncEngine?.takeChangesFromElsewhere()
         recognizePendingImages()
+        // The pending-embedding count is observed in this process only.
+        embedPendingNotes()
     }
 
     /// The command's notes arrive with rule titles (ADR 0009): each list

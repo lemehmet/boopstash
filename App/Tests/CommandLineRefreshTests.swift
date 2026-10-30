@@ -26,6 +26,24 @@ struct CommandLineRefreshTests {
         #expect(model.notes.map(\.title) == ["from the shell"])
     }
 
+    /// The command's notes are embedded for semantic search too: the
+    /// pending count is observed in this process only.
+    @Test func commandNotesAreEmbedded() async throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("boopstash-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let url = folder.appendingPathComponent("notes.sqlite")
+        let model = AppModel(store: try NoteStore.open(at: url, shared: true))
+        model.semanticSearchEnabled = { true }
+        model.embed = { _ in [1, 0] }
+        model.watchOtherProcesses()
+        try await Task.sleep(for: .milliseconds(200))
+        let other = try NoteStore.open(at: url, shared: true)
+        _ = CommandLineTool.run(.capture(title: "t"), store: other, input: { Data("hello\n".utf8) }, version: "1")
+        notify_post(SharedStore.changedNotification)
+        for _ in 0..<150 where (try? model.store.notesAwaitingEmbedding().isEmpty) != true { try await Task.sleep(for: .milliseconds(20)) }
+        #expect(try model.store.notesAwaitingEmbedding().isEmpty)
+    }
+
     /// A captured note without --title gets a model title once the app
     /// sees it (ADR 0009).
     @Test func commandNotesGetModelTitles() async throws {
