@@ -356,7 +356,7 @@ extension NoteStore {
 
     /// Writes `label` into the catalog. A label with the same name under
     /// another ID becomes one with it (ADR 0011): the survivor is the
-    /// earlier created (`NoteLabel.survivor`), so every device keeps the
+    /// later created (`NoteLabel.survivor`), so every device keeps the
     /// same one, and the other is folded into it. Returns the survivor's ID;
     /// when it is not `label`'s, `label` was not written. `systemFields`
     /// are `label`'s CloudKit metadata, for its tombstone if it loses.

@@ -32,9 +32,11 @@ public struct NoteLabel: Hashable, Identifiable, Sendable {
     }
 
     /// Of two labels with the same name, the one every device keeps: the
-    /// earlier `createdAt`, ties broken by the lower UUID.
+    /// later `createdAt`, ties broken by the lower UUID. The later, so a
+    /// label deleted and its name made again keeps the new one, whichever of
+    /// the deletion and the new label arrives first (ADR 0011).
     public static func survivor(_ a: NoteLabel, _ b: NoteLabel) -> NoteLabel {
-        if a.createdAt != b.createdAt { return a.createdAt < b.createdAt ? a : b }
+        if a.createdAt != b.createdAt { return a.createdAt > b.createdAt ? a : b }
         return a.id.uuidString.lowercased() <= b.id.uuidString.lowercased() ? a : b
     }
 }

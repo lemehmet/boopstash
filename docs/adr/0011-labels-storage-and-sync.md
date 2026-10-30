@@ -56,10 +56,16 @@ needs its own deduplication.
 - **The newer edit of a label wins** (`updatedAt`), as for a note's settings.
 - **Two labels with the same name become one.** Two devices can each create
   "Bug" (or "bug") before syncing. Every device keeps the same one: the
-  earlier `createdAt`, ties broken by the lower UUID. The notes carrying the
+  later `createdAt`, ties broken by the lower UUID. The notes carrying the
   other move to it and are sent again, and the other is deleted with a
   tombstone, so the deletion syncs. A device that receives the losing label
   folds it the same way, so the outcome does not depend on arrival order.
+  The later, not the earlier: a label deleted and its name made again
+  reaches another device as a new label and a deletion, in either order.
+  Were the earlier kept, a device that got the new label first would fold
+  it into the deleted one, and both would be gone. The later kept, the new
+  label survives either way. The cost: such a device moves its notes from
+  the deleted label to the new one, the union rule's trade again.
 - **A label ID with no label in the catalog** (not arrived yet, or deleted)
   is ignored when reading and in the label filter, kept until its label
   arrives, and dropped by the next local save of the note.

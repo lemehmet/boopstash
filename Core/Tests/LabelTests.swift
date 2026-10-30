@@ -431,7 +431,7 @@ import Testing
     }
 
     /// Both devices made "Bug" / "bug" before syncing: each ends with the
-    /// earlier one, on every note that had either, whichever arrived first.
+    /// later one, on every note that had either, whichever arrived first.
     @Test func sameNameLabelsBecomeOneMacFirst() throws { try sameNameLabelsBecomeOne(phoneFirst: false) }
     @Test func sameNameLabelsBecomeOnePhoneFirst() throws { try sameNameLabelsBecomeOne(phoneFirst: true) }
 
@@ -444,9 +444,9 @@ import Testing
         try phone.assignLabel(later.id, to: phoneNote.id)
         try Server().sync(phoneFirst ? [phone, mac] : [mac, phone])
         for store in [mac, phone] {
-            #expect(try store.labels().map(\.id) == [earlier.id])
-            #expect(try store.labels(of: macNote.id).map(\.id) == [earlier.id])
-            #expect(try store.labels(of: phoneNote.id).map(\.id) == [earlier.id])
+            #expect(try store.labels().map(\.id) == [later.id])
+            #expect(try store.labels(of: macNote.id).map(\.id) == [later.id])
+            #expect(try store.labels(of: phoneNote.id).map(\.id) == [later.id])
         }
         #expect(try snapshot(mac, [macNote, phoneNote]) == snapshot(phone, [macNote, phoneNote]))
         #expect(try pending(mac).isEmpty && pending(phone).isEmpty)
@@ -467,7 +467,61 @@ import Testing
         }
     }
 
+    /// A label deleted and its name made again: the new one, though created
+    /// later, is not folded into the deleted one on the other device.
+    @Test func aLabelDeletedAndMadeAgainKeepsTheNewOne() throws {
+        let mac = try NoteStore.inMemory(), phone = try NoteStore.inMemory()
+        let server = Server()
+        let note = try add("shared", to: mac)
+        let old = try mac.createLabel(name: "Bug", now: Self.start)
+        try mac.assignLabel(old.id, to: note.id)
+        try server.sync([mac, phone])
+        try mac.deleteLabel(id: old.id)
+        let new = try mac.createLabel(name: "bug", now: Self.start.addingTimeInterval(1))
+        try mac.assignLabel(new.id, to: note.id)
+        try server.sync([mac, phone])
+        for store in [mac, phone] {
+            #expect(try store.labels().map(\.id) == [new.id])
+            #expect(try store.labels(of: note.id).map(\.id) == [new.id])
+        }
+        #expect(try pending(mac).isEmpty && pending(phone).isEmpty)
+    }
+
+    /// The new label arrives before the deletion of the old one: the old
+    /// one's note moves to it, and the late deletion takes nothing with it.
+    @Test func aLabelMadeAgainSurvivesArrivingBeforeTheDeletion() throws {
+        let phone = try NoteStore.inMemory()
+        let note = try add("shared", to: phone)
+        let old = NoteLabel(name: "Bug", color: "#b60205", createdAt: Self.start)
+        try phone.applyServerRecord(SyncMapping.record(for: old), systemFields: Data("f".utf8))
+        try phone.assignLabel(old.id, to: note.id)
+        try acknowledgeAll(phone)
+        let new = NoteLabel(name: "bug", color: "#0e8a16", createdAt: Self.start.addingTimeInterval(1))
+        try phone.applyServerRecord(SyncMapping.record(for: new), systemFields: Data("f".utf8))
+        try phone.applyServerDeletion(kind: .label, name: old.id.uuidString.lowercased())
+        #expect(try phone.labels().map(\.id) == [new.id])
+        #expect(try phone.labels(of: note.id).map(\.id) == [new.id])
+        #expect(try !pending(phone).contains("delete Label \(new.id.uuidString.lowercased())"))
+    }
+
     // MARK: Merging two stores (App Group)
+
+    @Test func copyMissingKeepsALabelMadeAgainThere() throws {
+        let here = try NoteStore.inMemory(), there = try NoteStore.inMemory()
+        let note = try add("both", to: here)
+        try there.save(note)
+        let old = try here.createLabel(name: "Bug", now: Self.start)
+        try here.assignLabel(old.id, to: note.id)
+        try there.applyServerRecord(SyncMapping.record(for: old), systemFields: Data())
+        try there.deleteLabel(id: old.id)
+        let new = try there.createLabel(name: "bug", now: Self.start.addingTimeInterval(1))
+        try there.assignLabel(new.id, to: note.id)
+        _ = try here.copyMissing(from: there)
+        #expect(try here.labels().map(\.id) == [new.id])
+        #expect(try here.labels(of: note.id).map(\.id) == [new.id])
+        #expect(try pending(here).contains("delete Label \(old.id.uuidString.lowercased())"))
+        #expect(try !pending(here).contains("delete Label \(new.id.uuidString.lowercased())"))
+    }
 
     @Test func copyMissingUnitesLabels() throws {
         let here = try NoteStore.inMemory(), there = try NoteStore.inMemory()
@@ -523,16 +577,16 @@ import Testing
         try here.assignLabel(later.id, to: hereNote.id)
         try there.assignLabel(earlier.id, to: thereNote.id)
         _ = try here.copyMissing(from: there)
-        #expect(try here.labels().map(\.id) == [earlier.id])
-        #expect(try here.labels(of: hereNote.id).map(\.id) == [earlier.id])
-        #expect(try here.labels(of: thereNote.id).map(\.id) == [earlier.id])
-        #expect(try pending(here).contains("delete Label \(later.id.uuidString.lowercased())"))
+        #expect(try here.labels().map(\.id) == [later.id])
+        #expect(try here.labels(of: hereNote.id).map(\.id) == [later.id])
+        #expect(try here.labels(of: thereNote.id).map(\.id) == [later.id])
+        #expect(try pending(here).contains("delete Label \(earlier.id.uuidString.lowercased())"))
 
-        // The other way round: the label here is the earlier one.
+        // The other way round: the label here is the later one.
         let first = try NoteStore.inMemory(), second = try NoteStore.inMemory()
         let a = try add("a", to: first), b = try add("b", to: second)
-        let keep = try first.createLabel(name: "Bug", now: Self.start)
-        let drop = try second.createLabel(name: "BUG", now: Self.start.addingTimeInterval(1))
+        let keep = try first.createLabel(name: "Bug", now: Self.start.addingTimeInterval(1))
+        let drop = try second.createLabel(name: "BUG", now: Self.start)
         try first.assignLabel(keep.id, to: a.id)
         try second.assignLabel(drop.id, to: b.id)
         _ = try first.copyMissing(from: second)
