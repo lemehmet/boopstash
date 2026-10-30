@@ -95,7 +95,13 @@ public final class NoteStore: Sendable {
         func bringHome(from folder: URL) {
             for name in keepingAtHome {
                 let there = folder.appendingPathComponent(name), here = own.appendingPathComponent(name)
-                guard files.fileExists(atPath: there.path), !files.fileExists(atPath: here.path) else { continue }
+                guard files.fileExists(atPath: there.path) else { continue }
+                // An empty folder at home (the script watcher makes one) is
+                // no reason to leave the real one away (#177). rmdir removes
+                // only an empty folder, in one step: a script added meanwhile
+                // keeps it.
+                _ = rmdir(here.path)
+                guard !files.fileExists(atPath: here.path) else { continue }
                 try? files.createDirectory(at: own, withIntermediateDirectories: true)
                 try? files.moveItem(at: there, to: here)
             }
@@ -106,10 +112,9 @@ public final class NoteStore: Sendable {
         defer {
             bringHome(from: group)
             bringHome(from: staging)
-            // Only an empty one: anything left in it could not go home.
-            if (try? files.contentsOfDirectory(atPath: staging.path))?.isEmpty == true {
-                try? files.removeItem(at: staging)
-            }
+            // Only an empty one (rmdir refuses others): anything left in it
+            // could not go home.
+            _ = rmdir(staging.path)
         }
         do {
             try moveStoreFolder(from: own, to: group, storeName: storeName)

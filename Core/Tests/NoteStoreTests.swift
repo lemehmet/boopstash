@@ -376,6 +376,24 @@ final class TestClock: @unchecked Sendable {
         #expect(FileManager.default.fileExists(atPath: own.appendingPathComponent("Scripts").path), "scripts back from the backup")
     }
 
+    /// Scripts left in the group come home even when an empty Scripts
+    /// folder was made at home meanwhile; a non-empty one is never replaced.
+    @Test func anEmptyHomeFolderDoesNotBlockTheRepair() throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        try NoteStore.open(at: group.appendingPathComponent("notes.sqlite")).save(Note(body: "g", createdAt: Date()))
+        try FileManager.default.createDirectory(at: group.appendingPathComponent("Scripts"), withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: group.appendingPathComponent("Scripts/mine.js"))
+        try FileManager.default.createDirectory(at: own.appendingPathComponent("Scripts"), withIntermediateDirectories: true)
+        _ = try NoteStore.sharedStoreFolder(own: own, group: group, keepingAtHome: ["Scripts"])
+        #expect(FileManager.default.fileExists(atPath: own.appendingPathComponent("Scripts/mine.js").path))
+        // Both non-empty: home wins, the group's stays where it is.
+        try FileManager.default.createDirectory(at: group.appendingPathComponent("Scripts"), withIntermediateDirectories: true)
+        try Data("y".utf8).write(to: group.appendingPathComponent("Scripts/other.js"))
+        _ = try NoteStore.sharedStoreFolder(own: own, group: group, keepingAtHome: ["Scripts"])
+        #expect(FileManager.default.fileExists(atPath: own.appendingPathComponent("Scripts/mine.js").path))
+        #expect(FileManager.default.fileExists(atPath: group.appendingPathComponent("Scripts/other.js").path))
+    }
+
     /// A crash after the home folder became a backup leaves the scripts in
     /// the staging folder, and the next launch brings them home.
     @Test func scriptsSurviveACrashDuringTheBackupRename() throws {
