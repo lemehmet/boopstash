@@ -54,7 +54,7 @@ struct FormatDocumentTests {
     }
 
     @Test func theMenuItemFollowsTheLanguage() {
-        let (window, view) = host("x = 1", .python)
+        let (window, view) = host("let x = 1;", .rust)
         let item = NSMenuItem(title: "Format Document", action: #selector(BoopTextView.formatDocument(_:)), keyEquivalent: "")
         #expect(!view.validateUserInterfaceItem(item))
         view.load("{}", syntax: .language(.json))
@@ -123,7 +123,7 @@ struct FormatDocumentTests {
     /// they read the model, which follows the key editor's language.
     @Test func theCommandsFollowTheKeyEditorsLanguage() {
         let model = AppModel(store: try! .inMemory())
-        let (window, view) = host("x = 1", .python)
+        let (window, view) = host("let x = 1;", .rust)
         model.keyResponder = { view }
         model.refreshEditorFocus()
         #expect(model.editorHasFocus && !model.canFormatDocument && !model.canSortJSONKeys)
@@ -149,6 +149,18 @@ struct FormatDocumentTests {
         // Indented by the indent width setting (#112).
         let pad = String(repeating: " ", count: EditorSettings.formatSettings().tabWidth)
         #expect(view.string.contains("\n\(pad)<b>1</b>"), "\(view.string)")
+        window.close()
+    }
+
+    /// A selection inside an element keeping its whitespace is left as it
+    /// is, though the selection itself does not say so (#149).
+    @Test func aSelectionInheritsPreservedWhitespace() async {
+        let text = #"<r xml:space="preserve"><a>  </a></r>"#
+        let (window, view) = host(text, .xml)
+        let selected = (text as NSString).range(of: "<a>  </a>")
+        view.setSelectedRange(selected)
+        await view.format(style: .standard).value
+        #expect(view.string == text)
         window.close()
     }
 }

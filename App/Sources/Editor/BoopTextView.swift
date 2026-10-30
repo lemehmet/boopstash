@@ -345,6 +345,11 @@ final class BoopTextView: NSTextView {
                 // Prettier and sql-formatter run in the script service (#56,
                 // #57); JSON and XML natively.
                 let result: Result<String, FormatError>
+                // A selection inside an element that keeps its whitespace
+                // would lose it, though the selection itself says nothing (#149).
+                if language == .xml, !whole, XMLFormatter.preservesSpace(snapshot) {
+                    return .failure(FormatError(message: #"The document keeps its whitespace (xml:space="preserve"), so it is left as it is"#, line: nil, column: nil))
+                }
                 if !DocumentFormatter.canFormatNatively(language, style: style), let jsFormat,
                    let request = JSFormatting.request(for: source, as: language, settings: settings) {
                     result = await jsFormat(request)

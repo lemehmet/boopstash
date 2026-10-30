@@ -289,6 +289,9 @@ let project = Project(
                 // Prettier 3.9.9 and sql-formatter 15.9.0 (#56, #57).
                 .folderReference(path: "Vendor/Prettier"),
                 .folderReference(path: "Vendor/SQLFormatter"),
+                // Ruff, gofmt, shfmt and clang-format as WebAssembly (#158).
+                .folderReference(path: "Vendor/WasmFormatters"),
+                "App/ScriptService/WasmHost.js",
             ],
             entitlements: .file(path: "App/ScriptService.entitlements"),
             dependencies: [.target(name: "BoopstashCore")],

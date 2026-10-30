@@ -135,7 +135,7 @@ import Testing
         #expect(DocumentFormatter.canFormat(.json, style: .sortedKeys))
         #expect(DocumentFormatter.canFormat(.xml))
         #expect(!DocumentFormatter.canFormat(.xml, style: .sortedKeys))
-        #expect(!DocumentFormatter.canFormat(.python))
+        #expect(!DocumentFormatter.canFormat(.rust))
         #expect(!DocumentFormatter.canFormat(nil))
         #expect(DocumentFormatter.format("x", as: .python) == .failure(FormatError(message: "No formatter for Python", line: nil, column: nil)))
     }
@@ -176,7 +176,20 @@ extension Result where Success == String, Failure == FormatError {
         #expect(sql.options == #"{"keywordCase":"upper","language":"sqlite","tabWidth":2}"#)
         let js = try #require(JSFormatting.request(for: "x", as: .javascript, settings: FormatSettings(tabWidth: 4, singleQuote: true)))
         #expect(js.options == #"{"parser":"babel","singleQuote":true,"tabWidth":4}"#)
-        #expect(JSFormatting.request(for: "x", as: .python) == nil)
+        #expect(JSFormatting.request(for: "x", as: .rust) == nil)
+    }
+
+    /// WebAssembly formatters (#158): Python, Go, shell and the C family.
+    @Test func wasmFormattersGetTheirOptions() throws {
+        let settings = FormatSettings(tabWidth: 3, singleQuote: true)
+        let python = try #require(JSFormatting.request(for: "x", as: .python, settings: settings))
+        #expect(python.engine == .ruff && python.options == #"{"indent_width":4,"quote_style":"single"}"#)
+        #expect(JSFormatting.request(for: "x", as: .go, settings: settings)?.engine == .gofmt)
+        #expect(JSFormatting.request(for: "x", as: .bash, settings: settings)?.options == #"{"indent":3}"#)
+        let java = try #require(JSFormatting.request(for: "x", as: .java, settings: settings))
+        #expect(java.engine == .clangFormat && java.options.contains("Note.java") && java.options.contains("IndentWidth: 3"))
+        for language in [SyntaxLanguage.python, .go, .bash, .c, .cpp, .java] { #expect(DocumentFormatter.canFormat(language)) }
+        for language in [SyntaxLanguage.rust, .swift, .ruby, .toml] { #expect(!DocumentFormatter.canFormat(language)) }
     }
 
     @Test func settingsAreClamped() {
@@ -218,6 +231,32 @@ extension Result where Success == String, Failure == FormatError {
         #expect(out.contains("<!--\n    also kept\n-->"))
         #expect(out.contains("\n  <d>\n    <e/>\n  </d>"), "\(out)")
         #expect(try XMLFormatter.format(out, indent: 2).get() == out, "idempotent")
+    }
+
+    /// An element holding only CDATA, even whitespace, keeps it exactly;
+    /// so does one asking for xml:space="preserve" (#149).
+    @Test func characterDataAndPreservedSpaceAreKept() throws {
+        let cdata = try XMLFormatter.format("<r><c><![CDATA[x]]></c><s><![CDATA[  ]]></s></r>", indent: 2).get()
+        #expect(cdata.contains("\n  <c><![CDATA[x]]></c>\n"), "\(cdata)")
+        #expect(cdata.contains("\n  <s><![CDATA[  ]]></s>\n"), "\(cdata)")
+        #expect(try XMLFormatter.format(cdata, indent: 2).get() == cdata, "idempotent")
+        // Whitespace the document asks to keep cannot survive the parser:
+        // the document is left alone, with the reason.
+        guard case .failure(let error) = XMLFormatter.format(#"<r><a xml:space="preserve">  </a></r>"#) else {
+            Issue.record("formatted a document with xml:space")
+            return
+        }
+        #expect(error.message.contains("xml:space"))
+    }
+
+    /// Only an element asking to keep its whitespace counts, not a mention.
+    @Test func preservationIsAnAttributeNotAMention() throws {
+        #expect(XMLFormatter.preservesSpace(#"<r xml:space="preserve"><a>  </a></r>"#))
+        #expect(XMLFormatter.preservesSpace(#"<r xml:space='preserve'><a>"#), "partial text, by its form")
+        #expect(!XMLFormatter.preservesSpace("<r><!-- xml:space=\"preserve\" is not used --><a/></r>"))
+        #expect(!XMLFormatter.preservesSpace(#"<r xml:space="default"><a/></r>"#))
+        let mentioned = try XMLFormatter.format("<r><!-- about xml:space --><a><b/></a></r>", indent: 2).get()
+        #expect(mentioned.contains("\n  <a>\n    <b/>\n  </a>"), "\(mentioned)")
     }
 
     @Test func processingInstructionsAndDeclarationsAreKept() throws {

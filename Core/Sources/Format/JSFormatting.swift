@@ -8,6 +8,8 @@ public struct JSFormatRequest: Codable, Sendable, Equatable {
     public enum Engine: String, Codable, Sendable {
         case prettier
         case sqlFormatter
+        /// Formatters compiled to WebAssembly (#158, ADR 0010).
+        case ruff, gofmt, shfmt, clangFormat
     }
 
     public var engine: Engine
@@ -76,8 +78,19 @@ public enum JSFormatting {
         }
     }
 
+    /// The WebAssembly formatter for a language (#158, ADR 0010).
+    public static func wasmEngine(for language: SyntaxLanguage?) -> JSFormatRequest.Engine? {
+        switch language {
+        case .python: .ruff
+        case .go: .gofmt
+        case .bash: .shfmt
+        case .c, .cpp, .java: .clangFormat
+        default: nil
+        }
+    }
+
     public static func supports(_ language: SyntaxLanguage?) -> Bool {
-        language == .sql || prettierParser(for: language) != nil
+        language == .sql || prettierParser(for: language) != nil || wasmEngine(for: language) != nil
     }
 
     /// The request that formats `source` as `language`, or nil when no
@@ -91,6 +104,23 @@ public enum JSFormatting {
         } else if let parser = prettierParser(for: language) {
             engine = .prettier
             options = ["parser": parser, "tabWidth": settings.tabWidth, "singleQuote": settings.singleQuote]
+        } else if let wasm = wasmEngine(for: language) {
+            engine = wasm
+            switch wasm {
+            case .ruff:
+                // PEP 8's four spaces whatever the width setting: Python
+                // indented by two reads as foreign.
+                options = ["indent_width": 4, "quote_style": settings.singleQuote ? "single" : "double"]
+            case .shfmt:
+                options = ["indent": settings.tabWidth]
+            case .clangFormat:
+                // The file name tells clang-format the language.
+                let name = language == .c ? "note.c" : language == .java ? "Note.java" : "note.cpp"
+                options = ["style": "{BasedOnStyle: LLVM, IndentWidth: \(settings.tabWidth)}", "filename": name]
+            default:
+                // gofmt has one style: tabs.
+                options = [:]
+            }
         } else {
             return nil
         }
