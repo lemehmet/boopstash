@@ -115,6 +115,18 @@ def check_entitlements!(pkg)
     actual = JSON.parse(json)
     UI.user_error!("#{File.basename(bundle)} entitlements are #{actual}, expected #{expected}") unless actual == expected
   end
+  # The embedded profile must authorise the App Group (ADR 0009): an
+  # unauthorised claim clears the app's entitlements-validated flag.
+  profile, status = Open3.capture2("security", "cms", "-D", "-i", File.join(app, "Contents/embedded.provisionprofile"))
+  UI.user_error!("could not read the app's provisioning profile") unless status.success?
+  # PlistBuddy, as plutil cannot turn a profile's dates and data into JSON.
+  profile_path = File.join(root, "profile.plist")
+  File.write(profile_path, profile)
+  listing, = Open3.capture2("/usr/libexec/PlistBuddy", "-c", "Print :Entitlements:com.apple.security.application-groups", profile_path)
+  groups = listing.lines.map(&:strip).reject { |line| line.empty? || line.end_with?("{") || line == "}" }
+  unless groups.include?("#{team}.*") || groups.include?("A658882T2K.com.lemehmet.boopstash")
+    UI.user_error!("the provisioning profile does not authorise the App Group (#{groups}); regenerate it")
+  end
   UI.success("entitlements checked")
 ensure
   FileUtils.rm_rf(root) if root
