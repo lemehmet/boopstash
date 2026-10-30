@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import GRDB
 
@@ -99,7 +100,17 @@ public final class NoteStore: Sendable {
                 try? files.moveItem(at: there, to: here)
             }
         }
-        defer { bringHome(from: group) }
+        // Where home-only items wait while `own` is renamed to a backup, so a
+        // crash in between leaves them somewhere every launch looks (#174).
+        let staging = own.deletingLastPathComponent().appendingPathComponent("\(own.lastPathComponent)-keep")
+        defer {
+            bringHome(from: group)
+            bringHome(from: staging)
+            // Only an empty one: anything left in it could not go home.
+            if (try? files.contentsOfDirectory(atPath: staging.path))?.isEmpty == true {
+                try? files.removeItem(at: staging)
+            }
+        }
         do {
             try moveStoreFolder(from: own, to: group, storeName: storeName)
         } catch where files.fileExists(atPath: own.appendingPathComponent(storeName).path) {
@@ -113,8 +124,12 @@ public final class NoteStore: Sendable {
             let merged = try open(at: groupStore).copyMissing(from: open(at: ownStore))
             let stamp = ISO8601DateFormatter.string(from: now, timeZone: .gmt, formatOptions: [.withYear, .withMonth, .withDay, .withTime])
             let backup = own.deletingLastPathComponent().appendingPathComponent("\(own.lastPathComponent)-merged-\(stamp)")
+            try files.createDirectory(at: staging, withIntermediateDirectories: true)
+            for name in keepingAtHome where files.fileExists(atPath: own.appendingPathComponent(name).path)
+                && !files.fileExists(atPath: staging.appendingPathComponent(name).path) {
+                try files.moveItem(at: own.appendingPathComponent(name), to: staging.appendingPathComponent(name))
+            }
             try files.moveItem(at: own, to: backup)
-            bringHome(from: backup)
             return (group, true, merged)
         case (true, false): return (group, true, 0)
         case (false, true): return (own, false, 0)
@@ -162,7 +177,13 @@ public final class NoteStore: Sendable {
             if theirsIsNewer { try save(note) }
             let older = theirsIsNewer ? mine : note
             if mine.body != note.body {
-                var copy = Note(title: "\(older.title.isEmpty ? "Untitled" : older.title) (conflict)", titleIsUserSet: true,
+                // Its ID comes from the note and the text, so a merge run again
+                // (interrupted before the backup rename) replaces this copy
+                // rather than adding another (#174).
+                let digest = Array(SHA256.hash(data: Data("conflict \(note.id.uuidString) \(older.body)".utf8)))
+                var copy = Note(id: UUID(uuid: (digest[0], digest[1], digest[2], digest[3], digest[4], digest[5], digest[6], digest[7],
+                                                digest[8], digest[9], digest[10], digest[11], digest[12], digest[13], digest[14], digest[15])),
+                                title: "\(older.title.isEmpty ? "Untitled" : older.title) (conflict)", titleIsUserSet: true,
                                 body: older.body, createdAt: now, updatedAt: now,
                                 sourceBundleID: older.sourceBundleID, sourceAppName: older.sourceAppName)
                 copy.syntaxOverride = older.syntaxOverride

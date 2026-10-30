@@ -376,6 +376,38 @@ final class TestClock: @unchecked Sendable {
         #expect(FileManager.default.fileExists(atPath: own.appendingPathComponent("Scripts").path), "scripts back from the backup")
     }
 
+    /// A crash after the home folder became a backup leaves the scripts in
+    /// the staging folder, and the next launch brings them home.
+    @Test func scriptsSurviveACrashDuringTheBackupRename() throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        try NoteStore.open(at: group.appendingPathComponent("notes.sqlite")).save(Note(body: "g", createdAt: Date()))
+        let staging = root.appendingPathComponent("own-keep")
+        try FileManager.default.createDirectory(at: staging.appendingPathComponent("Scripts"), withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: staging.appendingPathComponent("Scripts/mine.js"))
+        _ = try NoteStore.sharedStoreFolder(own: own, group: group, keepingAtHome: ["Scripts"])
+        #expect(FileManager.default.fileExists(atPath: own.appendingPathComponent("Scripts/mine.js").path))
+        #expect(!FileManager.default.fileExists(atPath: staging.path))
+    }
+
+    /// A merge run twice (interrupted before the rename) leaves one copy,
+    /// when the group's note is the newer one.
+    @Test func aRepeatedMergeMakesOneConflictCopy() throws {
+        let groupStore = try NoteStore.open(at: group.appendingPathComponent("notes.sqlite"))
+        let home = try NoteStore.open(at: own.appendingPathComponent("notes.sqlite"))
+        let base = Note(title: "t", titleIsUserSet: true, body: "home text", createdAt: Date(timeIntervalSince1970: 1000))
+        var newer = base
+        newer.body = "group text"
+        newer.updatedAt = Date(timeIntervalSince1970: 2000)
+        try home.save(base)
+        try groupStore.save(newer)
+        _ = try groupStore.copyMissing(from: home)
+        _ = try groupStore.copyMissing(from: home)
+        let notes = try groupStore.notes(matching: NoteQuery())
+        #expect(notes.filter { $0.title == "t (conflict)" }.map(\.body) == ["home text"])
+        #expect(notes.first { $0.id == base.id }?.body == "group text")
+        try? FileManager.default.removeItem(at: root)
+    }
+
     func deletions(_ store: NoteStore) throws -> [String] {
         try store.pendingSyncChanges().compactMap { if case .delete(.note, let name, _) = $0 { name } else { nil } }
     }
