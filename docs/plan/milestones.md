@@ -11,6 +11,7 @@ Each milestone ends in something that runs. Decisions behind them are in
 | M5 — Sync and iOS | Done; v0.3.0 |
 | M6 — Mac App Store | Done; 0.3.0 in App Review (macOS and iOS) |
 | M7 — Folding, command line, semantic search, more formatters | Done; v0.4.0, with the planned v0.3.1 changes |
+| v0.4.2 — Labels, Report a Problem | Planned |
 
 Releases stay at most one version ahead of the App Store: while a version
 is in review, work lands on `main` and waits.
@@ -102,6 +103,34 @@ is in review, work lands on `main` and waits.
   never synced (#157).
 - More formatters built as WebAssembly in the script service, for
   languages Prettier lacks (#158, ADR 0010).
+
+## v0.4.2 — Labels and Report a Problem
+
+- **Labels, model and sync** (ADR 0011). A synced, encrypted `Label`
+  record (name, colour, description) as a third sync record kind, and an
+  encrypted list of label IDs on each note, merged by union. Two devices
+  creating the same name merge into one label. Labelling does not change
+  `updatedAt`. Colour helpers (hex, GitHub-like palette, black or white
+  text by luminance) in Core (#182).
+- **Labels on the Mac.** A label editor in Settings ▸ Labels; a Labels
+  popover on the note (type to filter, check to assign, create from what
+  was typed) and a Labels ▸ submenu in the list; coloured chips in the
+  list; filtering by label in the Filter menu, every selected label
+  required, as on GitHub (#183).
+- **Labels elsewhere.** iOS shows chips and filters by label (assigning
+  and editing stay on the Mac). Export writes `labels:` in the front
+  matter; the command line gains `--label` on `list`, `search` and
+  `capture`, and labels in `--json`. Demo notes carry labels (#184).
+- **Report a Problem** (Help menu, everyone). Makes a local note labelled
+  `bug`: app, OS and sync environment, the current view (the selected
+  note's ID and settings, never its text), recent app log lines from the
+  app's own process, and a screenshot of its own window, each of which can
+  be left out, then sections to fill in. Copy as GitHub Issue copies the
+  Markdown and opens the repository's new-issue page; nothing is put in
+  the URL and the app sends nothing (#185).
+- **Release gate.** The new record type and fields deployed to the
+  CloudKit Production schema, and checked against a 0.4.1 client in
+  Development (it must ignore labels and not strip them).
 
 ## Later
 
