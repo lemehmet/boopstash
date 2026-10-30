@@ -31,12 +31,14 @@ public struct WordPieceTokenizer: Sendable {
 
     public func encode(_ text: String) -> Encoding {
         var pieces: [Int32] = [start]
-        for word in words(in: text) {
+        // Words are made only until the pieces are filled: a 5 MB note
+        // costs its first few hundred words, not millions (#164).
+        forEachWord(in: text) { word in
             for piece in self.pieces(of: word) {
                 guard pieces.count < length - 1 else { break }
                 pieces.append(piece)
             }
-            if pieces.count >= length - 1 { break }
+            return pieces.count < length - 1
         }
         pieces.append(end)
         let used = pieces.count
@@ -47,31 +49,51 @@ public struct WordPieceTokenizer: Sendable {
     /// Lower-cased, accents removed, control and format characters dropped, split on
     /// whitespace, with each punctuation mark and CJK character on its own.
     func words(in text: String) -> [String] {
-        let folded = text.lowercased().decomposedStringWithCanonicalMapping
         var words: [String] = []
-        var current = ""
-        func flush() {
-            if !current.isEmpty { words.append(current) }
-            current = ""
+        forEachWord(in: text) { words.append($0); return true }
+        return words
+    }
+
+    /// The words of `words(in:)`, one at a time, until `body` returns false.
+    /// The text is folded (lower-cased, decomposed) a chunk at a time, each
+    /// ending at whitespace, so stopping early skips the rest; whitespace
+    /// ends words anyway, so the words are the same as folding it whole.
+    func forEachWord(in text: String, _ body: (String) -> Bool) {
+        var chunk = String.UnicodeScalarView()
+        var stopped = false
+        func process() {
+            let folded = String(chunk).lowercased().decomposedStringWithCanonicalMapping
+            chunk = String.UnicodeScalarView()
+            var current = String.UnicodeScalarView()
+            func flush() -> Bool {
+                defer { current = String.UnicodeScalarView() }
+                return current.isEmpty || body(String(current))
+            }
+            for scalar in folded.unicodeScalars {
+                let properties = scalar.properties
+                if properties.generalCategory == .nonspacingMark { continue }
+                // BERT drops control and format characters (zero-width space,
+                // joiners, the BOM) before splitting.
+                if scalar.value == 0 || scalar.value == 0xFFFD || properties.generalCategory == .format
+                    || (properties.generalCategory == .control && !properties.isWhitespace) { continue }
+                if properties.isWhitespace {
+                    guard flush() else { stopped = true; return }
+                } else if Self.isPunctuation(scalar) || Self.isCJK(scalar) {
+                    guard flush(), body(String(scalar)) else { stopped = true; return }
+                } else {
+                    current.append(scalar)
+                }
+            }
+            if !flush() { stopped = true }
         }
-        for scalar in folded.unicodeScalars {
-            let properties = scalar.properties
-            if properties.generalCategory == .nonspacingMark { continue }
-            // BERT drops control and format characters (zero-width space,
-            // joiners, the BOM) before splitting.
-            if scalar.value == 0 || scalar.value == 0xFFFD || properties.generalCategory == .format
-                || (properties.generalCategory == .control && !properties.isWhitespace) { continue }
-            if properties.isWhitespace {
-                flush()
-            } else if Self.isPunctuation(scalar) || Self.isCJK(scalar) {
-                flush()
-                words.append(String(scalar))
-            } else {
-                current.unicodeScalars.append(scalar)
+        for scalar in text.unicodeScalars {
+            chunk.append(scalar)
+            if chunk.count >= 1024, scalar.properties.isWhitespace {
+                process()
+                if stopped { return }
             }
         }
-        flush()
-        return words
+        if !chunk.isEmpty { process() }
     }
 
     /// The longest pieces from the start, later ones prefixed "##"; a word

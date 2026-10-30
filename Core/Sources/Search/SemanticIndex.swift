@@ -110,7 +110,9 @@ extension NoteStore {
                 arguments += [cutoff]
             }
             var scored: [(UUID, Float)] = []
-            for row in try Row.fetchAll(db, sql: sql, arguments: arguments) {
+            for (index, row) in try Row.fetchAll(db, sql: sql, arguments: arguments).enumerated() {
+                // A superseded search stops (#165).
+                if index % 256 == 0, Task.isCancelled { return [] }
                 let id: UUID = row["noteID"]
                 guard !excluding.contains(id) else { continue }
                 let candidate = Self.vector(row["vector"])

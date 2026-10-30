@@ -5,6 +5,12 @@ import Testing
 
 /// Semantic search in the app (#157).
 @MainActor
+final class Flag: Sendable {
+    private(set) var value = false
+    func set() { value = true }
+}
+
+@MainActor
 @Suite(.serialized)
 struct SemanticSearchTests {
     /// The bundled model, as the app loads it: meaning, not words.
@@ -50,6 +56,37 @@ struct SemanticSearchTests {
         model.showSimilar(to: bill.id)
         #expect(model.query.text.isEmpty)
         #expect(try await eventually { model.related.isEmpty }, "nothing else is about money")
+    }
+
+    /// A new note made while Show Similar is on goes back to the list, so
+    /// the note is visible (#166).
+    @Test func aNewNoteLeavesShowSimilar() async throws {
+        let model = AppModel(store: try .inMemory())
+        model.embed = Self.embed
+        let bill = Note(title: "bill for March", titleIsUserSet: true, body: "", createdAt: Date())
+        try model.store.save(bill)
+        model.showSimilar(to: bill.id)
+        #expect(model.similarTo == bill.id)
+        model.newNote()
+        #expect(model.similarTo == nil)
+        #expect(try await eventually { model.notes.contains { $0.id == model.selection } })
+    }
+
+    /// Cancelling a related-notes search stops its detached work (#165):
+    /// the embedder sees the cancellation.
+    @Test func aSupersededSearchIsCancelled() async throws {
+        let model = AppModel(store: try .inMemory())
+        model.semanticSearchEnabled = { true }
+        let sawCancel = Flag()
+        model.embed = { _ in
+            try? await Task.sleep(for: .seconds(2))
+            if Task.isCancelled { await sawCancel.set() }
+            return [1, 0]
+        }
+        model.query.text = "first"
+        try await Task.sleep(for: .milliseconds(400)) // past the pause, into the embedder
+        model.query.text = "second"
+        #expect(try await eventually { sawCancel.value })
     }
 
     /// Turning the setting off clears what is shown; on again embeds the

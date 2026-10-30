@@ -39,6 +39,24 @@ import Testing
         #expect(encoding.mask.prefix(3) == [1, 1, 1] && encoding.mask[3] == 0)
     }
 
+    /// Chunked folding gives the same words as folding the text whole,
+    /// across chunk boundaries (#164).
+    @Test func chunkingDoesNotChangeTheWords() {
+        let text = String(repeating: "Ünïcode, CAFÉ\u{200B}s 中文 tabs\tand-dashes! ", count: 200)
+        let whole = text.lowercased().decomposedStringWithCanonicalMapping
+        #expect(tokenizer.words(in: text) == tokenizer.words(in: whole))
+        #expect(tokenizer.words(in: text).count > 1500)
+    }
+
+    /// A huge note is encoded from its start only, quickly.
+    @Test func hugeTextStopsEarly() {
+        let huge = String(repeating: "word ", count: 1_000_000)
+        let started = ContinuousClock.now
+        let encoding = tokenizer.encode(huge)
+        #expect(encoding.ids.count == 128 && encoding.ids.last == 102)
+        #expect(ContinuousClock.now - started < .milliseconds(200))
+    }
+
     @Test func longTextIsCutAtTheLength() {
         let encoding = tokenizer.encode(String(repeating: "word ", count: 500))
         #expect(encoding.ids.count == 128 && encoding.ids.last == 102 && !encoding.mask.contains(0))
