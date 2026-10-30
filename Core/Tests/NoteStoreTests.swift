@@ -317,3 +317,19 @@ final class TestClock: @unchecked Sendable {
         #expect(try NoteStore.moveStoreFolder(from: old, to: group) == false)
     }
 }
+
+/// A store move that fails part-way opens the notes at home (#162).
+@Suite struct StoreMoveFailureTests {
+    @Test func aFailedMoveLeavesTheStoreAtHome() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("move-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let own = root.appendingPathComponent("own"), blocker = root.appendingPathComponent("blocker")
+        let store = try NoteStore.open(at: own.appendingPathComponent("notes.sqlite"))
+        try store.save(Note(body: "kept", createdAt: Date()))
+        // The group's parent is a file: creating the folder throws.
+        try Data("x".utf8).write(to: blocker)
+        let result = try NoteStore.sharedStoreFolder(own: own, group: blocker.appendingPathComponent("group"))
+        #expect(result.folder == own && !result.inGroup && result.merged == 0)
+        #expect(try NoteStore.open(at: own.appendingPathComponent("notes.sqlite")).notes(matching: NoteQuery()).map(\.body) == ["kept"])
+    }
+}

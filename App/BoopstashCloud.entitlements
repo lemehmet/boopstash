@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  Boopstash.entitlements plus iCloud (ADR 0008). Used only by builds that
+  Boopstash.entitlements (with the App Group of ADR 0009) plus iCloud (ADR 0008). Used only by builds that
   embed a provisioning profile: the release workflow passes
   BOOPSTASH_ENTITLEMENTS to select it, with the Developer ID profile. Every
   other build (Debug, CI, the test host) signs with Boopstash.entitlements,
@@ -19,6 +19,10 @@
 	<true/>
 	<key>com.apple.security.files.user-selected.read-write</key>
 	<true/>
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>A658882T2K.com.lemehmet.boopstash</string>
+	</array>
 	<key>com.apple.developer.icloud-container-identifiers</key>
 	<array>
 		<string>iCloud.com.lemehmet.boopstash</string>

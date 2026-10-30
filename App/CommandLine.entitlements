@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  The `boopstash` command (ADR 0009): the sandbox and the App Group holding
+  the notes, nothing else. No inherit: it is run from a shell, not by the
+  app. It reads standard input and writes standard output; it opens no
+  files and has no network.
+-->
+<plist version="1.0">
+<dict>
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>A658882T2K.com.lemehmet.boopstash</string>
+	</array>
+</dict>
+</plist>

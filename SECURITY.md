@@ -16,15 +16,25 @@ around that, and each point is enforceable rather than aspirational:
 - **The app is sandboxed in every build.** Homebrew and App Store builds are the
   same code with the same entitlements. `App/Boopstash.entitlements` is the
   complete list of what the app may reach, and released builds add only
-  iCloud for sync (`App/BoopstashCloud.entitlements`, ADR 0008).
+  iCloud for sync (`App/BoopstashCloud.entitlements`, ADR 0008). On the
+  Mac the notes live in the container of an App Group,
+  `A658882T2K.com.lemehmet.boopstash`, so the bundled command can reach
+  them; only programs signed by the same team can open it (ADR 0009).
+- **The `boopstash` command is sandboxed too.** It is in the app at
+  `Contents/Helpers/boopstash`, and its entitlements are the sandbox and
+  that App Group, nothing else (`App/CommandLine.entitlements`). It reads
+  standard input and writes standard output. It opens no files, has no
+  network access, and never talks to iCloud.
 - **Scripts run in a separate, emptier sandbox.** Boop scripts and the
   JavaScript formatters run in a bundled XPC service whose only entitlement
   is the sandbox itself (`App/ScriptService.entitlements`, ADR 0007): no
   network, no files, none of your notes beyond the text a script is given. A
   script that runs too long is stopped by ending that process.
-- **Files: only where you point it.** Beyond its own container, the app can
-  write only into a folder you choose in an open panel, which is how export
-  works. It cannot read or write anything else on disk.
+- **Files: only where you point it.** Beyond its own container and its App
+  Group's container (where the Mac keeps the notes for the `boopstash`
+  command, ADR 0009), the app can write only into a folder you choose in an
+  open panel, which is how export works. It cannot read or write anything
+  else on disk.
 - **No network access except your iCloud.** There is no network-client
   entitlement. No analytics, no crash reporting service, no update checks. The
   only remote endpoint is the private database of the app's iCloud container,

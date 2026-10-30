@@ -1,5 +1,6 @@
 import AppKit
 import BoopstashCore
+import notify
 import UniformTypeIdentifiers
 import Observation
 
@@ -239,6 +240,8 @@ final class AppModel {
 
     isolated deinit {
         if let dayObserver { NotificationCenter.default.removeObserver(dayObserver) }
+        if let activeObserver { NotificationCenter.default.removeObserver(activeObserver) }
+        if changeToken != NOTIFY_TOKEN_INVALID { notify_cancel(changeToken) }
         keyObservers.forEach(notifications.removeObserver)
     }
 
@@ -270,14 +273,70 @@ final class AppModel {
         }
         #endif
         let support = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
-        let store = try NoteStore.open(at: support.appendingPathComponent("Boopstash/notes.sqlite"))
+        let own = support.appendingPathComponent("Boopstash", isDirectory: true)
+        // In the App Group, where the `boopstash` command reaches it too
+        // (ADR 0009): moved there once, merged if both have a store, and
+        // left at home if the move cannot happen. Only a build signed by the
+        // team may use the group; an ad hoc one (Debug) stays at home.
+        var folder = own, shared = false, merged = 0
+        if let group = SharedStore.folder {
+            (folder, shared, merged) = try NoteStore.sharedStoreFolder(own: own, group: group)
+        }
+        let store = try NoteStore.open(at: folder.appendingPathComponent(SharedStore.fileName), shared: shared)
         // Attachments nothing refers to any more, after a day's grace so an
         // undo can still bring a deleted image back within a session.
         _ = try? store.removeUnreferencedAttachments()
         let model = AppModel(store: store)
+        if merged > 0 {
+            model.banner = "\(merged) notes from an earlier copy of BoopStash on this Mac were added to your notes."
+        } else if SharedStore.folder != nil, !shared {
+            // The command finds no store in the group and says so; it never
+            // works on other notes than these.
+            model.banner = "The boopstash command cannot reach your notes: they could not be moved to the folder it shares with BoopStash."
+        }
+        if shared { model.watchOtherProcesses() }
         model.watchScripts()
         if UserDefaults.standard.bool(forKey: syncKey) { model.setSyncEnabled(true) }
         return model
+    }
+
+    /// Notes another process wrote (the `boopstash` command): GRDB's
+    /// observation sees only this process's commits.
+    func refresh() {
+        observe()
+        syncEngine?.takeChangesFromElsewhere()
+        recognizePendingImages()
+        // The pending-embedding count is observed in this process only.
+        embedPendingNotes()
+    }
+
+    /// The command's notes arrive with rule titles (ADR 0009): each list
+    /// asks for model titles for those in it, once per note per launch, so
+    /// a model that cannot title one is not asked on every change.
+    @ObservationIgnored private var commandNotesTitled: Set<UUID> = []
+
+    private func titleCommandNotes(_ notes: [Note]) {
+        guard usesModelTitles else { return }
+        for note in notes.prefix(50) where note.sourceAppName == CommandLineTool.sourceAppName && !note.titleIsUserSet
+            && !note.hasCurrentModelTitle && !commandNotesTitled.contains(note.id) {
+            commandNotesTitled.insert(note.id)
+            requestModelTitle(for: note)
+        }
+    }
+
+    @ObservationIgnored private var changeToken: Int32 = NOTIFY_TOKEN_INVALID
+    @ObservationIgnored private var activeObserver: NSObjectProtocol?
+
+    /// The command posts `SharedStore.changedNotification` after a write;
+    /// coming to the front catches one missed while suspended.
+    func watchOtherProcesses() {
+        guard changeToken == NOTIFY_TOKEN_INVALID else { return }
+        notify_register_dispatch(SharedStore.changedNotification, &changeToken, .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refresh() }
+        }
+        activeObserver = NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refresh() }
+        }
     }
 
     private func observe() {
@@ -287,6 +346,7 @@ final class AppModel {
             do {
                 for try await notes in values {
                     self?.notes = notes
+                    self?.titleCommandNotes(notes)
                     // A change may have added an image to read.
                     self?.recognizePendingImages()
                     self?.findRelated()

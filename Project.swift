@@ -166,12 +166,31 @@ let project = Project(
                 // Boop's scripts (ADR 0005); the app lists and sends them.
                 .folderReference(path: "Vendor/Boop/scripts"),
             ],
-            dependencies: [.target(name: "BoopstashCore"), .target(name: "BoopStashScripts")],
+            // The `boopstash` command (ADR 0009), copied into Contents/Helpers
+            // with its own signature; Xcode has no Helpers copy destination.
+            scripts: [
+                .post(
+                    script: """
+                    set -euo pipefail
+                    mkdir -p "${TARGET_BUILD_DIR}/${CONTENTS_FOLDER_PATH}/Helpers"
+                    cp -pf "${BUILT_PRODUCTS_DIR}/boopstash" "${TARGET_BUILD_DIR}/${CONTENTS_FOLDER_PATH}/Helpers/boopstash"
+                    """,
+                    name: "Embed the boopstash command",
+                    inputPaths: ["$(BUILT_PRODUCTS_DIR)/boopstash"],
+                    outputPaths: ["$(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Helpers/boopstash"],
+                    basedOnDependencyAnalysis: true
+                ),
+            ],
+            dependencies: [.target(name: "BoopstashCore"), .target(name: "BoopStashScripts"), .target(name: "BoopStashCLI")],
             // Notarization requires the hardened runtime; every build has it
             // so what is tested is what ships (ADR 0004).
             settings: .settings(base: [
                 "ENABLE_HARDENED_RUNTIME": "YES",
                 "PRODUCT_MODULE_NAME": "Boopstash",
+                // The embed phase reads the command where an archive keeps it
+                // (UninstalledProducts, through a link), which the script
+                // sandbox refuses; it is the target's only script.
+                "ENABLE_USER_SCRIPT_SANDBOXING": "NO",
                 // Without a profile only the entitlements without iCloud can
                 // launch; a provisioned build selects BoopstashCloud with its
                 // profile and environments (ADR 0008).
@@ -299,6 +318,34 @@ let project = Project(
                 "ENABLE_HARDENED_RUNTIME": "YES",
                 // BoopstashCore is embedded once, in the app's Frameworks.
                 "LD_RUNPATH_SEARCH_PATHS": "$(inherited) @executable_path/../../../../Frameworks",
+            ])
+        ),
+        // `boopstash` (#156, ADR 0009): sandboxed, in the app's
+        // Contents/Helpers, linking the app's BoopstashCore.
+        .target(
+            name: "BoopStashCLI",
+            destinations: .macOS,
+            product: .commandLineTool,
+            productName: "boopstash",
+            bundleId: "\(appBundleId).cli",
+            deploymentTargets: macDeployment,
+            infoPlist: .extendingDefault(with: [
+                "CFBundleShortVersionString": "$(MARKETING_VERSION)",
+                "CFBundleVersion": "$(CURRENT_PROJECT_VERSION)",
+            ]),
+            sources: ["CLI/**"],
+            entitlements: .file(path: "App/CommandLine.entitlements"),
+            dependencies: [.target(name: "BoopstashCore")],
+            settings: .settings(base: [
+                "ENABLE_HARDENED_RUNTIME": "YES",
+                // The product is `boopstash`; a module of that name would clash
+                // with the app's Boopstash on a case-insensitive disk.
+                "PRODUCT_MODULE_NAME": "BoopStashCLI",
+                // The sandbox needs the bundle identifier inside the binary.
+                "CREATE_INFOPLIST_SECTION_IN_BINARY": "YES",
+                "SKIP_INSTALL": "YES",
+                // BoopstashCore is embedded once, in the app's Frameworks.
+                "LD_RUNPATH_SEARCH_PATHS": "$(inherited) @executable_path/../Frameworks",
             ])
         ),
         // Hosted by the app: the editor needs a window, a responder chain

@@ -180,6 +180,7 @@ jobs:
           expected = {
               "com.apple.security.app-sandbox": True,
               "com.apple.security.files.user-selected.read-write": True,
+              "com.apple.security.application-groups": ["A658882T2K.com.lemehmet.boopstash"],
               "com.apple.developer.icloud-container-identifiers": ["iCloud.com.lemehmet.boopstash"],
               "com.apple.developer.icloud-services": ["CloudKit"],
               "com.apple.developer.icloud-container-environment": "Production",
@@ -200,6 +201,22 @@ jobs:
           expected = {"com.apple.security.app-sandbox": True}
           if actual != expected:
               sys.exit(f"::error::script service entitlements are {actual}, expected {expected}")
+          PY
+          # The `boopstash` command (ADR 0009): signed like the app, with the
+          # sandbox and the App Group only.
+          helper="$app/Contents/Helpers/boopstash"
+          [ -x "$helper" ] || { echo "::error::the boopstash command is missing"; exit 1; }
+          helper_details="$(codesign -dvv "$helper" 2>&1)"
+          echo "$helper_details" | grep -q "^Authority=Developer ID Application: " || { echo "::error::boopstash is not signed with Developer ID"; exit 1; }
+          echo "$helper_details" | grep -Eq "flags=0x[0-9a-f]+\([^)]*runtime" || { echo "::error::boopstash has no hardened runtime"; exit 1; }
+          echo "$helper_details" | grep -q "^Identifier=com.lemehmet.boopstash.cli$" || { echo "::error::boopstash has the wrong identifier"; exit 1; }
+          codesign -d --entitlements - --xml "$helper" 2>/dev/null | plutil -convert json -o - - > "$RUNNER_TEMP/helper-entitlements.json"
+          python3 - "$RUNNER_TEMP/helper-entitlements.json" <<'PY'
+          import json, sys
+          actual = json.load(open(sys.argv[1]))
+          expected = {"com.apple.security.app-sandbox": True, "com.apple.security.application-groups": ["A658882T2K.com.lemehmet.boopstash"]}
+          if actual != expected:
+              sys.exit(f"::error::boopstash entitlements are {actual}, expected {expected}")
           PY
 
       - name: Notarize and staple
