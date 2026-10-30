@@ -48,6 +48,9 @@ final class NotesModel {
         // this process saw them (#138).
         syncEngine?.takeChangesFromElsewhere()
         recognizePendingImages()
+        // The pending count is observed in this process only: the
+        // extension's notes are not counted until the worker looks.
+        embedPendingNotes()
     }
 
     // MARK: Sync

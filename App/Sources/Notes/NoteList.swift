@@ -5,8 +5,10 @@ struct NoteList: View {
     @Bindable var model: AppModel
     @State private var dropTargeted = false
 
-    private func row(_ note: Note) -> some View {
-        NoteRow(note: note, foundInImage: !model.query.text.isEmpty && !model.query.matchesWithoutImages(note))
+    /// `related`: found by meaning, so never "in image", which is about
+    /// where the search's words matched.
+    private func row(_ note: Note, related: Bool = false) -> some View {
+        NoteRow(note: note, foundInImage: !related && !model.query.text.isEmpty && !model.query.matchesWithoutImages(note))
             .tag(note.id)
             .contextMenu {
                 Button("Show Similar Notes") { model.showSimilar(to: note.id) }
@@ -20,7 +22,7 @@ struct NoteList: View {
             if let id = model.similarTo {
                 // Similar notes in place of the list (#157).
                 Section {
-                    ForEach(model.related) { row($0) }
+                    ForEach(model.related) { row($0, related: true) }
                 } header: {
                     HStack {
                         Text("Similar to \(model.note(id: id)?.title ?? "this note")").lineLimit(1)
@@ -33,7 +35,7 @@ struct NoteList: View {
                 if !model.related.isEmpty {
                     // Close in meaning, though the words differ (#157).
                     Section("Similar in meaning") {
-                        ForEach(model.related) { row($0) }
+                        ForEach(model.related) { row($0, related: true) }
                     }
                 }
             }
