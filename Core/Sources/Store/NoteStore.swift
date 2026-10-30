@@ -148,6 +148,9 @@ public final class NoteStore: Sendable {
     /// is kept as a "(conflict)" copy, as sync does (#172). A deletion not
     /// yet sent from `other` is carried over and applied here, so iCloud
     /// cannot bring the note back (#173); nothing deleted here returns.
+    /// Labels come over too, the newer edit of each winning; a note's labels
+    /// are both stores' (union), and a name in both under two IDs becomes
+    /// one label, as sync does (ADR 0011).
     /// Returns how many notes came over or changed.
     func copyMissing(from other: NoteStore, now: Date = Date()) throws -> Int {
         let tombstones = try other.writer.read { db in
@@ -162,6 +165,24 @@ public final class NoteStore: Sendable {
             let key = "\(kind.rawValue)/\(id.uuidString.lowercased())"
             return deletedHere.contains(key) || deletedThere.contains(key)
         }
+        // Labels first, so the notes' labels find theirs. `survivors` maps
+        // each of `other`'s labels to the one that stands for it here.
+        let (theirLabels, theirLabelFields) = try other.writer.read { db in
+            (try NoteLabel.fetchAll(db),
+             try Row.fetchAll(db, sql: "SELECT id, syncSystemFields FROM label")
+                .reduce(into: [UUID: Data]()) { fields, row in fields[row["id"]] = row["syncSystemFields"] })
+        }
+        var survivors: [UUID: UUID] = [:]
+        for label in theirLabels where !deleted(.label, label.id) {
+            survivors[label.id] = try writer.write { db -> UUID in
+                if let mine = try NoteLabel.fetchOne(db, key: label.id), mine.updatedAt >= label.updatedAt { return mine.id }
+                let survivor = try Self.takeLabel(label, systemFields: theirLabelFields[label.id], db)
+                if survivor == label.id {
+                    try db.execute(sql: "UPDATE label SET syncPending = syncPending + 1 WHERE id = ?", arguments: [label.id])
+                }
+                return survivor
+            }
+        }
         let attachments = try other.writer.read { db in try NoteAttachment.fetchAll(db) }
         for attachment in attachments where try self.attachment(id: attachment.id) == nil && !deleted(.attachment, attachment.id) {
             guard let data = try? other.data(for: attachment) else { continue }
@@ -169,11 +190,11 @@ public final class NoteStore: Sendable {
             try data.write(to: fileURL(for: attachment), options: .atomic)
             try writer.write { db in try attachment.insert(db) }
         }
-        var count = 0
+        var changed: Set<UUID> = []
         for note in try other.writer.read({ db in try Note.fetchAll(db) }) where !deleted(.note, note.id) {
             guard let mine = try self.note(id: note.id) else {
                 try save(note)
-                count += 1
+                changed.insert(note.id)
                 continue
             }
             guard mine != note else { continue }
@@ -196,7 +217,23 @@ public final class NoteStore: Sendable {
             // After the copy: a crash between the two leaves the notes still
             // different, so the next merge makes the copy again (same ID).
             if theirsIsNewer { try save(note) }
-            count += 1
+            changed.insert(note.id)
+        }
+        // Each note's labels: both stores' (union). A label that went to
+        // another here goes on as that one; one deleted in either is left off.
+        let theirAssignments = try other.writer.read { db in
+            try Row.fetchAll(db, sql: "SELECT noteID, labelID FROM noteLabel").map { (note: $0["noteID"] as UUID, label: $0["labelID"] as UUID) }
+        }
+        try writer.write { db in
+            for assignment in theirAssignments {
+                let label = survivors[assignment.label] ?? assignment.label
+                guard !deleted(.label, label), !deleted(.note, assignment.note),
+                      try Note.exists(db, key: assignment.note) else { continue }
+                try db.execute(sql: "INSERT OR IGNORE INTO noteLabel (noteID, labelID) VALUES (?, ?)", arguments: [assignment.note, label])
+                guard db.changesCount > 0 else { continue }
+                try db.execute(sql: "UPDATE note SET syncPending = syncPending + 1 WHERE id = ?", arguments: [assignment.note])
+                changed.insert(assignment.note)
+            }
         }
         // Deletions `other` had not sent yet: applied here and kept to send.
         for tombstone in tombstones {
@@ -204,13 +241,14 @@ public final class NoteStore: Sendable {
             switch kind {
             case .note: if try note(id: id) != nil { _ = try delete(id: id) }
             case .attachment: if try attachment(id: id) != nil { try deleteAttachment(id: id) }
+            case .label: if try label(id: id) != nil { try deleteLabel(id: id) }
             }
             try writer.write { db in
                 try db.execute(sql: "INSERT OR REPLACE INTO syncTombstone (kind, name, systemFields) VALUES (?, ?, ?)",
                                arguments: [tombstone.kind, tombstone.name, tombstone.systemFields])
             }
         }
-        return count
+        return changed.count
     }
 
     static var configuration: Configuration {
@@ -360,6 +398,33 @@ public final class NoteStore: Sendable {
                 BEGIN DELETE FROM noteEmbedding WHERE noteID = NEW.id; END
                 """)
         }
+        migrator.registerMigration("v10-labels") { db in
+            // Labels (#182, ADR 0011): one catalog, synced as its own record
+            // kind, with the sync columns the other kinds have. `nameKey` is
+            // the case-folded name, folded in Swift since SQLite's lower()
+            // folds ASCII only, so "Bug" and "bug" cannot both be here.
+            try db.create(table: "label") { t in
+                t.primaryKey("id", .blob)
+                t.column("name", .text).notNull()
+                t.column("nameKey", .text).notNull().unique()
+                t.column("color", .text).notNull()
+                t.column("details", .text).notNull().defaults(to: "")
+                t.column("createdAt", .datetime).notNull()
+                t.column("updatedAt", .datetime).notNull()
+                t.column("syncPending", .integer).notNull().defaults(to: 1)
+                t.column("syncSystemFields", .blob)
+                t.column("syncStaleBelow", .integer).notNull().defaults(to: 0)
+                t.column("syncAcknowledged", .integer).notNull().defaults(to: 0)
+            }
+            // Which notes carry which labels. No foreign key to the label: a
+            // note can arrive from iCloud before its label does, and must
+            // keep the ID until it comes; reads join the catalog instead.
+            try db.create(table: "noteLabel") { t in
+                t.column("noteID", .blob).notNull().references("note", onDelete: .cascade)
+                t.column("labelID", .blob).notNull().indexed()
+                t.primaryKey(["noteID", "labelID"])
+            }
+        }
         return migrator
     }
 
@@ -369,6 +434,9 @@ public final class NoteStore: Sendable {
         try writer.write { db in
             try note.save(db)
             try Self.refreshImageText(of: note.id, body: note.body, db)
+            // Label IDs with no label here are dropped with the next save
+            // (ADR 0011); the record sent now leaves them out anyway.
+            try db.execute(sql: "DELETE FROM noteLabel WHERE noteID = ? AND labelID NOT IN (SELECT id FROM label)", arguments: [note.id])
             try db.execute(sql: "UPDATE note SET syncPending = syncPending + 1 WHERE id = ?", arguments: [note.id])
         }
     }
@@ -660,6 +728,18 @@ public final class NoteStore: Sendable {
         if let cutoff = query.cutoff(now: now, calendar: calendar) {
             conditions.append("note.updatedAt >= ?")
             arguments.append(cutoff)
+        }
+        if !query.labels.isEmpty {
+            // Every one of the labels (AND), counting only labels in the
+            // catalog.
+            let labels = query.labels.sorted { $0.uuidString < $1.uuidString }
+            conditions.append("""
+                note.id IN (SELECT noteLabel.noteID FROM noteLabel JOIN label ON label.id = noteLabel.labelID
+                    WHERE noteLabel.labelID IN (\(labels.map { _ in "?" }.joined(separator: ", ")))
+                    GROUP BY noteLabel.noteID HAVING COUNT(DISTINCT noteLabel.labelID) = ?)
+                """)
+            arguments.append(contentsOf: labels as [any DatabaseValueConvertible])
+            arguments.append(labels.count)
         }
         if !conditions.isEmpty {
             sql += " WHERE " + conditions.joined(separator: " AND ")

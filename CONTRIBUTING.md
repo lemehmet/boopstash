@@ -91,7 +91,7 @@ list is `SyncMapping.schemaFields`, and a test keeps
    `BOOPSTASH_ENTITLEMENTS='$(SRCROOT)/App/BoopstashCloud.entitlements'`,
    `BOOPSTASH_ICLOUD_ENVIRONMENT=Development`, `BOOPSTASH_APS_ENVIRONMENT=development`,
    Debug configuration) and launch it with `-BoopStashSeedSchema YES`. It syncs
-   one made-up note and image with every field set, from memory; the real
+   one made-up note, image and label with every field set, from memory; the real
    store is not opened.
 2. In the CloudKit Console, Schema (Development) ▸ Deploy Schema Changes.
 

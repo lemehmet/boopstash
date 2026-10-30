@@ -5,15 +5,20 @@ import GRDB
 /// marking them sent, and applying the server's changes without marking
 /// them as local ones. The local store stays the source of truth (ADR 0002).
 extension NoteStore {
-    /// Local changes not yet acknowledged: saves of notes and attachments,
-    /// then deletions.
+    /// Local changes not yet acknowledged: saves of labels, notes and
+    /// attachments, then deletions.
     public func pendingSyncChanges(limit: Int = 200) throws -> [SyncChange] {
         try writer.read { db in
             var changes: [SyncChange] = []
+            let labels = try Row.fetchAll(db, sql: "SELECT * FROM label WHERE syncPending > syncAcknowledged LIMIT ?", arguments: [limit])
+            for row in labels {
+                changes.append(.save(SyncMapping.record(for: try NoteLabel(row: row)), systemFields: row["syncSystemFields"], version: row["syncPending"]))
+            }
             let notes = try Row.fetchAll(db, sql: "SELECT * FROM note WHERE syncPending > syncAcknowledged LIMIT ?", arguments: [limit])
             for row in notes {
                 let note = try Note(row: row)
-                changes.append(.save(SyncMapping.record(for: note), systemFields: row["syncSystemFields"], version: row["syncPending"]))
+                changes.append(.save(SyncMapping.record(for: note, labelIDs: try Self.labelIDs(of: note.id, db)),
+                                     systemFields: row["syncSystemFields"], version: row["syncPending"]))
             }
             let attachments = try Row.fetchAll(db, sql: "SELECT * FROM attachment WHERE syncPending > syncAcknowledged LIMIT ?", arguments: [limit])
             for row in attachments {
@@ -55,7 +60,7 @@ extension NoteStore {
 
     static func pendingNames(_ db: Database) throws -> SyncPending {
         var pending = SyncPending()
-        for kind in [SyncRecord.Kind.note, .attachment] {
+        for kind in SyncRecord.Kind.allCases {
             let names = try UUID.fetchAll(db, sql: "SELECT id FROM \(table(kind)) WHERE syncPending > syncAcknowledged")
             pending.saves += names.map { SyncPending.Name(kind: kind, name: $0.uuidString.lowercased()) }
         }
@@ -74,7 +79,8 @@ extension NoteStore {
             guard let row = try Row.fetchOne(db, sql: "SELECT * FROM \(Self.table(kind)) WHERE id = ? AND syncPending > syncAcknowledged", arguments: [id])
             else { return nil }
             let record: SyncRecord = switch kind {
-            case .note: SyncMapping.record(for: try Note(row: row))
+            case .note: SyncMapping.record(for: try Note(row: row), labelIDs: try Self.labelIDs(of: id, db))
+            case .label: SyncMapping.record(for: try NoteLabel(row: row))
             case .attachment:
                 try { let attachment = try NoteAttachment(row: row); return SyncMapping.record(for: attachment, file: fileURL(for: attachment)) }()
             }
@@ -110,7 +116,9 @@ extension NoteStore {
     /// Applies a record the server sent. For a note this device also
     /// changed, the two are merged (`SyncMerge`); the conflict copy that
     /// merge may produce is saved as a new note and returned. `assetData` is
-    /// an attachment's file, written before its row.
+    /// an attachment's file, written before its row. A label takes the newer
+    /// edit, and a label with the same name as another here becomes one with
+    /// it (`takeLabel`, ADR 0011).
     @discardableResult
     public func applyServerRecord(_ record: SyncRecord, systemFields: Data, assetData: Data? = nil, now: Date = Date()) throws -> Note? {
         // Deleted here, deletion not yet sent: a stale save from the server
@@ -118,6 +126,22 @@ extension NoteStore {
         // where a local delete cannot slip in between (#110).
         guard try !writer.read({ db in try Self.isTombstoned(record, db) }) else { return nil }
         switch record.kind {
+        case .label:
+            guard let server = SyncMapping.label(from: record) else { return nil }
+            try writer.write { db in
+                guard try !Self.isTombstoned(record, db) else { return }
+                let row = try Row.fetchOne(db, sql: "SELECT syncPending, syncAcknowledged FROM label WHERE id = ?", arguments: [server.id])
+                let changedHere = row.map { ($0["syncPending"] as Int) > ($0["syncAcknowledged"] as Int) } ?? false
+                if changedHere, let local = try NoteLabel.fetchOne(db, key: server.id), local.updatedAt > server.updatedAt {
+                    // This device's edit is newer: it stays, to be sent.
+                    try db.execute(sql: "UPDATE label SET syncSystemFields = ? WHERE id = ?", arguments: [systemFields, server.id])
+                    return
+                }
+                guard try Self.takeLabel(server, systemFields: systemFields, db) == server.id else { return }
+                try db.execute(sql: "UPDATE label SET syncAcknowledged = syncPending, syncSystemFields = ? WHERE id = ?",
+                               arguments: [systemFields, server.id])
+            }
+            return nil
         case .attachment:
             guard let attachment = SyncMapping.attachment(from: record) else { return nil }
             // The server's file goes to a temporary name first and into place
@@ -160,19 +184,25 @@ extension NoteStore {
             return nil
         case .note:
             guard let server = SyncMapping.note(from: record) else { return nil }
+            let serverLabels = SyncMapping.labelIDs(from: record)
             return try writer.write { db -> Note? in
                 guard try !Self.isTombstoned(record, db) else { return nil }
                 let row = try Row.fetchOne(db, sql: "SELECT syncPending, syncAcknowledged FROM note WHERE id = ?", arguments: [server.id])
                 let changedHere = row.map { ($0["syncPending"] as Int) > ($0["syncAcknowledged"] as Int) } ?? false
                 guard changedHere, let local = try Note.fetchOne(db, key: server.id) else {
                     // New here, or unchanged here: the server's version wins.
+                    // Its labels are kept as sent, also those whose label has
+                    // not arrived yet.
                     try server.save(db)
+                    try Self.setLabelIDs(serverLabels, of: server.id, db)
                     try Self.refreshImageText(of: server.id, body: server.body, db)
                     try db.execute(sql: "UPDATE note SET syncAcknowledged = syncPending, syncSystemFields = ? WHERE id = ?", arguments: [systemFields, server.id])
                     return nil
                 }
-                let outcome = SyncMerge.merge(local: local, server: server, now: now)
+                let outcome = SyncMerge.merge(local: local, server: server, localLabels: try Self.labelIDs(of: local.id, db),
+                                              serverLabels: serverLabels, now: now)
                 try outcome.note.save(db)
+                try Self.setLabelIDs(outcome.labelIDs, of: outcome.note.id, db)
                 try Self.refreshImageText(of: outcome.note.id, body: outcome.note.body, db)
                 // Still different from the server's: a new version to send.
                 // The same: in step.
@@ -217,6 +247,12 @@ extension NoteStore {
             case .note:
                 _ = try Note.deleteOne(db, key: id)
                 return nil
+            case .label:
+                // Off every note here too; the device that deleted it sends
+                // those notes without it.
+                try db.execute(sql: "DELETE FROM noteLabel WHERE labelID = ?", arguments: [id])
+                _ = try NoteLabel.deleteOne(db, key: id)
+                return nil
             case .attachment:
                 let attachment = try NoteAttachment.fetchOne(db, key: id)
                 _ = try NoteAttachment.deleteOne(db, key: id)
@@ -230,8 +266,8 @@ extension NoteStore {
     /// (ADR 0002): everything here is sent again as new.
     public func resetSyncForReupload() throws {
         try writer.write { db in
-            for table in ["note", "attachment"] {
-                try db.execute(sql: "UPDATE \(table) SET syncPending = syncPending + 1, syncSystemFields = NULL, syncStaleBelow = syncPending + 1")
+            for kind in SyncRecord.Kind.allCases {
+                try db.execute(sql: "UPDATE \(Self.table(kind)) SET syncPending = syncPending + 1, syncSystemFields = NULL, syncStaleBelow = syncPending + 1")
             }
             try db.execute(sql: "DELETE FROM syncTombstone")
             try db.execute(sql: "DELETE FROM syncState WHERE key != 'environment'")
@@ -252,10 +288,11 @@ extension NoteStore {
                 SELECT EXISTS (SELECT 1 FROM syncState WHERE key = 'engine')
                     OR EXISTS (SELECT 1 FROM note WHERE syncSystemFields IS NOT NULL)
                     OR EXISTS (SELECT 1 FROM attachment WHERE syncSystemFields IS NOT NULL)
+                    OR EXISTS (SELECT 1 FROM label WHERE syncSystemFields IS NOT NULL)
                 """) ?? false
             if synced {
-                for table in ["note", "attachment"] {
-                    try db.execute(sql: "UPDATE \(table) SET syncPending = syncPending + 1, syncSystemFields = NULL, syncStaleBelow = syncPending + 1")
+                for kind in SyncRecord.Kind.allCases {
+                    try db.execute(sql: "UPDATE \(Self.table(kind)) SET syncPending = syncPending + 1, syncSystemFields = NULL, syncStaleBelow = syncPending + 1")
                 }
                 // Deletions the other environment never heard of are not this
                 // one's business either.
@@ -291,6 +328,65 @@ extension NoteStore {
     }
 
     static func table(_ kind: SyncRecord.Kind) -> String {
-        kind == .note ? "note" : "attachment"
+        switch kind {
+        case .note: "note"
+        case .attachment: "attachment"
+        case .label: "label"
+        }
+    }
+
+    // MARK: Labels
+
+    /// The labels a note carries that are in the catalog: an ID whose label
+    /// is not here (not arrived yet, or deleted) is ignored.
+    static func labelIDs(of noteID: UUID, _ db: Database) throws -> Set<UUID> {
+        try UUID.fetchSet(db, sql: "SELECT noteLabel.labelID FROM noteLabel JOIN label ON label.id = noteLabel.labelID WHERE noteLabel.noteID = ?",
+                          arguments: [noteID])
+    }
+
+    /// Replaces the labels a note carries, as they are: IDs whose label is
+    /// not here yet are kept, since sync does not order a note after its
+    /// labels.
+    static func setLabelIDs(_ ids: Set<UUID>, of noteID: UUID, _ db: Database) throws {
+        try db.execute(sql: "DELETE FROM noteLabel WHERE noteID = ?", arguments: [noteID])
+        for id in ids {
+            try db.execute(sql: "INSERT INTO noteLabel (noteID, labelID) VALUES (?, ?)", arguments: [noteID, id])
+        }
+    }
+
+    /// Writes `label` into the catalog. A label with the same name under
+    /// another ID becomes one with it (ADR 0011): the survivor is the
+    /// earlier created (`NoteLabel.survivor`), so every device keeps the
+    /// same one, and the other is folded into it. Returns the survivor's ID;
+    /// when it is not `label`'s, `label` was not written. `systemFields`
+    /// are `label`'s CloudKit metadata, for its tombstone if it loses.
+    static func takeLabel(_ label: NoteLabel, systemFields: Data?, _ db: Database) throws -> UUID {
+        if let other = try NoteLabel.fetchOne(db, sql: "SELECT * FROM label WHERE nameKey = ? AND id != ?",
+                                              arguments: [NoteLabel.nameKey(label.name), label.id]) {
+            if NoteLabel.survivor(label, other).id == other.id {
+                try foldLabel(label.id, into: other.id, systemFields: systemFields, db)
+                return other.id
+            }
+            try foldLabel(other.id, into: label.id, systemFields: nil, db)
+        }
+        try label.save(db)
+        return label.id
+    }
+
+    /// Every note carrying `loser` carries `survivor` instead and is sent
+    /// again; `loser` is deleted, and the deletion sent, whether or not it
+    /// is in this store (`systemFields` stand in for its row's).
+    static func foldLabel(_ loser: UUID, into survivor: UUID, systemFields: Data?, _ db: Database) throws {
+        let notes = try UUID.fetchAll(db, sql: "SELECT noteID FROM noteLabel WHERE labelID = ?", arguments: [loser])
+        for note in notes {
+            try db.execute(sql: "INSERT OR IGNORE INTO noteLabel (noteID, labelID) VALUES (?, ?)", arguments: [note, survivor])
+            try db.execute(sql: "UPDATE note SET syncPending = syncPending + 1 WHERE id = ?", arguments: [note])
+        }
+        try db.execute(sql: "DELETE FROM noteLabel WHERE labelID = ?", arguments: [loser])
+        let here = try Row.fetchOne(db, sql: "SELECT syncSystemFields FROM label WHERE id = ?", arguments: [loser])
+        let fields = systemFields ?? here?["syncSystemFields"]
+        try db.execute(sql: "INSERT OR REPLACE INTO syncTombstone (kind, name, systemFields) VALUES (?, ?, ?)",
+                       arguments: [SyncRecord.Kind.label.rawValue, loser.uuidString.lowercased(), fields])
+        _ = try NoteLabel.deleteOne(db, key: loser)
     }
 }
