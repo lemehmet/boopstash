@@ -99,7 +99,7 @@ public enum CommandLineTool {
 
     /// Runs `command` on `store`. `input` is standard input, read only for
     /// a capture.
-    public static func run(_ command: Command, store: NoteStore, input: () -> Data, version: String,
+    public static func run(_ command: Command, store: NoteStore, input: () throws -> Data, version: String,
                            now: Date = Date()) -> Output {
         var output = Output()
         do {
@@ -109,7 +109,11 @@ public enum CommandLineTool {
             case .version:
                 output.standardOutput = "boopstash \(version)\n"
             case .capture(let title):
-                let data = input()
+                let data: Data
+                do { data = try input() } catch {
+                    // Never a truncated note: a failed read keeps nothing.
+                    return failure("could not read standard input: \(error.localizedDescription)")
+                }
                 guard data.count <= inputLimit else {
                     return failure("standard input is over \(inputLimit / 1024 / 1024) MB; BoopStash keeps notes up to that size")
                 }

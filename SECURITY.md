@@ -30,9 +30,11 @@ around that, and each point is enforceable rather than aspirational:
   is the sandbox itself (`App/ScriptService.entitlements`, ADR 0007): no
   network, no files, none of your notes beyond the text a script is given. A
   script that runs too long is stopped by ending that process.
-- **Files: only where you point it.** Beyond its own container, the app can
-  write only into a folder you choose in an open panel, which is how export
-  works. It cannot read or write anything else on disk.
+- **Files: only where you point it.** Beyond its own container and its App
+  Group's container (where the Mac keeps the notes for the `boopstash`
+  command, ADR 0009), the app can write only into a folder you choose in an
+  open panel, which is how export works. It cannot read or write anything
+  else on disk.
 - **No network access except your iCloud.** There is no network-client
   entitlement. No analytics, no crash reporting service, no update checks. The
   only remote endpoint is the private database of the app's iCloud container,

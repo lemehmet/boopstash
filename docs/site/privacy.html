@@ -15,18 +15,18 @@
 <p class="lede">BoopStash collects no data. There is no BoopStash server, and nothing you put in the app is sent to the developer or to anyone else.</p>
 <h2>What stays on your devices</h2>
 <ul>
-<li>Your notes, images and settings are stored on your device, inside the app's sandboxed container.</li>
+<li>Your notes, images and settings are stored on your device, inside the app's sandboxed containers: its own, and on the Mac a shared container that only BoopStash and its bundled <code>boopstash</code> command can open.</li>
 <li>There are no analytics, no crash reporting service, no advertising and no update checks. The app has no network access of its own.</li>
-<li>Titles, text recognition in images and any other AI features use Apple's on-device frameworks only. Nothing is sent to a cloud model.</li>
+<li>Titles, text recognition in images, search by meaning and any other AI features run on your device only, with Apple's frameworks and a small language model bundled with the app. Nothing is sent to a cloud model.</li>
 <li>The Markdown preview loads nothing from the internet. Remote images are named, not fetched.</li>
 <li>Scripts and formatters run in a separate sandboxed process with no network and no file access.</li>
 </ul>
 <h2>The clipboard</h2>
 <p>BoopStash never watches your clipboard. It reads it only when you act: pasting, choosing a capture command, using Services or dropping something on the window. Items that password managers mark as concealed or transient are never stored.</p>
 <h2>iCloud sync</h2>
-<p>Sync through iCloud is planned. It will be optional and off by default. When it is on, your notes go only to the private database of BoopStash's iCloud container under your own Apple Account, which the developer cannot read. Every field the app stores is encrypted on your device before upload. With <a href="https://support.apple.com/en-us/102651">Advanced Data Protection</a> turned on, that encryption is end to end and only your devices hold the keys. Without it, iCloud uses keys Apple can access, as it does for most iCloud data.</p>
+<p>Sync through iCloud is optional and off by default. When it is on, your notes go only to the private database of BoopStash's iCloud container under your own Apple Account, which the developer cannot read. Every field the app stores is encrypted on your device before upload. With <a href="https://support.apple.com/en-us/102651">Advanced Data Protection</a> turned on, that encryption is end to end and only your devices hold the keys. Without it, iCloud uses keys Apple can access, as it does for most iCloud data.</p>
 <h2>Files</h2>
-<p>Beyond its own container, the app can write only to a folder you choose, which is how export works.</p>
+<p>Beyond its own containers, the app can write only to a folder you choose, which is how export works. The <code>boopstash</code> command reads only what is piped to it and writes only to that shared container.</p>
 <h2>Children</h2>
 <p>BoopStash collects no information from anyone, including children.</p>
 <h2>Changes and contact</h2>

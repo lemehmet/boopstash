@@ -59,8 +59,9 @@ do {
 // At most one byte past the limit, so an endless pipe cannot fill memory.
 let output = CommandLineTool.run(command, store: store, input: {
     var data = Data()
+    // A read error throws, and nothing is kept; only an empty read is the end.
     while data.count <= CommandLineTool.inputLimit,
-          let chunk = try? FileHandle.standardInput.read(upToCount: CommandLineTool.inputLimit + 1 - data.count), !chunk.isEmpty {
+          let chunk = try FileHandle.standardInput.read(upToCount: CommandLineTool.inputLimit + 1 - data.count), !chunk.isEmpty {
         data.append(chunk)
     }
     return data

@@ -42,6 +42,14 @@ import Testing
         #expect(try store.notes(matching: NoteQuery()).isEmpty)
     }
 
+    @Test func aReadErrorKeepsNothing() throws {
+        struct Broken: Error {}
+        let store = try NoteStore.inMemory()
+        let output = Tool.run(.capture(title: nil), store: store, input: { throw Broken() }, version: "1")
+        #expect(output.status == 1 && !output.wrote && output.standardError.contains("could not read"))
+        #expect(try store.notes(matching: NoteQuery()).isEmpty)
+    }
+
     @Test func emptyOrBinaryInputIsRefused() throws {
         let store = try NoteStore.inMemory()
         #expect(Tool.run(.capture(title: nil), store: store, input: { Data(" \n".utf8) }, version: "1").status == 1)

@@ -85,8 +85,14 @@ public final class NoteStore: Sendable {
     /// came over.
     public static func sharedStoreFolder(own: URL, group: URL, storeName: String = "notes.sqlite",
                                          now: Date = Date()) throws -> (folder: URL, inGroup: Bool, merged: Int) {
-        try moveStoreFolder(from: own, to: group, storeName: storeName)
         let files = FileManager.default
+        do {
+            try moveStoreFolder(from: own, to: group, storeName: storeName)
+        } catch where files.fileExists(atPath: own.appendingPathComponent(storeName).path) {
+            // A move that failed part-way (no space, permissions) leaves the
+            // notes where they were: open them there rather than not at all.
+            return (own, false, 0)
+        }
         let ownStore = own.appendingPathComponent(storeName), groupStore = group.appendingPathComponent(storeName)
         switch (files.fileExists(atPath: groupStore.path), files.fileExists(atPath: ownStore.path)) {
         case (true, true):
