@@ -57,7 +57,8 @@ boopstash show 1a2b3c4d            # the ID list and search print
 ```
 
 It works on the notes the app keeps, and the app shows what it adds at
-once. Like the app, the command has no network
+once. Open BoopStash once first; it moves its notes where the command can
+reach them. Like the app, the command has no network
 access and can't read files you name; it only reads what is piped in.
 
 ## Privacy

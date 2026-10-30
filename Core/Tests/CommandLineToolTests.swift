@@ -34,6 +34,14 @@ import Testing
         #expect(note.sourceAppName == "Terminal")
     }
 
+    @Test func inputOverTheLimitIsRefused() throws {
+        let store = try NoteStore.inMemory()
+        let big = Data(repeating: UInt8(ascii: "a"), count: Tool.inputLimit + 1)
+        let output = Tool.run(.capture(title: nil), store: store, input: { big }, version: "1")
+        #expect(output.status == 1 && !output.wrote && output.standardError.contains("5 MB"))
+        #expect(try store.notes(matching: NoteQuery()).isEmpty)
+    }
+
     @Test func emptyOrBinaryInputIsRefused() throws {
         let store = try NoteStore.inMemory()
         #expect(Tool.run(.capture(title: nil), store: store, input: { Data(" \n".utf8) }, version: "1").status == 1)

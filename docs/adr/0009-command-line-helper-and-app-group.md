@@ -47,8 +47,11 @@ Options considered:
   only when it is signed by the team. A build signed ad hoc (Debug, CI)
   keeps its store at home, because macOS would refuse or prompt for the
   group container. The store opens `shared`: writers wait for each other.
-  The helper creates the store if the app has not yet run; the app then
-  merges it with its own in the same way.
+  The helper never creates the store: until the app has moved it, the
+  helper says to open BoopStash first. A store created by the helper would
+  win a merge and leave the app's sync state (deletions not yet sent)
+  behind. When the move is refused, the app says the command cannot reach
+  the notes.
 - **The app notices the helper's writes.** GRDB observation sees only its
   own process's commits. After each write the helper posts the Darwin
   notification `com.lemehmet.boopstash.changed`, which carries no data.
@@ -56,7 +59,8 @@ Options considered:
   active. The list refresh then starts the usual workers (image text,
   embeddings, titles), and sync sends the new notes.
 - **Titles** are rule-based (`RuleTitler`), or `--title`, as in the share
-  extension. Model titles follow in the app, as for any capture.
+  extension. The app asks for model titles for the command's notes when it
+  refreshes after a write, and at launch.
 - **Homebrew.** The cask links the helper onto `PATH` with `binary`. The
   App Store app carries the same helper, and its users can link it
   themselves; the README says how.

@@ -25,6 +25,12 @@ public enum CommandLineTool {
         public var wrote = false
     }
 
+    /// What a captured note records as its source, so the app can tell.
+    public static let sourceAppName = "Terminal"
+
+    /// The most a capture keeps: the text import limit (5 MB).
+    public static let inputLimit = TextFileImport.sizeLimit
+
     public static let usage = """
         Usage:
           some-command | boopstash [--title TITLE]   keep standard input as a note
@@ -104,13 +110,16 @@ public enum CommandLineTool {
                 output.standardOutput = "boopstash \(version)\n"
             case .capture(let title):
                 let data = input()
+                guard data.count <= inputLimit else {
+                    return failure("standard input is over \(inputLimit / 1024 / 1024) MB; BoopStash keeps notes up to that size")
+                }
                 guard let text = String(data: data, encoding: .utf8) else {
                     return failure("standard input is not UTF-8 text")
                 }
                 guard text.contains(where: { !$0.isWhitespace }) else {
                     return failure("nothing on standard input to keep")
                 }
-                var note = Note(body: text, createdAt: now, sourceAppName: "Terminal")
+                var note = Note(body: text, createdAt: now, sourceAppName: sourceAppName)
                 if let title, !title.isEmpty {
                     note.title = title
                     note.titleIsUserSet = true

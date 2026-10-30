@@ -283,6 +283,10 @@ final class AppModel {
         let model = AppModel(store: store)
         if merged > 0 {
             model.banner = "\(merged) notes from an earlier copy of BoopStash on this Mac were added to your notes."
+        } else if SharedStore.folder != nil, !shared {
+            // The command finds no store in the group and says so; it never
+            // works on other notes than these.
+            model.banner = "The boopstash command cannot reach your notes: they could not be moved to the folder it shares with BoopStash."
         }
         if shared { model.watchOtherProcesses() }
         model.watchScripts()
@@ -296,6 +300,20 @@ final class AppModel {
         observe()
         syncEngine?.takeChangesFromElsewhere()
         recognizePendingImages()
+    }
+
+    /// The command's notes arrive with rule titles (ADR 0009): each list
+    /// asks for model titles for those in it, once per note per launch, so
+    /// a model that cannot title one is not asked on every change.
+    @ObservationIgnored private var commandNotesTitled: Set<UUID> = []
+
+    private func titleCommandNotes(_ notes: [Note]) {
+        guard usesModelTitles else { return }
+        for note in notes.prefix(50) where note.sourceAppName == CommandLineTool.sourceAppName && !note.titleIsUserSet
+            && !note.hasCurrentModelTitle && !commandNotesTitled.contains(note.id) {
+            commandNotesTitled.insert(note.id)
+            requestModelTitle(for: note)
+        }
     }
 
     @ObservationIgnored private var changeToken: Int32 = NOTIFY_TOKEN_INVALID
@@ -320,6 +338,7 @@ final class AppModel {
             do {
                 for try await notes in values {
                     self?.notes = notes
+                    self?.titleCommandNotes(notes)
                     // A change may have added an image to read.
                     self?.recognizePendingImages()
                 }

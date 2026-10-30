@@ -25,4 +25,22 @@ struct CommandLineRefreshTests {
         for _ in 0..<100 where model.notes.isEmpty { try await Task.sleep(for: .milliseconds(20)) }
         #expect(model.notes.map(\.title) == ["from the shell"])
     }
+
+    /// A captured note without --title gets a model title once the app
+    /// sees it (ADR 0009).
+    @Test func commandNotesGetModelTitles() async throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("boopstash-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let url = folder.appendingPathComponent("notes.sqlite")
+        let model = AppModel(store: try NoteStore.open(at: url, shared: true))
+        model.modelTitlesEnabled = { true }
+        model.modelTitlesAvailable = { true }
+        model.modelTitler = { _, _ in "Pod listing" }
+        model.watchOtherProcesses()
+        let other = try NoteStore.open(at: url, shared: true)
+        _ = CommandLineTool.run(.capture(title: nil), store: other, input: { Data("NAME READY\napi-1 1/1\n".utf8) }, version: "1")
+        notify_post(SharedStore.changedNotification)
+        for _ in 0..<150 where model.notes.first?.title != "Pod listing" { try await Task.sleep(for: .milliseconds(20)) }
+        #expect(model.notes.map(\.title) == ["Pod listing"])
+    }
 }

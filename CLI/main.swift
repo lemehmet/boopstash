@@ -41,9 +41,14 @@ guard let group = FileManager.default.containerURL(forSecurityApplicationGroupId
     write("boopstash: this copy of BoopStash cannot reach its notes (no App Group)\n", to: .standardError)
     exit(69)
 }
-// Created if the app has not run yet: the app merges it with its own when
-// it next starts (NoteStore.sharedStoreFolder).
+// Never created here: the app moves its own store, sync state and all, into
+// the group on first launch. A store made here first would leave that state
+// behind in a merge.
 let storeURL = group.appendingPathComponent("Library/Application Support/Boopstash/notes.sqlite")
+guard FileManager.default.fileExists(atPath: storeURL.path) else {
+    write("boopstash: no notes to reach yet; open BoopStash once first\n", to: .standardError)
+    exit(69)
+}
 let store: NoteStore
 do {
     store = try NoteStore.open(at: storeURL, shared: true)
@@ -51,7 +56,15 @@ do {
     write("boopstash: could not open the notes: \(error.localizedDescription)\n", to: .standardError)
     exit(74)
 }
-let output = CommandLineTool.run(command, store: store, input: { FileHandle.standardInput.readDataToEndOfFile() }, version: version)
+// At most one byte past the limit, so an endless pipe cannot fill memory.
+let output = CommandLineTool.run(command, store: store, input: {
+    var data = Data()
+    while data.count <= CommandLineTool.inputLimit,
+          let chunk = try? FileHandle.standardInput.read(upToCount: CommandLineTool.inputLimit + 1 - data.count), !chunk.isEmpty {
+        data.append(chunk)
+    }
+    return data
+}, version: version)
 write(output.standardOutput, to: .standardOutput)
 write(output.standardError, to: .standardError)
 // The app's list does not see another process's writes by itself.
