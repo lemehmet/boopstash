@@ -79,13 +79,27 @@ public final class NoteStore: Sendable {
     /// a store is there, so a refused move never opens a new, empty store
     /// in place of the notes. A new store goes in the group. With a store in
     /// both (builds with and without the group, alternating), the group's is
-    /// used and every note and image only in the other is copied into it;
-    /// the other folder is then renamed, kept as a backup, never deleted.
+    /// used and the other's notes, images and unsent deletions are merged
+    /// into it (`copyMissing`); the other folder is then renamed, kept as a
+    /// backup, never deleted. `keepingAtHome` names items of `own` that are
+    /// not the store (the Mac's Scripts folder and keybindings.json): they
+    /// are moved back to `own` after it moves, every time, so an interrupted
+    /// launch is repaired by the next (#171).
     /// Returns the folder, whether it is the group's, and how many notes
     /// came over.
-    public static func sharedStoreFolder(own: URL, group: URL, storeName: String = "notes.sqlite",
+    public static func sharedStoreFolder(own: URL, group: URL, storeName: String = "notes.sqlite", keepingAtHome: [String] = [],
                                          now: Date = Date()) throws -> (folder: URL, inGroup: Bool, merged: Int) {
         let files = FileManager.default
+        /// Items that belong at `own`, moved back from where `own` went.
+        func bringHome(from folder: URL) {
+            for name in keepingAtHome {
+                let there = folder.appendingPathComponent(name), here = own.appendingPathComponent(name)
+                guard files.fileExists(atPath: there.path), !files.fileExists(atPath: here.path) else { continue }
+                try? files.createDirectory(at: own, withIntermediateDirectories: true)
+                try? files.moveItem(at: there, to: here)
+            }
+        }
+        defer { bringHome(from: group) }
         do {
             try moveStoreFolder(from: own, to: group, storeName: storeName)
         } catch where files.fileExists(atPath: own.appendingPathComponent(storeName).path) {
@@ -98,7 +112,9 @@ public final class NoteStore: Sendable {
         case (true, true):
             let merged = try open(at: groupStore).copyMissing(from: open(at: ownStore))
             let stamp = ISO8601DateFormatter.string(from: now, timeZone: .gmt, formatOptions: [.withYear, .withMonth, .withDay, .withTime])
-            try files.moveItem(at: own, to: own.deletingLastPathComponent().appendingPathComponent("\(own.lastPathComponent)-merged-\(stamp)"))
+            let backup = own.deletingLastPathComponent().appendingPathComponent("\(own.lastPathComponent)-merged-\(stamp)")
+            try files.moveItem(at: own, to: backup)
+            bringHome(from: backup)
             return (group, true, merged)
         case (true, false): return (group, true, 0)
         case (false, true): return (own, false, 0)
@@ -106,21 +122,65 @@ public final class NoteStore: Sendable {
         }
     }
 
-    /// Copies every note and attachment of `other` this store does not have
-    /// (by ID), files first, as new local changes to send. Returns how many
-    /// notes came over.
-    func copyMissing(from other: NoteStore) throws -> Int {
+    /// Brings `other`'s notes, images and unsent deletions into this store,
+    /// as new local changes to send. A note only there is copied; a note in
+    /// both keeps the newer edit, and if their text differs the other text
+    /// is kept as a "(conflict)" copy, as sync does (#172). A deletion not
+    /// yet sent from `other` is carried over and applied here, so iCloud
+    /// cannot bring the note back (#173); nothing deleted here returns.
+    /// Returns how many notes came over or changed.
+    func copyMissing(from other: NoteStore, now: Date = Date()) throws -> Int {
+        let tombstones = try other.writer.read { db in
+            try Row.fetchAll(db, sql: "SELECT kind, name, systemFields FROM syncTombstone")
+                .map { (kind: $0["kind"] as String, name: $0["name"] as String, systemFields: $0["systemFields"] as Data?) }
+        }
+        let deletedHere = try writer.read { db in
+            Set(try Row.fetchAll(db, sql: "SELECT kind, name FROM syncTombstone").map { "\($0["kind"] as String)/\($0["name"] as String)" })
+        }
+        let deletedThere = Set(tombstones.map { "\($0.kind)/\($0.name)" })
+        func deleted(_ kind: SyncRecord.Kind, _ id: UUID) -> Bool {
+            let key = "\(kind.rawValue)/\(id.uuidString.lowercased())"
+            return deletedHere.contains(key) || deletedThere.contains(key)
+        }
         let attachments = try other.writer.read { db in try NoteAttachment.fetchAll(db) }
-        for attachment in attachments where try self.attachment(id: attachment.id) == nil {
+        for attachment in attachments where try self.attachment(id: attachment.id) == nil && !deleted(.attachment, attachment.id) {
             guard let data = try? other.data(for: attachment) else { continue }
             try FileManager.default.createDirectory(at: attachmentsDirectory, withIntermediateDirectories: true)
             try data.write(to: fileURL(for: attachment), options: .atomic)
             try writer.write { db in try attachment.insert(db) }
         }
         var count = 0
-        for note in try other.writer.read({ db in try Note.fetchAll(db) }) where try self.note(id: note.id) == nil {
-            try save(note)
+        for note in try other.writer.read({ db in try Note.fetchAll(db) }) where !deleted(.note, note.id) {
+            guard let mine = try self.note(id: note.id) else {
+                try save(note)
+                count += 1
+                continue
+            }
+            guard mine != note else { continue }
+            // The newer edit stays; the other text, if different, is a copy.
+            let theirsIsNewer = note.updatedAt > mine.updatedAt
+            if theirsIsNewer { try save(note) }
+            let older = theirsIsNewer ? mine : note
+            if mine.body != note.body {
+                var copy = Note(title: "\(older.title.isEmpty ? "Untitled" : older.title) (conflict)", titleIsUserSet: true,
+                                body: older.body, createdAt: now, updatedAt: now,
+                                sourceBundleID: older.sourceBundleID, sourceAppName: older.sourceAppName)
+                copy.syntaxOverride = older.syntaxOverride
+                try save(copy)
+            }
             count += 1
+        }
+        // Deletions `other` had not sent yet: applied here and kept to send.
+        for tombstone in tombstones {
+            guard let kind = SyncRecord.Kind(rawValue: tombstone.kind), let id = UUID(uuidString: tombstone.name) else { continue }
+            switch kind {
+            case .note: if try note(id: id) != nil { _ = try delete(id: id) }
+            case .attachment: if try attachment(id: id) != nil { try deleteAttachment(id: id) }
+            }
+            try writer.write { db in
+                try db.execute(sql: "INSERT OR REPLACE INTO syncTombstone (kind, name, systemFields) VALUES (?, ?, ?)",
+                               arguments: [tombstone.kind, tombstone.name, tombstone.systemFields])
+            }
         }
         return count
     }

@@ -280,7 +280,8 @@ final class AppModel {
         // team may use the group; an ad hoc one (Debug) stays at home.
         var folder = own, shared = false, merged = 0
         if let group = SharedStore.folder {
-            (folder, shared, merged) = try NoteStore.sharedStoreFolder(own: own, group: group)
+            // Scripts and key bindings are the app's alone: they stay home.
+            (folder, shared, merged) = try NoteStore.sharedStoreFolder(own: own, group: group, keepingAtHome: ["Scripts", "keybindings.json"])
         }
         let store = try NoteStore.open(at: folder.appendingPathComponent(SharedStore.fileName), shared: shared)
         // Attachments nothing refers to any more, after a day's grace so an

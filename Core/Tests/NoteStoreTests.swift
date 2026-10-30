@@ -333,3 +333,65 @@ final class TestClock: @unchecked Sendable {
         #expect(try NoteStore.open(at: own.appendingPathComponent("notes.sqlite")).notes(matching: NoteQuery()).map(\.body) == ["kept"])
     }
 }
+
+/// Merging two stores (#171, #172, #173): what is not the store stays home,
+/// a note in both keeps the newer edit and a copy, unsent deletions hold.
+@Suite struct StoreMergeTests {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("merge-\(UUID().uuidString)")
+    var own: URL { root.appendingPathComponent("own") }
+    var group: URL { root.appendingPathComponent("group") }
+
+    @Test func scriptsAndKeyBindingsStayHomeWhenTheStoreMoves() throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        try NoteStore.open(at: own.appendingPathComponent("notes.sqlite")).save(Note(body: "n", createdAt: Date()))
+        try FileManager.default.createDirectory(at: own.appendingPathComponent("Scripts"), withIntermediateDirectories: true)
+        try Data("/**{}**/".utf8).write(to: own.appendingPathComponent("Scripts/mine.js"))
+        try Data("[]".utf8).write(to: own.appendingPathComponent("keybindings.json"))
+        let result = try NoteStore.sharedStoreFolder(own: own, group: group, keepingAtHome: ["Scripts", "keybindings.json"])
+        #expect(result.inGroup)
+        #expect(FileManager.default.fileExists(atPath: own.appendingPathComponent("Scripts/mine.js").path))
+        #expect(FileManager.default.fileExists(atPath: own.appendingPathComponent("keybindings.json").path))
+        #expect(!FileManager.default.fileExists(atPath: group.appendingPathComponent("Scripts").path))
+        #expect(!FileManager.default.fileExists(atPath: own.appendingPathComponent("notes.sqlite").path))
+        // A launch interrupted after the move is repaired by the next.
+        try FileManager.default.moveItem(at: own.appendingPathComponent("keybindings.json"), to: group.appendingPathComponent("keybindings.json"))
+        _ = try NoteStore.sharedStoreFolder(own: own, group: group, keepingAtHome: ["Scripts", "keybindings.json"])
+        #expect(FileManager.default.fileExists(atPath: own.appendingPathComponent("keybindings.json").path))
+    }
+
+    @Test func aMergeKeepsTheNewerEditAndTheOtherAsACopy() throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let shared = Note(title: "t", titleIsUserSet: true, body: "old", createdAt: Date(timeIntervalSince1970: 1000))
+        var edited = shared
+        edited.body = "newer at home"
+        edited.updatedAt = Date(timeIntervalSince1970: 2000)
+        try NoteStore.open(at: group.appendingPathComponent("notes.sqlite")).save(shared)
+        try NoteStore.open(at: own.appendingPathComponent("notes.sqlite")).save(edited)
+        try FileManager.default.createDirectory(at: own.appendingPathComponent("Scripts"), withIntermediateDirectories: true)
+        let result = try NoteStore.sharedStoreFolder(own: own, group: group, keepingAtHome: ["Scripts"])
+        #expect(result.inGroup && result.merged == 1)
+        let notes = try NoteStore.open(at: group.appendingPathComponent("notes.sqlite")).notes(matching: NoteQuery())
+        #expect(notes.first { $0.id == shared.id }?.body == "newer at home")
+        #expect(notes.contains { $0.title == "t (conflict)" && $0.body == "old" })
+        #expect(FileManager.default.fileExists(atPath: own.appendingPathComponent("Scripts").path), "scripts back from the backup")
+    }
+
+    func deletions(_ store: NoteStore) throws -> [String] {
+        try store.pendingSyncChanges().compactMap { if case .delete(.note, let name, _) = $0 { name } else { nil } }
+    }
+
+    @Test func anUnsentDeletionSurvivesTheMerge() throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let doomed = Note(body: "deleted at home", createdAt: Date())
+        let groupStore = try NoteStore.open(at: group.appendingPathComponent("notes.sqlite"))
+        try groupStore.save(doomed)
+        let home = try NoteStore.open(at: own.appendingPathComponent("notes.sqlite"))
+        try home.save(doomed)
+        _ = try home.delete(id: doomed.id)
+        #expect(try deletions(home) == [doomed.id.uuidString.lowercased()])
+        _ = try NoteStore.sharedStoreFolder(own: own, group: group)
+        let merged = try NoteStore.open(at: group.appendingPathComponent("notes.sqlite"))
+        #expect(try merged.note(id: doomed.id) == nil)
+        #expect(try deletions(merged) == [doomed.id.uuidString.lowercased()])
+    }
+}
