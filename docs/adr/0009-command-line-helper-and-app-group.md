@@ -40,6 +40,15 @@ Options considered:
   group's container when its signature carries that team. The app
   (`Boopstash.entitlements` and `BoopstashCloud.entitlements`) and the
   helper both claim it.
+- **A profile must authorise it where there is one.** *Amended 2026-10-30
+  (#179).* The claim needs no profile: the helper and ad hoc builds have
+  none. But the release builds embed a profile for iCloud. In a process
+  with a profile, a claim the profile does not authorise still launches,
+  but clears the process's entitlements-validated flag, and iCloud could
+  then refuse the app. So the release workflow and fastlane's
+  `check_entitlements!` require the embedded profile to list `A658882T2K.*`
+  (which Apple adds to Mac profiles once the App ID has App Groups) or the
+  group itself. If that check fails, regenerate the profile.
 - **The Mac store moves into the group,** once, by
   `NoteStore.sharedStoreFolder`, as the iOS store did for its share
   extension (#66). It is one rename, a store found in both places is
