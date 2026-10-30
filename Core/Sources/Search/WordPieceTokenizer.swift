@@ -31,12 +31,14 @@ public struct WordPieceTokenizer: Sendable {
 
     public func encode(_ text: String) -> Encoding {
         var pieces: [Int32] = [start]
-        for word in words(in: text) {
+        // Words are made only until the pieces are filled: a 5 MB note
+        // costs its first few hundred words, not millions (#164).
+        forEachWord(in: text) { word in
             for piece in self.pieces(of: word) {
                 guard pieces.count < length - 1 else { break }
                 pieces.append(piece)
             }
-            if pieces.count >= length - 1 { break }
+            return pieces.count < length - 1
         }
         pieces.append(end)
         let used = pieces.count
@@ -47,38 +49,97 @@ public struct WordPieceTokenizer: Sendable {
     /// Lower-cased, accents removed, control and format characters dropped, split on
     /// whitespace, with each punctuation mark and CJK character on its own.
     func words(in text: String) -> [String] {
-        let folded = text.lowercased().decomposedStringWithCanonicalMapping
         var words: [String] = []
-        var current = ""
-        func flush() {
-            if !current.isEmpty { words.append(current) }
-            current = ""
-        }
-        for scalar in folded.unicodeScalars {
-            let properties = scalar.properties
-            if properties.generalCategory == .nonspacingMark { continue }
-            // BERT drops control and format characters (zero-width space,
-            // joiners, the BOM) before splitting.
-            if scalar.value == 0 || scalar.value == 0xFFFD || properties.generalCategory == .format
-                || (properties.generalCategory == .control && !properties.isWhitespace) { continue }
-            if properties.isWhitespace {
-                flush()
-            } else if Self.isPunctuation(scalar) || Self.isCJK(scalar) {
-                flush()
-                words.append(String(scalar))
-            } else {
-                current.unicodeScalars.append(scalar)
-            }
-        }
-        flush()
+        forEachWord(in: text) { words.append($0); return true }
         return words
     }
+
+    /// The words of `words(in:)`, one at a time, until `body` returns false.
+    /// The text is folded (lower-cased, decomposed) a chunk at a time, each
+    /// ending where a word ends (whitespace, punctuation, CJK), so stopping
+    /// early skips the rest and the words are the same as folding it whole.
+    func forEachWord(in text: String, _ body: (String) -> Bool) {
+        var chunk = String.UnicodeScalarView()
+        var stopped = false
+        func process() {
+            let folded = String(chunk).lowercased().decomposedStringWithCanonicalMapping
+            chunk = String.UnicodeScalarView()
+            var current = String.UnicodeScalarView()
+            func flush() -> Bool {
+                defer { current = String.UnicodeScalarView() }
+                return current.isEmpty || body(String(current))
+            }
+            for scalar in folded.unicodeScalars {
+                let properties = scalar.properties
+                if properties.generalCategory == .nonspacingMark { continue }
+                // BERT drops control and format characters (zero-width space,
+                // joiners, the BOM) before splitting.
+                if scalar.value == 0 || scalar.value == 0xFFFD || properties.generalCategory == .format
+                    || (properties.generalCategory == .control && !properties.isWhitespace) { continue }
+                if properties.isWhitespace {
+                    guard flush() else { stopped = true; return }
+                } else if Self.isPunctuation(scalar) || Self.isCJK(scalar) {
+                    guard flush(), body(String(scalar)) else { stopped = true; return }
+                } else {
+                    current.append(scalar)
+                }
+            }
+            if !flush() { stopped = true }
+        }
+        // `run` is the word being read: scalars since the last whitespace,
+        // punctuation or CJK character, each of which ends a word.
+        var run = String.UnicodeScalarView()
+        var skipping = false
+        for scalar in text.unicodeScalars {
+            let ends = scalar.properties.isWhitespace || Self.isPunctuation(scalar) || Self.isCJK(scalar)
+            guard ends else {
+                // Scalars folding drops (marks, control and format
+                // characters) are dropped here, so they neither count toward
+                // the long-run cut nor pile up in memory.
+                if skipping || Self.isDropped(scalar) { continue }
+                run.append(scalar)
+                // Far past the 100-character limit (only a few marks are
+                // dropped in folding): the word is [UNK] whatever it holds,
+                // so the rest of it is neither kept nor folded.
+                if run.count > Self.longWord {
+                    process()
+                    if stopped || !body(String(repeating: "a", count: Self.maxWordLength + 1)) { return }
+                    run = String.UnicodeScalarView()
+                    skipping = true
+                }
+                continue
+            }
+            skipping = false
+            chunk.append(contentsOf: run)
+            chunk.append(scalar)
+            run = String.UnicodeScalarView()
+            if chunk.count >= 1024 {
+                process()
+                if stopped { return }
+            }
+        }
+        chunk.append(contentsOf: run)
+        if !chunk.isEmpty, !skipping || !run.isEmpty { process() }
+    }
+
+    /// What folding removes from a word: combining marks (after accents are
+    /// decomposed), control and format characters, NUL and U+FFFD.
+    static func isDropped(_ scalar: Unicode.Scalar) -> Bool {
+        let category = scalar.properties.generalCategory
+        return scalar.value == 0 || scalar.value == 0xFFFD || category == .nonspacingMark || category == .format
+            || (category == .control && !scalar.properties.isWhitespace)
+    }
+
+    /// BERT's limit: a longer word is [UNK].
+    static let maxWordLength = 100
+    /// A run this long is over the limit even after folding drops marks.
+    static let longWord = 1024
 
     /// The longest pieces from the start, later ones prefixed "##"; a word
     /// with no such split, or over 100 characters, is [UNK].
     func pieces(of word: String) -> [Int32] {
         let characters = Array(word.unicodeScalars)
-        guard characters.count <= 100 else { return [unknown] }
+        guard characters.count <= Self.maxWordLength else { return [unknown] }
         var result: [Int32] = []
         var startIndex = 0
         while startIndex < characters.count {

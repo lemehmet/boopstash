@@ -25,8 +25,10 @@ final class LiveEmbedder: @unchecked Sendable {
 
     /// Nil when the model is missing or fails, so the note is tried again;
     /// empty for text with nothing to embed.
-    func embed(_ text: String) -> [Float]? {
-        guard let model, let tokenizer else { return nil }
+    /// Cancellable: a superseded search stops before its inference, and the
+    /// asynchronous prediction stops with its task (#165).
+    func embed(_ text: String) async -> [Float]? {
+        guard let model, let tokenizer, !Task.isCancelled else { return nil }
         guard text.contains(where: { !$0.isWhitespace }) else { return [] }
         let encoding = tokenizer.encode(text)
         guard let ids = try? MLMultiArray(shape: [1, NSNumber(value: tokenizer.length)], dataType: .int32),
@@ -37,7 +39,8 @@ final class LiveEmbedder: @unchecked Sendable {
             mask[index] = NSNumber(value: encoding.mask[index])
         }
         guard let input = try? MLDictionaryFeatureProvider(dictionary: ["input_ids": ids, "attention_mask": mask]),
-              let output = try? model.prediction(from: input).featureValue(for: "embedding")?.multiArrayValue
+              !Task.isCancelled,
+              let output = try? await model.prediction(from: input).featureValue(for: "embedding")?.multiArrayValue
         else { return nil }
         return (0..<output.count).map { output[$0].floatValue }
     }

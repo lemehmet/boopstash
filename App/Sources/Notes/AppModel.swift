@@ -372,7 +372,7 @@ final class AppModel {
         didSet { if similarTo != oldValue { findRelated() } }
     }
     /// The bundled model, on device; replaceable for tests.
-    @ObservationIgnored var embed: Embedder = { LiveEmbedder.shared.embed($0) }
+    @ObservationIgnored var embed: Embedder = { await LiveEmbedder.shared.embed($0) }
     @ObservationIgnored private var embedding: Task<Void, Never>?
     @ObservationIgnored private var embeddingRequested = false
     @ObservationIgnored private var relating: Task<Void, Never>?
@@ -442,12 +442,15 @@ final class AppModel {
         relating = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(250))
             guard !Task.isCancelled else { return }
-            let found = await Task.detached(priority: .userInitiated) { () -> [Note] in
+            // Cancelling this search (the next keystroke, the setting off)
+            // stops the detached work too, not only the wait for it (#165).
+            let work = Task.detached(priority: .userInitiated) { () -> [Note] in
                 let vector: [Float]?
                 if let similarTo { vector = try? store.embedding(of: similarTo) } else { vector = await embed(text) }
-                guard let vector else { return [] }
+                guard let vector, !Task.isCancelled else { return [] }
                 return (try? store.notesSimilar(to: vector, within: similarTo == nil ? query : NoteQuery(), excluding: shown, limit: similarTo == nil ? 10 : 20))?.map(\.note) ?? []
-            }.value
+            }
+            let found = await withTaskCancellationHandler { await work.value } onCancel: { work.cancel() }
             guard let self, !Task.isCancelled else { return }
             self.related = found
         }
@@ -662,6 +665,8 @@ final class AppModel {
                 query.text = ""
                 query.days = nil
             }
+            // Show Similar lists only related notes: back to the list (#166).
+            similarTo = nil
             selection = note.id
             return true
         } catch {
