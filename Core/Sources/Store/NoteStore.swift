@@ -251,6 +251,21 @@ public final class NoteStore: Sendable {
                 }
             }
         }
+        migrator.registerMigration("v9-embeddings") { db in
+            // Semantic search (#157): one unit-length vector per note, rebuilt
+            // on this device and never synced. A note whose text has nothing
+            // to embed has an empty one, so it is not tried again. A change to
+            // the text deletes the row, so a note without one needs embedding.
+            try db.create(table: "noteEmbedding") { t in
+                t.primaryKey("noteID", .blob).references("note", onDelete: .cascade)
+                t.column("vector", .blob).notNull()
+            }
+            try db.execute(sql: """
+                CREATE TRIGGER noteEmbeddingStale AFTER UPDATE OF title, body, imageText ON note
+                WHEN OLD.title IS NOT NEW.title OR OLD.body IS NOT NEW.body OR OLD.imageText IS NOT NEW.imageText
+                BEGIN DELETE FROM noteEmbedding WHERE noteID = NEW.id; END
+                """)
+        }
         return migrator
     }
 

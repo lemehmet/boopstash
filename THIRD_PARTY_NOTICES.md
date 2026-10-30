@@ -38,6 +38,15 @@ unmodified, pinned in `Vendor/`:
 | [shfmt](https://github.com/mvdan/sh), as [@wasm-fmt/shfmt](https://github.com/wasm-fmt/shfmt) | 0.2.7 | BSD-3-Clause (`Vendor/WasmFormatters/shfmt/LICENSE.sh`); wrapper MIT (`LICENSE`) |
 | [clang-format](https://clang.llvm.org/docs/ClangFormat.html), as [@wasm-fmt/clang-format](https://github.com/wasm-fmt/clang-format) | 23.1.1 | Apache-2.0 WITH LLVM-exception (`Vendor/WasmFormatters/clang-format/LICENSE.llvm`); wrapper MIT (`LICENSE`) |
 
+## Models
+
+Semantic search (#157) runs this model on the device, never sending
+anything off it:
+
+| Model | Revision | Licence |
+|---|---|---|
+| [all-MiniLM-L6-v2](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2) (sentence-transformers) | c9745ed | Apache-2.0 (`Vendor/MiniLM/LICENSE`); converted to Core ML by `scripts/models/convert-minilm.py` |
+
 ## Boop scripts
 
 The bundled scripts in `Vendor/Boop/scripts` come from

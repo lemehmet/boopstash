@@ -24,12 +24,20 @@ struct GeneralSettings: View {
     let model: AppModel?
     @AppStorage(AppModel.modelTitlesKey) private var modelTitles = true
     @AppStorage(AppDelegate.hotKeyKey) private var globalShortcut = true
+    @AppStorage(AppModel.semanticSearchKey) private var semanticSearch = true
 
     var body: some View {
         Form {
             Section("Capture") {
                 Toggle("⌃⌥⌘V saves the clipboard from any app", isOn: $globalShortcut)
                 Text("Also in every app's Services menu: select text, then Services ▸ Save to BoopStash.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Section("Search") {
+                Toggle("Find notes by meaning", isOn: $semanticSearch)
+                    .onChange(of: semanticSearch) { model?.semanticSearchChanged() }
+                Text("A small language model bundled with BoopStash reads each note on this Mac, so a search also finds notes that say the same in other words. Nothing leaves this Mac.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

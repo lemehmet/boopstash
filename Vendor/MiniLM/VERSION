@@ -1,0 +1,7 @@
+sentence-transformers/all-MiniLM-L6-v2, revision c9745ed1d9f207416be6d2e6f8de32d1f16199bf
+https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2 (Apache-2.0; LICENSE here)
+
+MiniLM.mlpackage: converted by scripts/models/convert-minilm.py (mean pooling and
+normalisation inside the model, float16 compute, 8-bit weights); cosine 0.999 to
+the reference model on the script's check sentences. vocab.txt: the model's own,
+unmodified, read by BoopstashCore's WordPieceTokenizer.

@@ -10,7 +10,11 @@ final class NotesModel {
     let store: NoteStore
     @ObservationIgnored let drafts: NoteDrafts
     var query = NoteQuery() {
-        didSet { if query != oldValue { observe() } }
+        didSet {
+            guard query != oldValue else { return }
+            if query.text != oldValue.text, !query.text.isEmpty { similarTo = nil }
+            observe()
+        }
     }
     private(set) var notes: [Note] = []
     var banner: String?
@@ -24,6 +28,7 @@ final class NotesModel {
         drafts = NoteDrafts(store: store)
         drafts.onError = { [weak self] in self?.banner = $0 }
         observe()
+        watchPendingEmbeddings()
         // "Today" is re-evaluated on every fetch, but nothing fetches when
         // nothing changes: start over when the day does, as on the Mac.
         dayObserver = NotificationCenter.default.addObserver(forName: .NSCalendarDayChanged, object: nil, queue: .main) { [weak self] _ in
@@ -43,6 +48,9 @@ final class NotesModel {
         // this process saw them (#138).
         syncEngine?.takeChangesFromElsewhere()
         recognizePendingImages()
+        // The pending count is observed in this process only: the
+        // extension's notes are not counted until the worker looks.
+        embedPendingNotes()
     }
 
     // MARK: Sync
@@ -159,6 +167,78 @@ final class NotesModel {
         return model
     }
 
+    // MARK: Semantic search (#157), as on the Mac
+
+    /// Notes close in meaning to the search that its words did not find.
+    private(set) var related: [Note] = []
+    /// The note whose similar notes the list shows, instead of a search.
+    var similarTo: UUID? {
+        didSet { if similarTo != oldValue { findRelated() } }
+    }
+    @ObservationIgnored var embed: Embedder = { LiveEmbedder.shared.embed($0) }
+    @ObservationIgnored private var embedding: Task<Void, Never>?
+    @ObservationIgnored private var embeddingRequested = false
+    @ObservationIgnored private var relating: Task<Void, Never>?
+    @ObservationIgnored private var pendingWatch: Task<Void, any Error>?
+
+    func embedPendingNotes() {
+        guard true else { return }
+        guard embedding == nil else {
+            embeddingRequested = true
+            return
+        }
+        embeddingRequested = false
+        let store = self.store, embed = self.embed
+        let work = Task.detached(priority: .utility) { await store.embedPendingNotes(with: embed) }
+        embedding = Task { [weak self] in
+            await withTaskCancellationHandler { await work.value } onCancel: { work.cancel() }
+            guard let self, !Task.isCancelled else { return }
+            self.embedding = nil
+            if self.embeddingRequested { self.embedPendingNotes() } else { self.findRelated() }
+        }
+    }
+
+    /// Runs the worker whenever notes await embedding: new or changed
+    /// notes, here or synced, but not a change of search.
+    func watchPendingEmbeddings() {
+        pendingWatch?.cancel()
+        let counts = store.pendingEmbeddings()
+        pendingWatch = Task { [weak self] in
+            for try await count in counts where count > 0 {
+                self?.embedPendingNotes()
+            }
+        }
+    }
+
+    func findRelated() {
+        relating?.cancel()
+        let text = query.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard similarTo != nil || text.count >= 3 else {
+            related = []
+            return
+        }
+        let store = self.store, embed = self.embed, query = self.query, similarTo = self.similarTo
+        let shown = similarTo.map { Set([$0]) } ?? Set(notes.map(\.id))
+        relating = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(250))
+            guard !Task.isCancelled else { return }
+            let found = await Task.detached(priority: .userInitiated) { () -> [Note] in
+                let vector: [Float]?
+                if let similarTo { vector = try? store.embedding(of: similarTo) } else { vector = await embed(text) }
+                guard let vector else { return [] }
+                return (try? store.notesSimilar(to: vector, within: similarTo == nil ? query : NoteQuery(), excluding: shown, limit: similarTo == nil ? 10 : 20))?.map(\.note) ?? []
+            }.value
+            guard let self, !Task.isCancelled else { return }
+            self.related = found
+        }
+    }
+
+    func showSimilar(to id: UUID) {
+        drafts.flush(id)
+        query.text = ""
+        similarTo = id
+    }
+
     // MARK: Image text
 
     /// Reads an image's text on device (#53), as on the Mac; images shared
@@ -196,6 +276,7 @@ final class NotesModel {
                     self?.notes = notes
                     // A change may have brought an image to read.
                     self?.recognizePendingImages()
+                    self?.findRelated()
                 }
             } catch {
                 self?.banner = "Could not read notes: \(error.localizedDescription)"

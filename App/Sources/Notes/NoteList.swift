@@ -5,16 +5,46 @@ struct NoteList: View {
     @Bindable var model: AppModel
     @State private var dropTargeted = false
 
+    /// `related`: found by meaning, so never "in image", which is about
+    /// where the search's words matched.
+    private func row(_ note: Note, related: Bool = false) -> some View {
+        NoteRow(note: note, foundInImage: !related && !model.query.text.isEmpty && !model.query.matchesWithoutImages(note))
+            .tag(note.id)
+            .contextMenu {
+                Button("Show Similar Notes") { model.showSimilar(to: note.id) }
+                Divider()
+                Button("Delete", role: .destructive) { model.delete(note.id) }
+            }
+    }
+
     var body: some View {
-        List(model.notes, selection: $model.selection) { note in
-            NoteRow(note: note, foundInImage: !model.query.text.isEmpty && !model.query.matchesWithoutImages(note))
-                .tag(note.id)
-                .contextMenu {
-                    Button("Delete", role: .destructive) { model.delete(note.id) }
+        List(selection: $model.selection) {
+            if let id = model.similarTo {
+                // Similar notes in place of the list (#157).
+                Section {
+                    ForEach(model.related) { row($0, related: true) }
+                } header: {
+                    HStack {
+                        Text("Similar to \(model.note(id: id)?.title ?? "this note")").lineLimit(1)
+                        Spacer()
+                        Button("Done") { model.similarTo = nil }.buttonStyle(.borderless)
+                    }
                 }
+            } else {
+                ForEach(model.notes) { row($0) }
+                if !model.related.isEmpty {
+                    // Close in meaning, though the words differ (#157).
+                    Section("Similar in meaning") {
+                        ForEach(model.related) { row($0, related: true) }
+                    }
+                }
+            }
         }
         .overlay {
-            if model.notes.isEmpty {
+            if model.similarTo != nil, model.related.isEmpty {
+                ContentUnavailableView("No similar notes", systemImage: "sparkle.magnifyingglass",
+                                       description: Text("Notes close in meaning appear here once they have been read."))
+            } else if model.similarTo == nil, model.notes.isEmpty, model.related.isEmpty {
                 if model.query.text.isEmpty && model.query.days == nil {
                     ContentUnavailableView("No notes yet", systemImage: "tray",
                                            description: Text("⌘N for a new note, ⌥⌘N to save what is on the clipboard, or drop text or a text file here."))
