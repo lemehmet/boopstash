@@ -14,6 +14,13 @@ breaking changes may land in a minor release.
   the note list; click one, or check labels in the Filter menu, to list only
   the notes carrying all of them. Settings ▸ Labels creates, renames,
   recolours and deletes them.
+- **Labels everywhere else.** On iPhone and iPad, notes show their labels
+  as chips, and the Filter menu lists only the notes carrying every checked
+  label; labels are made and assigned on the Mac. Exported files list a
+  note's labels in their front matter. The `boopstash` command takes
+  `--label NAME` (or `-l`) to list or search only notes carrying every
+  named label, or to label a captured note, making the label if there is
+  none; `--json` output includes each note's labels.
 
 ### Fixed
 

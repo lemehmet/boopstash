@@ -431,14 +431,16 @@ public final class NoteStore: Sendable {
     // MARK: Reading and writing
 
     public func save(_ note: Note) throws {
-        try writer.write { db in
-            try note.save(db)
-            try Self.refreshImageText(of: note.id, body: note.body, db)
-            // Label IDs with no label here are dropped with the next save
-            // (ADR 0011); the record sent now leaves them out anyway.
-            try db.execute(sql: "DELETE FROM noteLabel WHERE noteID = ? AND labelID NOT IN (SELECT id FROM label)", arguments: [note.id])
-            try db.execute(sql: "UPDATE note SET syncPending = syncPending + 1 WHERE id = ?", arguments: [note.id])
-        }
+        try writer.write { db in try Self.save(note, db) }
+    }
+
+    static func save(_ note: Note, _ db: Database) throws {
+        try note.save(db)
+        try refreshImageText(of: note.id, body: note.body, db)
+        // Label IDs with no label here are dropped with the next save
+        // (ADR 0011); the record sent now leaves them out anyway.
+        try db.execute(sql: "DELETE FROM noteLabel WHERE noteID = ? AND labelID NOT IN (SELECT id FROM label)", arguments: [note.id])
+        try db.execute(sql: "UPDATE note SET syncPending = syncPending + 1 WHERE id = ?", arguments: [note.id])
     }
 
     // MARK: Image text

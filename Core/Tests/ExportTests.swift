@@ -79,4 +79,45 @@ import Testing
         let files = NoteExport.files(for: [note("new"), older], timeZone: Self.utc)
         #expect(files.map(\.name) == ["2026-10-27 old.md", "2026-10-28 new.md"])
     }
+
+    // MARK: Labels (#184)
+
+    @Test func noLabelsNoLabelsLine() {
+        #expect(!NoteExport.document(for: note("t")).contains("labels:"))
+        #expect(!NoteExport.document(for: note("t"), labels: []).contains("labels:"))
+    }
+
+    @Test func labelsAreAFlowSequenceQuotedWhereYAMLNeedsIt() {
+        let n = note("t", app: "Terminal")
+        #expect(NoteExport.document(for: n, labels: ["bug"]).contains("source: \"Terminal\"\nlabels: [bug]\nid: "))
+        #expect(NoteExport.document(for: n, labels: ["bug", "needs review"]).contains("\nlabels: [bug, \"needs review\"]\n"))
+        #expect(NoteExport.flowScalar("build-log") == "build-log")
+        #expect(NoteExport.flowScalar("v2.4") == "v2.4")
+        #expect(NoteExport.flowScalar("a: b") == #""a: b""#)
+        #expect(NoteExport.flowScalar("#triage") == ##""#triage""##)
+        #expect(NoteExport.flowScalar(#"say "hi""#) == #""say \"hi\"""#)
+        #expect(NoteExport.flowScalar("a,b") == #""a,b""#)
+        #expect(NoteExport.flowScalar("[x]") == #""[x]""#)
+        // Read as a boolean, null or number when bare.
+        #expect(NoteExport.flowScalar("Yes") == #""Yes""#)
+        #expect(NoteExport.flowScalar("null") == #""null""#)
+        #expect(NoteExport.flowScalar("123") == #""123""#)
+        #expect(NoteExport.flowScalar("-1") == #""-1""#)
+        #expect(NoteExport.flowScalar("café") == #""café""#)
+    }
+
+    @Test func filesTakeEachNotesLabelsFromTheCatalog() throws {
+        let store = try NoteStore.inMemory()
+        let labelled = note("labelled"), plain = note("plain")
+        try store.save(labelled)
+        try store.save(plain)
+        let review = try store.createLabel(name: "needs review", color: "#fbca04")
+        let bug = try store.createLabel(name: "bug", color: "#d73a4a")
+        try store.assignLabel(review.id, to: labelled.id)
+        try store.assignLabel(bug.id, to: labelled.id)
+        let files = NoteExport.files(for: [labelled, plain], labels: try store.labelCatalog(), timeZone: Self.utc)
+        let byName = Dictionary(uniqueKeysWithValues: files.map { ($0.name, $0.contents) })
+        #expect(byName["2026-10-28 labelled.md"]?.contains("\nlabels: [bug, \"needs review\"]\n") == true)
+        #expect(byName["2026-10-28 plain.md"]?.contains("labels:") == false)
+    }
 }

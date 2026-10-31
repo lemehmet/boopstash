@@ -8,15 +8,28 @@ public enum DemoNotes {
     /// An in-memory store holding the demo notes.
     public static func store(now: Date = Date()) throws -> NoteStore {
         let store = try NoteStore.inMemory()
+        // A few labels, so the screenshots show chips (#184).
+        var labelIDs: [String: UUID] = [:]
+        for (name, color) in labels {
+            labelIDs[name] = try store.createLabel(name: name, color: color, now: now.addingTimeInterval(-30 * day)).id
+        }
         for (index, demo) in notes.enumerated() {
             let date = now.addingTimeInterval(-demo.age - Double(index) * 60)
             var note = Note(title: demo.title ?? "", titleIsUserSet: demo.title != nil, body: demo.body,
                             createdAt: date, updatedAt: date, sourceAppName: demo.source)
             if demo.title == nil { note.title = RuleTitler.title(for: demo.body, kind: ContentKind.detect(demo.body)) }
             try store.save(note)
+            for name in demo.labels {
+                guard let id = labelIDs[name] else { continue }
+                try store.assignLabel(id, to: note.id)
+            }
         }
         return store
     }
+
+    static let labels: [(name: String, color: String)] = [
+        ("api", "#1d76db"), (ProblemReport.labelName, ProblemReport.labelColor), ("needs review", "#fbca04"), ("release", "#0e8a16"),
+    ]
 
     /// One note, one image and one label with every field the sync records
     /// can carry set, in an in-memory store: syncing it from a development build
@@ -45,6 +58,7 @@ public enum DemoNotes {
         var body: String
         var age: TimeInterval
         var source: String?
+        var labels: [String] = []
     }
 
     static let hour: TimeInterval = 3600
@@ -63,7 +77,7 @@ public enum DemoNotes {
                 "shipping": { "carrier": "Example Post", "eta": "2026-11-03" }
               }
             }
-            """, age: 0.2 * hour, source: "Terminal"),
+            """, age: 0.2 * hour, source: "Terminal", labels: ["api"]),
         Demo(title: "Weekly signups by region", body: """
             SELECT region,
                    date_trunc('week', created_at) AS week,
@@ -86,13 +100,13 @@ public enum DemoNotes {
             ```sh
             git tag v2.4.0 && git push origin v2.4.0
             ```
-            """, age: 5 * hour, source: nil),
+            """, age: 5 * hour, source: nil, labels: ["needs review", "release"]),
         Demo(title: nil, body: """
             2026-10-29T09:14:02Z INFO  api  request id=8f3a path=/v1/orders status=200 duration=41ms
             2026-10-29T09:14:03Z WARN  api  slow query id=8f3b table=line_items duration=1240ms
             2026-10-29T09:14:05Z ERROR api  upstream timeout id=8f3c host=payments.example.com attempt=2
             2026-10-29T09:14:07Z INFO  api  request id=8f3d path=/v1/orders status=200 duration=38ms
-            """, age: 1 * day, source: "Console"),
+            """, age: 1 * day, source: "Console", labels: ["api", "bug"]),
         Demo(title: "Retry with backoff", body: """
             func retry<T>(times: Int = 3, _ work: () async throws -> T) async throws -> T {
                 var delay: Duration = .milliseconds(200)
@@ -103,7 +117,7 @@ public enum DemoNotes {
                 }
                 return try await work()
             }
-            """, age: 2 * day, source: "Xcode"),
+            """, age: 2 * day, source: "Xcode", labels: ["needs review"]),
         Demo(title: "Staging config", body: """
             service:
               name: orders

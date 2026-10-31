@@ -240,4 +240,32 @@ import Testing
         #expect(LabelColor.palette.contains(LabelColor.random(otherThan: "#123456")))
         #expect(LabelColor.random(otherThan: "#B60205", using: &generator) != "#b60205", "compared parsed")
     }
+
+    // MARK: Saving a note with labels by name (#184)
+
+    @Test func savingWithLabelNamesIsOneTransaction() throws {
+        let store = try NoteStore.inMemory()
+        let note = Note(body: "log", createdAt: Self.start)
+        // A bad colour fails before anything is written: no note, no label.
+        #expect(throws: LabelError.invalidColor("blue")) {
+            try store.save(note, labelNames: ["new"], color: { "blue" })
+        }
+        #expect(try store.notes(matching: NoteQuery()).isEmpty && store.labels().isEmpty)
+        #expect(throws: LabelError.emptyName) { try store.save(note, labelNames: [" "]) }
+        #expect(try store.notes(matching: NoteQuery()).isEmpty)
+
+        let saved = try store.save(note, labelNames: [" new ", "NEW"], color: { "#5319E7" }, now: Self.start)
+        #expect(saved.map(\.name) == ["new"] && saved.first?.color == "#5319e7")
+        #expect(try store.labels(of: note.id) == saved)
+    }
+
+    #if DEBUG
+    @Test func demoNotesCarryLabels() throws {
+        let store = try DemoNotes.store()
+        let catalog = try store.labelCatalog()
+        #expect(Set(catalog.labels.map(\.name)) == Set(DemoNotes.labels.map(\.name)))
+        #expect(catalog.labelIDsByNote.count >= 3)
+    }
+    #endif
 }
+
