@@ -1,5 +1,6 @@
-# fuko-pr review: basil (Kimi K3.1 Pro on Kimi Code) reviews every non-draft
-# PR from this repository. Mirrors zapollo's workflow, trimmed to one seat.
+# fuko-pr review: basil (Kimi K3.1 Pro on Kimi Code) and sybil (GLM-5.3 on
+# the z.ai Coding Plan) review every non-draft PR from this repository.
+# Mirrors zapollo's workflow, trimmed to two seats.
 #
 # Runner: GitHub-hosted. This repository is public, and a self-hosted runner
 # on a public repository is one fork PR away from running a stranger's code on
@@ -7,9 +8,10 @@
 # keep that a policy rather than the only line of defence. The hosted image
 # has no `claude` CLI, so the workflow installs a pinned one.
 #
-# Identity: the seat posts as its GitHub App when vars.FUKO_BASIL_APP_ID and
-# secrets.FUKO_BASIL_APP_PRIVATE_KEY are set; otherwise as
-# github-actions[bot].
+# Identity: each seat posts as its own GitHub App when vars.FUKO_<SEAT>_APP_ID
+# and secrets.FUKO_<SEAT>_APP_PRIVATE_KEY are set, and the two seats then
+# review concurrently. If either mint fails, fuko runs them one after the other
+# under a single identity (basil's, else sybil's, else github-actions[bot]).
 name: fuko-pr review
 
 on:
@@ -28,14 +30,15 @@ jobs:
     # Skip drafts, skip-review/* branches, PRs labelled review-capped, and
     # never run fork-PR head code with this repo's secrets.
     #
-    # review-capped: a PR gets at most three review rounds. Comments from the
-    # third become follow-up issues instead of more fix commits, and the label
+    # review-capped: a PR gets at most five review rounds. Comments from the
+    # fifth become follow-up issues instead of more fix commits, and the label
     # stops further rounds, including the ones a rebase of a stacked PR would
     # otherwise start.
     if: ${{ github.event.pull_request.draft == false && !startsWith(github.event.pull_request.head.ref, 'skip-review/') && !contains(github.event.pull_request.labels.*.name, 'review-capped') && github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-latest
-    # Lockstep with job_budget_minutes in .fuko.toml (1 seat * 2100 s + setup).
-    timeout-minutes: 60
+    # Lockstep with job_budget_minutes in .fuko.toml (2 seats * 2100 s + setup,
+    # the sequential worst case).
+    timeout-minutes: 80
     permissions:
       contents: read # reads PR data + posts comments only; no commits/pushes
       pull-requests: write
@@ -56,16 +59,39 @@ jobs:
       # continue-on-error hides a failed mint from the job status; make it loud.
       - name: Surface App token mint failure
         if: ${{ steps.app-token-basil.outcome == 'failure' }}
-        run: echo "::warning title=fuko-basil App token mint failed::check vars.FUKO_BASIL_APP_ID / secrets.FUKO_BASIL_APP_PRIVATE_KEY and the App installation; the review posts as github-actions[bot]"
+        run: echo "::warning title=fuko-basil App token mint failed::check vars.FUKO_BASIL_APP_ID / secrets.FUKO_BASIL_APP_PRIVATE_KEY and the App installation; the seats review one after the other under a single identity"
+
+      - name: Mint fuko-sybil app token
+        id: app-token-sybil
+        if: ${{ vars.FUKO_SYBIL_APP_ID != '' }}
+        continue-on-error: true # as for basil
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          app-id: ${{ vars.FUKO_SYBIL_APP_ID }}
+          private-key: ${{ secrets.FUKO_SYBIL_APP_PRIVATE_KEY }}
+          permission-contents: read
+          permission-pull-requests: write
+          permission-issues: write
+
+      - name: Surface sybil App token mint failure
+        if: ${{ steps.app-token-sybil.outcome == 'failure' }}
+        run: echo "::warning title=fuko-sybil App token mint failed::check vars.FUKO_SYBIL_APP_ID / secrets.FUKO_SYBIL_APP_PRIVATE_KEY and the App installation; the seats review one after the other under a single identity"
 
       - name: Surface missing secrets
         env:
           KIMI_CODE_KEY: ${{ secrets.PRIVATE_KIMI_KEY }}
+          ZAI_KEY: ${{ secrets.ZAI_KEY }}
         run: |
+          missing=0
           if [ -z "$KIMI_CODE_KEY" ]; then
-            echo "::error title=PRIVATE_KIMI_KEY secret is not set::basil (the only seat, kimi-code) cannot review without it. Mint a key in the Kimi Code Console and add it as the repo secret PRIVATE_KIMI_KEY"
-            exit 1
+            echo "::error title=PRIVATE_KIMI_KEY secret is not set::basil (kimi-code) cannot review without it. Mint a key in the Kimi Code Console and add it as the repo secret PRIVATE_KIMI_KEY"
+            missing=1
           fi
+          if [ -z "$ZAI_KEY" ]; then
+            echo "::error title=ZAI_KEY secret is not set::sybil (zai-anthropic) cannot review without it. Add the z.ai Coding Plan key as the repo secret ZAI_KEY"
+            missing=1
+          fi
+          exit "$missing"
 
       # The PR head is what the agentic seat reads and reviews.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -112,11 +138,14 @@ jobs:
         if: ${{ steps.base-config.outputs.path != '' }}
         env:
           FUKO_CONFIG: ${{ steps.base-config.outputs.path }}
-          GITHUB_TOKEN: ${{ steps.app-token-basil.outputs.token || github.token }}
+          GITHUB_TOKEN: ${{ steps.app-token-basil.outputs.token || steps.app-token-sybil.outputs.token || github.token }}
           FUKO_GITHUB_TOKEN_BASIL: ${{ steps.app-token-basil.outputs.token }}
+          FUKO_GITHUB_TOKEN_SYBIL: ${{ steps.app-token-sybil.outputs.token }}
           # basil's Kimi Code membership key; the kimi-code preset reads
           # KIMI_CODE_KEY.
           KIMI_CODE_KEY: ${{ secrets.PRIVATE_KIMI_KEY }}
+          # sybil's z.ai Coding Plan key; the zai-anthropic preset reads ZAI_KEY.
+          ZAI_KEY: ${{ secrets.ZAI_KEY }}
           CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT: '1'
           CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1'
           CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK: '1'

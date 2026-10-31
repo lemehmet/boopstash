@@ -50,7 +50,7 @@ refused, what breaks if it changes.
 
 1. Branch off `main`; do not push to `main` directly.
 2. Keep them focused, and include tests for new behaviour.
-3. Automated review runs at most three rounds per PR. Comments from the third
+3. Automated review runs at most five rounds per PR. Comments from the fifth
    round become follow-up issues rather than more fix commits, and the PR is
    labelled `review-capped`, which stops further rounds.
 4. Add a line to `CHANGELOG.md` under **Unreleased** for anything a user would

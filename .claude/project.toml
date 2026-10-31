@@ -25,8 +25,10 @@ unresponsive_timeout_ms = 60000 # not installed; see [bots]
 resume_command = "@coderabbitai resume"
 
 [bots.fuko_pr]
-# One seat since 2026-10-28 (see .fuko.toml): basil, Kimi K3.1 Pro on Kimi
-# Code. Its role there is `active`; the loop waits on the workflow row ([ci]).
+# Two seats since 2026-10-31 (see .fuko.toml), both `active` there: basil
+# (Kimi K3.1 Pro on Kimi Code) and sybil (GLM-5.3 on z.ai). The loop finds
+# every seat by login_prefix and waits on the workflow row ([ci]).
+login_prefix = "fuko-"
 login = "fuko-basil[bot]"
 gated = false   # observe-only in the review loop: triaged and replied, not a round gate
 
