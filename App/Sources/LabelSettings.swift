@@ -19,7 +19,8 @@ struct LabelSettings: View {
                     }
                     let counts = model.labelCatalog.useCounts
                     ForEach(model.labelCatalog.labels) { label in
-                        row(label, uses: counts[label.id] ?? 0)
+                        LabelSettingsRow(label: label, uses: counts[label.id] ?? 0,
+                                         onEdit: { editing = LabelDraft(label) }, onDelete: { deleting = label })
                     }
                 } header: {
                     HStack {
@@ -45,30 +46,6 @@ struct LabelSettings: View {
         }
     }
 
-    private func row(_ label: NoteLabel, uses: Int) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
-            // The chip and its text read as one element; Edit and Delete stay
-            // separate controls for VoiceOver.
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                LabelChip(label, font: .callout.weight(.medium))
-                VStack(alignment: .leading, spacing: 2) {
-                    if !label.details.isEmpty {
-                        Text(label.details).lineLimit(2)
-                    }
-                    Text(uses == 1 ? "1 note" : "\(uses) notes")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .accessibilityElement(children: .combine)
-            Spacer()
-            Button("Edit") { editing = LabelDraft(label) }
-                .accessibilityLabel("Edit \(label.name)")
-            Button("Delete…", role: .destructive) { deleting = label }
-                .accessibilityLabel("Delete \(label.name)")
-        }
-    }
-
     private var deleteTitle: String {
         deleting.map { "Delete the label “\($0.name)”?" } ?? ""
     }
@@ -79,6 +56,42 @@ struct LabelSettings: View {
         case 0: "No note carries it."
         case 1: "It will be taken off the 1 note that carries it. The note itself stays."
         default: "It will be taken off the \(uses) notes that carry it. The notes themselves stay."
+        }
+    }
+}
+
+/// One label in Settings ▸ Labels: its chip, description and use count,
+/// then Edit and Delete…. The chip truncates and the buttons keep their
+/// size, so a long name cannot push the buttons out of the row (#193).
+struct LabelSettingsRow: View {
+    let label: NoteLabel
+    let uses: Int
+    let onEdit: () -> Void
+    let onDelete: () -> Void
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            // The chip and its text read as one element; Edit and Delete stay
+            // separate controls for VoiceOver.
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                LabelChip(label, font: .callout.weight(.medium), truncates: true)
+                VStack(alignment: .leading, spacing: 2) {
+                    if !label.details.isEmpty {
+                        Text(label.details).lineLimit(2)
+                    }
+                    Text(uses == 1 ? "1 note" : "\(uses) notes")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .accessibilityElement(children: .combine)
+            Spacer(minLength: 0)
+            Button("Edit", action: onEdit)
+                .fixedSize()
+                .accessibilityLabel("Edit \(label.name)")
+            Button("Delete…", role: .destructive, action: onDelete)
+                .fixedSize()
+                .accessibilityLabel("Delete \(label.name)")
         }
     }
 }
@@ -128,7 +141,7 @@ struct LabelEditor: View {
             Text(draft.labelID == nil ? "New Label" : "Edit Label").font(.headline)
             HStack {
                 Spacer()
-                LabelChip(name: preview, color: parsedColor ?? draft.color, font: .body.weight(.medium))
+                LabelChip(name: preview, color: parsedColor ?? draft.color, font: .body.weight(.medium), truncates: true)
                     .accessibilityLabel("Preview: \(preview)")
                 Spacer()
             }

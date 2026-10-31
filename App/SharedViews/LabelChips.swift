@@ -18,30 +18,46 @@ extension Color {
 /// A label as a coloured capsule, its text black or white, whichever has
 /// the higher contrast on the fill (4.5:1 or more for every preset, in
 /// light and dark mode alike, since neither colour depends on the mode).
+///
+/// By default the chip is as wide as its name, which `LabelChips` relies on
+/// to fit whole chips and count the rest in "+N". With `truncates`, a name
+/// wider than the space offered ends in "…" instead, so a long name cannot
+/// push its neighbours out of a row (#193); the full name stays in the
+/// tooltip and the accessibility label.
 struct LabelChip: View {
     let name: String
     let color: String
     var font: Font = .caption2.weight(.medium)
+    var truncates = false
 
-    init(_ label: NoteLabel, font: Font = .caption2.weight(.medium)) {
-        self.init(name: label.name, color: label.color, font: font)
+    init(_ label: NoteLabel, font: Font = .caption2.weight(.medium), truncates: Bool = false) {
+        self.init(name: label.name, color: label.color, font: font, truncates: truncates)
     }
 
-    init(name: String, color: String, font: Font = .caption2.weight(.medium)) {
+    init(name: String, color: String, font: Font = .caption2.weight(.medium), truncates: Bool = false) {
         self.name = name
         self.color = color
         self.font = font
+        self.truncates = truncates
     }
 
     var body: some View {
-        Text(name)
+        let chip = Text(name)
             .font(font)
             .lineLimit(1)
+            .truncationMode(.tail)
             .padding(.horizontal, 6)
             .padding(.vertical, 1)
             .foregroundStyle(Color(labelHex: LabelColor.textColor(on: color)))
             .background(Capsule().fill(Color(labelHex: color)))
-            .fixedSize()
+        if truncates {
+            chip
+                .fixedSize(horizontal: false, vertical: true)
+                .help(name)
+                .accessibilityLabel(name)
+        } else {
+            chip.fixedSize()
+        }
     }
 }
 
