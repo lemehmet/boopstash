@@ -23,4 +23,4 @@ REGIONAL DIFFERENCES
 The app works the same in all regions. Titling by Apple's on-device model is available only where Apple Intelligence is available and turned on; elsewhere and on Macs without Apple Intelligence, titles come from a built-in rule-based titler and every other feature is unchanged.
 
 REGULATED INDUSTRY / THIRD-PARTY MATERIAL
-Not applicable: the app is not in a regulated industry and contains no protected third-party content. It is open source (Apache-2.0); the bundled open-source components and their licences are listed at https://github.com/lemehmet/boopstash.
+The app is not in a regulated industry. It bundles open-source software, used under each component's licence: libraries, syntax grammars, code formatters, Boop's text scripts (MIT) and the all-MiniLM-L6-v2 embedding model (Apache-2.0). Each component and its licence is listed in THIRD_PARTY_NOTICES.md at https://github.com/lemehmet/boopstash. The app contains no other third-party content, such as media, artwork or trademarks. BoopStash itself is open source (Apache-2.0).

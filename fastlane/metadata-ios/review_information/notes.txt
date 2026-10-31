@@ -20,4 +20,4 @@ REGIONAL DIFFERENCES
 None. The app works the same in all regions and on all supported devices: it does not depend on Apple Intelligence or on any regional service.
 
 REGULATED INDUSTRY / THIRD-PARTY MATERIAL
-Not applicable: the app is not in a regulated industry and contains no protected third-party content. It is open source (Apache-2.0); the bundled open-source components and their licences are listed at https://github.com/lemehmet/boopstash.
+The app is not in a regulated industry. It bundles open-source software, used under each component's licence, including the all-MiniLM-L6-v2 embedding model (Apache-2.0). Each component and its licence is listed in THIRD_PARTY_NOTICES.md at https://github.com/lemehmet/boopstash. The app contains no other third-party content, such as media, artwork or trademarks. BoopStash itself is open source (Apache-2.0).
