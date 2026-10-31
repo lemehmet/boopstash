@@ -20,6 +20,13 @@ public struct ProblemReport: Equatable, Sendable {
         case off
         /// On; the last exchange with iCloud and whatever problem Settings shows.
         case on(lastSynced: Date?, problem: String?)
+
+        /// Sync as Settings shows it: on once the user turned it on, also
+        /// when the engine could not start, with the problem that says why.
+        public static func state(available: Bool, turnedOn: Bool, lastSynced: Date?, problem: String?) -> Sync {
+            guard available else { return .unavailable }
+            return turnedOn ? .on(lastSynced: lastSynced, problem: problem) : .off
+        }
     }
 
     public struct Environment: Equatable, Sendable {

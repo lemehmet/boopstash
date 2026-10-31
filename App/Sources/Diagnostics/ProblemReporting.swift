@@ -17,14 +17,10 @@ extension AppModel {
     // MARK: Facts
 
     func problemReportEnvironment(defaults: UserDefaults = .standard) -> ProblemReport.Environment {
-        let sync: ProblemReport.Sync
-        if !canSync {
-            sync = .unavailable
-        } else if showsSyncing {
-            sync = .on(lastSynced: lastSynced, problem: syncAccountProblem ?? syncProblem)
-        } else {
-            sync = .off
-        }
+        // Turned on counts, not running: an engine that failed to start is
+        // still sync on, with the problem Settings shows (#190).
+        let sync = ProblemReport.Sync.state(available: canSync, turnedOn: syncTurnedOn || showsSyncing,
+                                            lastSynced: lastSynced, problem: syncAccountProblem ?? syncProblem)
         let preset = defaults.string(forKey: "keymapPreset").flatMap(KeymapPreset.init(rawValue:)) ?? .vsCode
         return ProblemReport.Environment(
             appVersion: LiveDiagnostics.appVersion, build: LiveDiagnostics.build,

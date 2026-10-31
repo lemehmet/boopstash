@@ -41,6 +41,10 @@ final class AppModel {
     /// What Settings shows about sync while it is on.
     private(set) var syncAccountProblem: String?
     private(set) var syncProblem: String?
+    /// Whether the user turned sync on, in memory: true also when the
+    /// engine could not start, and for a run that does not remember the
+    /// setting (the schema seed).
+    private(set) var syncTurnedOn = false
     var lastSynced: Date?
     @ObservationIgnored private var syncEngine: LiveSyncEngine?
     /// The engine, made only when sync is on; replaceable for tests.
@@ -67,7 +71,9 @@ final class AppModel {
     /// Screenshots' demo mode (debug builds) shows sync on, without an engine.
     @ObservationIgnored var demoSync = false
     /// Whether Settings offers sync, and shows it running.
-    var canSync: Bool { LiveSyncEngine.isAvailable || demoSync }
+    var canSync: Bool { syncAvailable() || demoSync }
+    /// Whether this build was signed for iCloud; replaceable for tests.
+    @ObservationIgnored var syncAvailable: () -> Bool = { LiveSyncEngine.isAvailable }
     var showsSyncing: Bool { isSyncing || demoSync }
 
     /// Starts or stops sync. Starting is the first contact with CloudKit
@@ -78,7 +84,8 @@ final class AppModel {
 
     func setSyncEnabled(_ enabled: Bool) {
         if remembersSyncSetting { UserDefaults.standard.set(enabled, forKey: Self.syncKey) }
-        guard enabled, LiveSyncEngine.isAvailable else {
+        syncTurnedOn = enabled
+        guard enabled, syncAvailable() else {
             syncEngine?.stop()
             syncEngine = nil
             syncAccountProblem = nil
