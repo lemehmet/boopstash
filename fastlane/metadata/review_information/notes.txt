@@ -11,7 +11,7 @@ No login, account or sample files are needed. On first launch a window opens wit
 3. Type in the Filter field above the list: matches come from titles, text and text in images. The filter menu in the toolbar narrows by date (Today, Last 7 days, Last 30 days) and by label. Search by meaning is on by default: "invoice" also finds "bill for March". Right-click a note ▸ Show Similar Notes.
 4. In a note with JSON or code: Edit ▸ Format Document. Scripts ▸ Run Script… (⌘B) transforms the selection (e.g. Base64 encode, hash, sort lines).
 5. Labels: Note ▸ Labels… (⌃⌘L), or right-click a note ▸ Labels.
-6. Settings (⌘,): key bindings (VS Code or JetBrains), editor theme, labels, and the optional "Sync with iCloud" toggle (off by default).
+6. Settings (⌘,): key bindings (VS Code, JetBrains or Emacs), editor theme, labels, and the optional "Sync with iCloud" toggle (off by default).
 7. Capture from other apps: select text, then Services ▸ Save to BoopStash; or press ⌃⌥⌘V to save the clipboard from any app (on by default; Settings ▸ General turns it off).
 8. File ▸ Export All Notes… writes every note as Markdown files.
 
