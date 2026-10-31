@@ -1,4 +1,5 @@
 import AppKit
+import os
 import UniformTypeIdentifiers
 import BoopstashCore
 
@@ -294,7 +295,14 @@ final class BoopTextView: NSTextView {
         let selections = selectedRanges.map(\.rangeValue)
         let request = ScriptRequest(scriptName: script.name, source: script.source,
                                     states: ScriptEdits.states(fullText: fullText, selections: selections))
+        let started = Date()
         let response = await runner.run(request)
+        let elapsed = Date().timeIntervalSince(started)
+        if script.isBundled {
+            Log.scripts.info("script \(script.name, privacy: .public): \(response.outputs.count) outputs, \(response.errors.count) errors, \(elapsed, format: .fixed(precision: 2)) s")
+        } else {
+            Log.scripts.info("user script \(script.name, privacy: .private): \(response.outputs.count) outputs, \(response.errors.count) errors, \(elapsed, format: .fixed(precision: 2)) s")
+        }
         if !response.errors.isEmpty {
             NSSound.beep()
             showMessage?(response.errors.joined(separator: " "))
@@ -410,6 +418,7 @@ final class BoopTextView: NSTextView {
             // Another note in this reused editor, even one with the same
             // text, is not the note that was formatted.
             guard self.documentGeneration == generation, self.string == snapshot, self.selectedRange() == selection else {
+                Log.editor.notice("format dropped: the note changed meanwhile")
                 self.showMessage?("The note changed while it was being formatted, so it was left as it is.")
                 return
             }
@@ -442,9 +451,11 @@ final class BoopTextView: NSTextView {
     private func apply(_ result: Result<Formatted, FormatError>, range: NSRange, whole: Bool) {
         switch result {
         case .failure(let error):
+            Log.editor.notice("format failed (\(self.syntax.currentLanguage?.displayName ?? "plain text", privacy: .public)): \(error.description, privacy: .private)")
             NSSound.beep()
             showMessage?("Not formatted. \(error.description)")
         case .success(let formatted):
+            Log.editor.info("formatted (\(self.syntax.currentLanguage?.displayName ?? "plain text", privacy: .public)), \(whole ? "whole note" : "selection", privacy: .public), \(formatted.unchanged ? "unchanged" : "changed", privacy: .public)")
             guard !formatted.unchanged else { return }
             guard shouldChangeText(in: range, replacementString: formatted.text) else { return }
             textStorage?.replaceCharacters(in: range, with: formatted.text)

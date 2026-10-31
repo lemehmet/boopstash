@@ -1,6 +1,7 @@
 import AppKit
 import BoopstashCore
 import notify
+import os
 import UniformTypeIdentifiers
 import Observation
 
@@ -287,6 +288,7 @@ final class AppModel {
         // Attachments nothing refers to any more, after a day's grace so an
         // undo can still bring a deleted image back within a session.
         _ = try? store.removeUnreferencedAttachments()
+        Log.store.info("store opened: in the App Group \(shared), \(merged) notes merged")
         let model = AppModel(store: store)
         if merged > 0 {
             model.banner = "\(merged) notes from an earlier copy of BoopStash on this Mac were added to your notes."
@@ -539,9 +541,11 @@ final class AppModel {
         let message: String
         switch ClipboardCapture.read(from: pasteboard) {
         case .text(let text):
+            Log.capture.info("capture (\(String(describing: origin), privacy: .public)): text, \(text.count) characters")
             let source = sources.lastOtherApp
             return save(text, origin: origin, sourceBundleID: source?.bundleID, sourceAppName: source?.name)
         case .image(let data, let type):
+            Log.capture.info("capture (\(String(describing: origin), privacy: .public)): \(type.identifier, privacy: .public), \(data.count) bytes")
             let source = sources.lastOtherApp
             return saveImage(data, type: type, origin: origin, sourceBundleID: source?.bundleID, sourceAppName: source?.name)
         case .refused(.refuseConcealed):
@@ -552,6 +556,7 @@ final class AppModel {
             message = origin == .service ? "The selection has no text to save." : "The clipboard has no text or image to save."
         }
         banner = message
+        Log.capture.notice("capture (\(String(describing: origin), privacy: .public)) not saved: \(message, privacy: .public)")
         if origin == .hotKey {
             // A beep alone does not say why. The capture was the user's own
             // action, so bringing the window forward to show the reason is
@@ -657,7 +662,7 @@ final class AppModel {
 
     /// False when the note could not be saved; the banner says why.
     @discardableResult
-    private func insert(_ note: Note) -> Bool {
+    func insert(_ note: Note) -> Bool {
         do {
             try writeNote(note)
             // A filter that would hide the new note is cleared, so the
@@ -671,6 +676,7 @@ final class AppModel {
             selection = note.id
             return true
         } catch {
+            Log.store.error("new note not saved: \(error.localizedDescription, privacy: .private)")
             banner = "Could not save: \(error.localizedDescription)"
             return false
         }
@@ -768,6 +774,7 @@ final class AppModel {
         do {
             try store.delete(id: id, removingOrphanedAttachments: othersSaved)
         } catch {
+            Log.store.error("delete failed: \(error.localizedDescription, privacy: .private)")
             banner = "Could not delete: \(error.localizedDescription)"
             return
         }

@@ -15,6 +15,27 @@ extension NoteStore {
         try writer.read { db in try NoteLabel.fetchOne(db, key: id) }
     }
 
+    /// The label with this name, in any case.
+    public func label(named name: String) throws -> NoteLabel? {
+        try writer.read { db in
+            try NoteLabel.fetchOne(db, sql: "SELECT * FROM label WHERE nameKey = ?", arguments: [NoteLabel.nameKey(name)])
+        }
+    }
+
+    /// The label with this name, made with `color` if the catalog has none
+    /// (a report's `bug`, #185). Looked up each time, so a label deleted
+    /// since is made again.
+    public func labelCreatingIfMissing(named name: String, color: String, now: Date = Date()) throws -> NoteLabel {
+        if let existing = try label(named: name) { return existing }
+        do {
+            return try createLabel(name: name, color: color, now: now)
+        } catch LabelError.duplicateName {
+            // Made meanwhile (sync, another window): use that one.
+            guard let existing = try label(named: name) else { throw LabelError.notFound }
+            return existing
+        }
+    }
+
     /// A new label. The name is trimmed and must be new regardless of case;
     /// the colour must be `#rrggbb`.
     @discardableResult
