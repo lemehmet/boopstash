@@ -18,7 +18,9 @@ public enum NoteExport {
     /// `attachmentsFolder` beside the files, where the app copies them, so
     /// the export opens with its images in any markdown viewer. A reference
     /// to an attachment that is not in `attachments` is left as it is.
-    public static func files(for notes: [Note], attachments: [UUID: NoteAttachment] = [:], timeZone: TimeZone = .current) -> [File] {
+    /// Each note's labels come from `labels` (#184).
+    public static func files(for notes: [Note], attachments: [UUID: NoteAttachment] = [:], labels: LabelCatalog = LabelCatalog(),
+                             timeZone: TimeZone = .current) -> [File] {
         var used: Set<String> = []
         // APFS also ignores normalization ("é" and "e\u{301}" are one file
         // there). Swift String equality is canonical equivalence already,
@@ -33,7 +35,8 @@ public enum NoteExport {
                 counter += 1
             }
             used.insert(key(name))
-            return File(name: name, contents: document(for: note, attachments: attachments))
+            return File(name: name, contents: document(for: note, attachments: attachments,
+                                                       labels: labels.labels(of: note.id).map(\.name)))
         }
     }
 
@@ -46,12 +49,15 @@ public enum NoteExport {
     /// it is. Values are quoted so a title with a colon stays one value.
     public static let attachmentsFolder = "attachments"
 
-    public static func document(for note: Note, attachments: [UUID: NoteAttachment] = [:]) -> String {
+    /// `labels` are the note's label names, written as a flow sequence
+    /// (`labels: [bug, "needs review"]`) and left out when there are none.
+    public static func document(for note: Note, attachments: [UUID: NoteAttachment] = [:], labels: [String] = []) -> String {
         var lines = ["---"]
         lines.append("title: \(quoted(note.title))")
         lines.append("created: \(timestamp(note.createdAt))")
         lines.append("updated: \(timestamp(note.updatedAt))")
         if let app = note.sourceAppName { lines.append("source: \(quoted(app))") }
+        if !labels.isEmpty { lines.append("labels: [\(labels.map(flowScalar).joined(separator: ", "))]") }
         lines.append("id: \(note.id.uuidString)")
         lines.append("---")
         lines.append("")
@@ -112,6 +118,19 @@ public enum NoteExport {
         }
         return out + "\""
     }
+
+    /// A label name in a flow sequence: bare when it is a plain word YAML
+    /// reads back as that same string, else double-quoted. Bare means a
+    /// letter or `_`, then letters, digits, `_`, `-` and `.`, ASCII only,
+    /// and not one of the words YAML 1.1 or 1.2 reads as a boolean or null.
+    static func flowScalar(_ value: String) -> String {
+        let bare = value.unicodeScalars.first.map { $0.isASCII && (CharacterSet.letters.contains($0) || $0 == "_") } == true
+            && value.unicodeScalars.allSatisfy { $0.isASCII && (CharacterSet.alphanumerics.contains($0) || "_-.".unicodeScalars.contains($0)) }
+            && !yamlKeywords.contains(value.lowercased())
+        return bare ? value : quoted(value)
+    }
+
+    static let yamlKeywords: Set<String> = ["true", "false", "yes", "no", "on", "off", "y", "n", "null"]
 
     /// YAML 1.2's printable set: TAB, LF, CR, x20–x7E, NEL, xA0–xD7FF,
     /// xE000–xFFFD and x10000–x10FFFF. The BOM (xFEFF) is printable but

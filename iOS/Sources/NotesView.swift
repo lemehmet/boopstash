@@ -8,6 +8,10 @@ struct NotesView: View {
         VStack(alignment: .leading, spacing: 2) {
             Text(note.title.isEmpty ? "Untitled" : note.title).lineLimit(1)
             Text(note.updatedAt, style: .relative).font(.caption).foregroundStyle(.secondary)
+            let labels = model.labels(of: note.id)
+            if !labels.isEmpty {
+                LabelChips(labels: labels).padding(.top, 1)
+            }
         }
         .tag(note.id)
         .contextMenu {
@@ -53,14 +57,26 @@ struct NotesView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Menu {
-                        Picker("Edited", selection: $model.query.days) {
-                            Text("Any time").tag(Int?.none)
-                            Text("Today").tag(Int?.some(1))
-                            Text("Last 7 days").tag(Int?.some(7))
-                            Text("Last 30 days").tag(Int?.some(30))
+                        Section("Edited") {
+                            Picker("Edited", selection: $model.query.days) {
+                                Text("Any time").tag(Int?.none)
+                                Text("Today").tag(Int?.some(1))
+                                Text("Last 7 days").tag(Int?.some(7))
+                                Text("Last 30 days").tag(Int?.some(30))
+                            }
+                        }
+                        if !model.labelCatalog.labels.isEmpty {
+                            // A note must carry every checked label (#184).
+                            Section("Labels") {
+                                ForEach(model.labelCatalog.labels) { label in
+                                    Toggle(label.name, isOn: Binding(get: { model.query.labels.contains(label.id) },
+                                                                     set: { _ in model.toggleLabelFilter(label.id) }))
+                                }
+                            }
                         }
                     } label: {
-                        Label("Edited", systemImage: "calendar")
+                        Label("Filter", systemImage: model.query.days == nil && model.query.labels.isEmpty
+                              ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
                     }
                 }
                 ToolbarItem(placement: .topBarLeading) {
@@ -130,6 +146,19 @@ struct NoteEditorView: View {
                     let changed = title.isEmpty ? current.titleIsUserSet : title != current.title || !current.titleIsUserSet
                     if changed { model.drafts.rename(note.id, to: title) }
                 }
+            let labels = model.labels(of: note.id)
+            if !labels.isEmpty {
+                // Read only: labels are assigned on the Mac (#184).
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 4) {
+                        ForEach(labels) { LabelChip($0, font: .caption.weight(.medium)) }
+                    }
+                    .padding(.horizontal, 16)
+                }
+                .padding(.bottom, 8)
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("Labels: \(labels.map(\.name).joined(separator: ", "))")
+            }
             Divider()
             if previewShown {
                 // The draft, which may be newer than what was saved.

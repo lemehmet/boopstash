@@ -17,10 +17,15 @@ final class NotesModel {
         }
     }
     private(set) var notes: [Note] = []
+    /// Every label and which notes carry them, for chips and the filter
+    /// (#184). Read only here: labels are made and assigned on the Mac and
+    /// arrive by sync.
+    private(set) var labelCatalog = LabelCatalog()
     var banner: String?
     /// The note to open at launch (the screenshots' demo mode only).
     @ObservationIgnored var initialSelection: UUID?
     @ObservationIgnored private var observation: Task<Void, Never>?
+    @ObservationIgnored private var labelObservation: Task<Void, Never>?
     @ObservationIgnored private var dayObserver: NSObjectProtocol?
 
     init(store: NoteStore) {
@@ -28,6 +33,7 @@ final class NotesModel {
         drafts = NoteDrafts(store: store)
         drafts.onError = { [weak self] in self?.banner = $0 }
         observe()
+        observeLabels()
         watchPendingEmbeddings()
         // "Today" is re-evaluated on every fetch, but nothing fetches when
         // nothing changes: start over when the day does, as on the Mac.
@@ -44,6 +50,7 @@ final class NotesModel {
     /// (the day may have changed while the app was suspended).
     func refresh() {
         observe()
+        observeLabels()
         // Notes the share extension wrote meanwhile: neither observation in
         // this process saw them (#138).
         syncEngine?.takeChangesFromElsewhere()
@@ -287,6 +294,38 @@ final class NotesModel {
         }
     }
 
+    /// The catalog, as on the Mac: a label deleted or folded into a
+    /// same-name one by sync leaves the filter too.
+    private func observeLabels() {
+        labelObservation?.cancel()
+        let values = store.labelCatalogs()
+        labelObservation = Task { [weak self] in
+            do {
+                for try await catalog in values {
+                    guard let self else { return }
+                    self.labelCatalog = catalog
+                    let kept = catalog.pruned(self.query.labels)
+                    if kept != self.query.labels { self.query.labels = kept }
+                }
+            } catch {
+                self?.banner = "Could not read labels: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    /// A note's labels, by name, from the catalog: no read per row.
+    func labels(of noteID: UUID) -> [NoteLabel] {
+        labelCatalog.labels(of: noteID)
+    }
+
+    /// Adds the label to the filter, or takes it out. A note must carry
+    /// every label in it.
+    func toggleLabelFilter(_ labelID: UUID) {
+        // A filter shows the list, not "similar to" (#157), as on the Mac.
+        similarTo = nil
+        if query.labels.contains(labelID) { query.labels.remove(labelID) } else { query.labels.insert(labelID) }
+    }
+
     @discardableResult
     func newNote(body: String = "", sourceAppName: String? = nil) -> Note? {
         var note = Note(body: body, createdAt: Date(), sourceAppName: sourceAppName)
@@ -295,7 +334,7 @@ final class NotesModel {
             try store.save(note)
             // A filter that would hide the new note is cleared, as on the
             // Mac, so it does not seem to vanish (#101).
-            if query.text != "" || query.days != nil { query = NoteQuery(scope: query.scope) }
+            if query.text != "" || query.days != nil || !query.labels.isEmpty { query = NoteQuery(scope: query.scope) }
             // Show Similar lists only related notes: back to the list (#166).
             similarTo = nil
             return note

@@ -34,7 +34,8 @@ enum ExportPanel {
             for note in notes {
                 for attachment in try model.store.attachments(referencedBy: note.body) { attachments[attachment.id] = attachment }
             }
-            for file in NoteExport.files(for: notes, attachments: attachments) {
+            let labels = try model.store.labelCatalog()
+            for file in NoteExport.files(for: notes, attachments: attachments, labels: labels) {
                 try file.contents.write(to: folder.appendingPathComponent(file.name), atomically: true, encoding: .utf8)
             }
             if !attachments.isEmpty {

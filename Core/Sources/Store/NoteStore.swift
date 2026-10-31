@@ -431,14 +431,16 @@ public final class NoteStore: Sendable {
     // MARK: Reading and writing
 
     public func save(_ note: Note) throws {
-        try writer.write { db in
-            try note.save(db)
-            try Self.refreshImageText(of: note.id, body: note.body, db)
-            // Label IDs with no label here are dropped with the next save
-            // (ADR 0011); the record sent now leaves them out anyway.
-            try db.execute(sql: "DELETE FROM noteLabel WHERE noteID = ? AND labelID NOT IN (SELECT id FROM label)", arguments: [note.id])
-            try db.execute(sql: "UPDATE note SET syncPending = syncPending + 1 WHERE id = ?", arguments: [note.id])
-        }
+        try writer.write { db in try Self.save(note, db) }
+    }
+
+    static func save(_ note: Note, _ db: Database) throws {
+        try note.save(db)
+        try refreshImageText(of: note.id, body: note.body, db)
+        // Label IDs with no label here are dropped with the next save
+        // (ADR 0011); the record sent now leaves them out anyway.
+        try db.execute(sql: "DELETE FROM noteLabel WHERE noteID = ? AND labelID NOT IN (SELECT id FROM label)", arguments: [note.id])
+        try db.execute(sql: "UPDATE note SET syncPending = syncPending + 1 WHERE id = ?", arguments: [note.id])
     }
 
     // MARK: Image text
@@ -729,17 +731,9 @@ public final class NoteStore: Sendable {
             conditions.append("note.updatedAt >= ?")
             arguments.append(cutoff)
         }
-        if !query.labels.isEmpty {
-            // Every one of the labels (AND), counting only labels in the
-            // catalog.
-            let labels = query.labels.sorted { $0.uuidString < $1.uuidString }
-            conditions.append("""
-                note.id IN (SELECT noteLabel.noteID FROM noteLabel JOIN label ON label.id = noteLabel.labelID
-                    WHERE noteLabel.labelID IN (\(labels.map { _ in "?" }.joined(separator: ", ")))
-                    GROUP BY noteLabel.noteID HAVING COUNT(DISTINCT noteLabel.labelID) = ?)
-                """)
-            arguments.append(contentsOf: labels as [any DatabaseValueConvertible])
-            arguments.append(labels.count)
+        if let (condition, labelArguments) = labelCondition(query.labels) {
+            conditions.append(condition)
+            arguments.append(contentsOf: labelArguments)
         }
         if !conditions.isEmpty {
             sql += " WHERE " + conditions.joined(separator: " AND ")
@@ -747,6 +741,20 @@ public final class NoteStore: Sendable {
         sql += " ORDER BY note.updatedAt DESC, note.rowid DESC LIMIT ?"
         arguments.append(query.limit)
         return (sql, StatementArguments(arguments))
+    }
+
+    /// Notes carrying every one of `labels` (AND), counting only labels in
+    /// the catalog; nil for no labels. Shared by the list and "similar in
+    /// meaning", so both honour the same filter.
+    static func labelCondition(_ labels: Set<UUID>) -> (String, [any DatabaseValueConvertible])? {
+        guard !labels.isEmpty else { return nil }
+        let sorted = labels.sorted { $0.uuidString < $1.uuidString }
+        let condition = """
+            note.id IN (SELECT noteLabel.noteID FROM noteLabel JOIN label ON label.id = noteLabel.labelID
+                WHERE noteLabel.labelID IN (\(sorted.map { _ in "?" }.joined(separator: ", ")))
+                GROUP BY noteLabel.noteID HAVING COUNT(DISTINCT noteLabel.labelID) = ?)
+            """
+        return (condition, sorted as [any DatabaseValueConvertible] + [sorted.count])
     }
 
     /// Each term becomes a quoted FTS5 string, so nothing the user types is

@@ -51,7 +51,9 @@ it on your `PATH`. With the App Store version, link it yourself:
 ```sh
 kubectl get pods -o yaml | boopstash --title "pods before the upgrade"
 boopstash < notes.txt              # the command reads only standard input
+make 2>&1 | boopstash --label build-log  # makes the label if there is none
 boopstash list --days 7
+boopstash list --label bug -l "needs review"  # notes carrying both
 boopstash search retry backoff --json
 boopstash show 1a2b3c4d            # the ID list and search print
 ```

@@ -104,6 +104,35 @@ extension NoteStore {
         }
     }
 
+    /// Saves a note carrying the labels named `names` (any case), each made
+    /// with `color()` if the catalog has none, all in one transaction:
+    /// `boopstash capture --label` (#184). Returns the note's labels, in
+    /// the order named, without repeats.
+    @discardableResult
+    public func save(_ note: Note, labelNames names: [String], color: @Sendable () -> String = { LabelColor.random() },
+                     now: Date = Date()) throws -> [NoteLabel] {
+        let names = try names.map(Self.checkedName)
+        let colors = names.map { _ in color() }
+        for candidate in colors where LabelColor.parse(candidate) == nil { throw LabelError.invalidColor(candidate) }
+        return try writer.write { db in
+            var labels: [NoteLabel] = []
+            for (name, newColor) in zip(names, colors) where !labels.contains(where: { NoteLabel.nameKey($0.name) == NoteLabel.nameKey(name) }) {
+                if let existing = try NoteLabel.fetchOne(db, sql: "SELECT * FROM label WHERE nameKey = ?", arguments: [NoteLabel.nameKey(name)]) {
+                    labels.append(existing)
+                } else {
+                    let label = NoteLabel(name: name, color: LabelColor.parse(newColor) ?? newColor, createdAt: now)
+                    try label.insert(db)
+                    labels.append(label)
+                }
+            }
+            try Self.save(note, db)
+            for label in labels {
+                try db.execute(sql: "INSERT OR IGNORE INTO noteLabel (noteID, labelID) VALUES (?, ?)", arguments: [note.id, label.id])
+            }
+            return labels
+        }
+    }
+
     public func assignLabel(_ labelID: UUID, to noteID: UUID) throws {
         try writer.write { db in
             guard try NoteLabel.exists(db, key: labelID), try Note.exists(db, key: noteID) else { throw LabelError.notFound }

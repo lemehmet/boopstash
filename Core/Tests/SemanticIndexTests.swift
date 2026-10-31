@@ -54,6 +54,16 @@ import Testing
         #expect(try store.notesSimilar(to: [1, 0, 0], within: NoteQuery(days: 7)).map(\.note.id) == [recent.id])
     }
 
+    /// "Similar in meaning" honours the label filter, as the list does.
+    @Test func theLabelFilterApplies() async throws {
+        let labelled = try note("money labelled")
+        try note("money unlabelled")
+        let work = try store.createLabel(name: "work", color: LabelColor.random(), on: labelled.id)
+        await store.embedPendingNotes(with: Self.embed)
+        #expect(try store.notesSimilar(to: [1, 0, 0], within: NoteQuery(labels: [work.id])).map(\.note.id) == [labelled.id])
+        #expect(try store.notesSimilar(to: [1, 0, 0]).count == 2)
+    }
+
     /// A failing model records nothing: the notes are tried again later.
     @Test func aFailingEmbedderLeavesNotesPending() async throws {
         try note("money one")
