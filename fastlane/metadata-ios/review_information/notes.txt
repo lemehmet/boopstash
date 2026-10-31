@@ -6,7 +6,7 @@ BoopStash is a private scratch pad for developers and other people who work with
 
 SETTING UP AND USING THE APP
 No login, account or sample files are needed. On first launch the note list is empty.
-1. Tap New Note and type, or tap From Clipboard to save what was copied (text or an image). The note is saved and titled automatically.
+1. Tap New Note and type, or tap From Clipboard to save copied text. The note is saved and titled automatically. (To save an image, use the Share sheet, step 2.)
 2. From another app, use the Share sheet ▸ BoopStash to save text or an image as a note.
 3. Search: pull down the list to reveal the Filter field; matches come from titles, text and text in images. The filter menu at the top left narrows by date (Today, Last 7 days, Last 30 days) and by label. Search by meaning: "invoice" also finds "bill for March". Long-press a note ▸ Show Similar Notes.
 4. Open a note to read or edit it; code is syntax highlighted, and Markdown has a Preview.
@@ -14,10 +14,10 @@ No login, account or sample files are needed. On first launch the note list is e
 
 EXTERNAL SERVICES
 - Apple iCloud (CloudKit, the user's own private database), only if the user turns on Sync with iCloud. It is off by default.
-No other network service is used: no account system, no analytics, no crash reporting, no advertising, no payment processor and no server of ours. All AI runs on the device: Apple's Foundation Models framework for titles (on-device model only, never Private Cloud Compute), Apple's Vision framework for text in images, and a small embedding model bundled in the app (Core ML) for search by meaning.
+No other network service is used: no account system, no analytics, no crash reporting, no advertising, no payment processor and no server of ours. All AI runs on the device: Apple's Vision framework for text in images, and a small embedding model bundled in the app (Core ML) for search by meaning. Titles come from a built-in rule-based titler; the iOS app does not use Apple Intelligence or Apple's Foundation Models framework.
 
 REGIONAL DIFFERENCES
-The app works the same in all regions. Titling by Apple's on-device model is available only where Apple Intelligence is available and turned on; elsewhere, and on devices without Apple Intelligence, titles come from a built-in rule-based titler and every other feature is unchanged.
+None. The app works the same in all regions and on all supported devices: it does not depend on Apple Intelligence or on any regional service.
 
 REGULATED INDUSTRY / THIRD-PARTY MATERIAL
 Not applicable: the app is not in a regulated industry and contains no protected third-party content. It is open source (Apache-2.0); the bundled open-source components and their licences are listed at https://github.com/lemehmet/boopstash.
