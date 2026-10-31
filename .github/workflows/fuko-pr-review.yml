@@ -98,22 +98,26 @@ jobs:
         with:
           persist-credentials: false
 
-      # fuko's configuration, by contrast, comes from the base commit:
+      # fuko's configuration, by contrast, comes from the base branch:
       # .fuko.toml picks the container image and seats that run with the
       # secrets below, so a PR must not be able to choose them for its own
-      # review. A change to .fuko.toml takes effect from the PR after it
-      # merges. (The workflow file itself still runs from the PR's merge ref,
-      # as every `pull_request` workflow does; write access to this repository
+      # review. A change to .fuko.toml takes effect from the next push to any
+      # open PR after it merges. Read at the branch's tip, not at
+      # pull_request.base.sha: that stays at the base commit the PR last saw,
+      # so on #201 a push after the sybil seat merged still ran basil alone.
+      # (The workflow file itself still runs from the PR's merge ref, as every
+      # `pull_request` workflow does, and a PR can only target a branch that
+      # someone with write access pushed; write access to this repository
       # remains the trust boundary, and forks never reach this job.)
-      - name: Read fuko config from the base commit
+      - name: Read fuko config from the base branch
         id: base-config
         env:
           GH_TOKEN: ${{ github.token }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
           REPO: ${{ github.repository }}
         run: |
           config="$RUNNER_TEMP/base.fuko.toml"
-          if gh api "repos/$REPO/contents/.fuko.toml?ref=$BASE_SHA" \
+          if gh api "repos/$REPO/contents/.fuko.toml?ref=$BASE_REF" \
                -H "Accept: application/vnd.github.raw" > "$config" 2>/dev/null; then
             echo "path=$config" >> "$GITHUB_OUTPUT"
           else
