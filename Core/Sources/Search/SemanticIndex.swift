@@ -95,7 +95,7 @@ extension NoteStore {
     }
 
     /// Notes similar to `vector`, most similar first, within `query`'s age
-    /// limit, leaving out `excluding` (already shown), at least
+    /// limit and labels, leaving out `excluding` (already shown), at least
     /// `threshold` similar.
     public func notesSimilar(to vector: [Float], within query: NoteQuery = NoteQuery(), excluding: Set<UUID> = [],
                              threshold: Float = similarityThreshold, limit: Int = 20,
@@ -104,11 +104,18 @@ extension NoteStore {
         let cutoff = query.cutoff(now: now, calendar: calendar)
         return try writer.read { db in
             var sql = "SELECT note.id AS noteID, noteEmbedding.vector FROM noteEmbedding JOIN note ON note.id = noteEmbedding.noteID"
-            var arguments: StatementArguments = []
+            var conditions: [String] = []
+            var values: [any DatabaseValueConvertible] = []
             if let cutoff {
-                sql += " WHERE note.updatedAt >= ?"
-                arguments += [cutoff]
+                conditions.append("note.updatedAt >= ?")
+                values.append(cutoff)
             }
+            if let (condition, labelValues) = Self.labelCondition(query.labels) {
+                conditions.append(condition)
+                values.append(contentsOf: labelValues)
+            }
+            if !conditions.isEmpty { sql += " WHERE " + conditions.joined(separator: " AND ") }
+            let arguments: StatementArguments = StatementArguments(values)
             var scored: [(UUID, Float)] = []
             for (index, row) in try Row.fetchAll(db, sql: sql, arguments: arguments).enumerated() {
                 // A superseded search stops (#165).
