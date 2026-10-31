@@ -321,6 +321,8 @@ final class NotesModel {
     /// Adds the label to the filter, or takes it out. A note must carry
     /// every label in it.
     func toggleLabelFilter(_ labelID: UUID) {
+        // A filter shows the list, not "similar to" (#157), as on the Mac.
+        similarTo = nil
         if query.labels.contains(labelID) { query.labels.remove(labelID) } else { query.labels.insert(labelID) }
     }
 

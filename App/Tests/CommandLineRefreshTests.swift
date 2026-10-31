@@ -29,6 +29,27 @@ struct CommandLineRefreshTests {
         #expect(model.notes.map(\.title) == ["from the shell"])
     }
 
+    /// Labels the command creates and puts on its note reach the catalog
+    /// (chips and the filter) after the notification too.
+    @Test func commandLabelsShowAfterTheNotification() async throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("boopstash-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let url = folder.appendingPathComponent("notes.sqlite")
+        let model = AppModel(store: try NoteStore.open(at: url, shared: true))
+        model.watchOtherProcesses()
+        try await Task.sleep(for: .milliseconds(300))
+        let other = try NoteStore.open(at: url, shared: true)
+        let output = CommandLineTool.run(.capture(title: "labelled", labels: ["work"]), store: other, input: { Data("hello\n".utf8) }, version: "1")
+        #expect(output.wrote)
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(model.labelCatalog.labels.isEmpty, "not seen without the notification")
+        notify_post(SharedStore.changedNotification)
+        for _ in 0..<100 where model.labelCatalog.labels.isEmpty || model.notes.isEmpty { try await Task.sleep(for: .milliseconds(20)) }
+        #expect(model.labelCatalog.labels.map(\.name) == ["work"])
+        let noteID = try #require(model.notes.first?.id)
+        #expect(model.labels(of: noteID).map(\.name) == ["work"])
+    }
+
     /// The command's notes are embedded for semantic search too: the
     /// pending count is observed in this process only.
     @Test func commandNotesAreEmbedded() async throws {

@@ -312,6 +312,8 @@ final class AppModel {
     /// observation sees only this process's commits.
     func refresh() {
         observe()
+        // Labels the command created or put on a note: their own stream.
+        observeLabels()
         syncEngine?.takeChangesFromElsewhere()
         recognizePendingImages()
         // The pending-embedding count is observed in this process only.
