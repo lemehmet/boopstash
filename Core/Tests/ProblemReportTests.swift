@@ -88,6 +88,18 @@ import Testing
         #expect(report.markdown(timeZone: Self.utc).contains("- Sync: not in this build"))
     }
 
+    /// Turned on is on, running or not (#190); a build without iCloud says so
+    /// whatever the setting.
+    @Test func syncStateFollowsTheSetting() {
+        let date = Date(timeIntervalSince1970: 1_000)
+        #expect(ProblemReport.Sync.state(available: true, turnedOn: true, lastSynced: nil, problem: "Could not start sync: no")
+                == .on(lastSynced: nil, problem: "Could not start sync: no"))
+        #expect(ProblemReport.Sync.state(available: true, turnedOn: true, lastSynced: date, problem: nil)
+                == .on(lastSynced: date, problem: nil))
+        #expect(ProblemReport.Sync.state(available: true, turnedOn: false, lastSynced: date, problem: "stale") == .off)
+        #expect(ProblemReport.Sync.state(available: false, turnedOn: true, lastSynced: nil, problem: nil) == .unavailable)
+    }
+
     @Test func noteWithoutEditorAndChosenLanguage() {
         var report = full()
         report.note = ProblemReport.SelectedNote(id: Self.noteID, body: "", language: nil, languageDetected: false,

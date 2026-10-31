@@ -142,6 +142,26 @@ struct ProblemReportFlowTests {
         #expect(model.banner?.contains("without its screenshot") == true)
     }
 
+    /// Sync turned on but the engine failed to start: the report says on,
+    /// with the problem, as Settings does (#190). The failing factory never
+    /// reaches CloudKit, and the setting is not written to the defaults.
+    @Test func aSyncThatCouldNotStartIsReportedOnWithItsProblem() throws {
+        struct NoEngine: LocalizedError { var errorDescription: String? { "no engine in tests" } }
+        model.remembersSyncSetting = false
+        model.syncAvailable = { true }
+        model.makeSyncEngine = { _, _, _ in throw NoEngine() }
+        model.setSyncEnabled(true)
+        #expect(!model.isSyncing)
+        #expect(model.syncProblem == "Could not start sync: no engine in tests")
+        #expect(model.problemReportEnvironment().sync == .on(lastSynced: nil, problem: "Could not start sync: no engine in tests"))
+        let note = try report(logs: nil, screenshot: false)
+        #expect(note.body.contains("- Sync: on, last synced never; problem: Could not start sync: no engine in tests"))
+        #expect(!note.body.contains("- Sync: off"))
+
+        model.setSyncEnabled(false)
+        #expect(model.problemReportEnvironment().sync == .off)
+    }
+
     @Test func copyAsGitHubIssueNeedsASelection() {
         model.selection = nil
         let pasteboard = NSPasteboard.withUniqueName()
