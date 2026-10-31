@@ -1,5 +1,5 @@
 • Labels: put coloured labels on notes, see them as chips in the list, and filter by them. Settings ▸ Labels makes, renames and recolours them.
-• Report a Problem in the Help menu makes a note describing the app and what is on screen, never a note's text, ready to copy into an issue.
+• Report a Problem in the Help menu makes a note describing the app and what is on screen, with an optional screenshot of the window, ready to copy into an issue.
 • Search by meaning: a search also finds notes that say the same thing in other words, using a small language model on your Mac. Show Similar Notes lists a note's closest neighbours.
 • Folding: fold code blocks, JSON, XML and HTML elements and Markdown sections from the gutter or the Edit menu.
 • A boopstash command for the terminal: pipe output into a note, and list, search and show notes, with JSON output.

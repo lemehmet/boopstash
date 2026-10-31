@@ -25,8 +25,9 @@ breaking changes may land in a minor release.
   none; `--json` output includes each note's labels.
 - **Report a Problem** on the Mac. Help ▸ Report a Problem… makes a note
   labelled `bug` describing the app and what is on screen: versions, sync
-  state and the open note's settings, never its text. A screenshot of the
-  window and recent log lines can be left out. You add what happened, and
+  state and the open note's settings, but not the note's text. A screenshot
+  of the window, which shows whatever is open, and recent log lines are
+  included unless you leave them out. You add what happened, and
   Help ▸ Copy as GitHub Issue copies it for an issue. The report is an
   ordinary note: it syncs if sync is on, and nothing is sent anywhere else.
 
