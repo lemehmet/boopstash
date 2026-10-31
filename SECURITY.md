@@ -45,7 +45,8 @@ around that, and each point is enforceable rather than aspirational:
   Problem… makes an ordinary note, labelled `bug`, with the app's version and settings, counts
   and IDs describing what was on screen (never the text or title of a note),
   and, if you leave them ticked, a screenshot of the window drawn from the
-  app's own views (no Screen Recording permission) and the last 10 minutes
+  app's own views (no Screen Recording permission), which shows whatever the
+  window shows, the open note's text included, and the last 10 minutes
   of BoopStash's own log. With Sync with iCloud on, the report and its
   screenshot sync to your private iCloud database like any other note, and
   nowhere else. Help ▸ Copy as GitHub Issue writes the selected

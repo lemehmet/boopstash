@@ -160,11 +160,12 @@ enum ProblemReportSheet {
         let alert = NSAlert()
         alert.messageText = "Report a Problem"
         alert.informativeText = """
-            Makes a note labelled \(ProblemReport.labelName) describing BoopStash and this window, without the text of any note. \
+            Makes a note labelled \(ProblemReport.labelName) describing BoopStash and this window. Its text leaves out the text of notes, \
+            but the screenshot shows the window as it is, the open note included. \
             It is an ordinary note: with Sync with iCloud on, it syncs to your devices like any other. \
             Nobody else sees it unless you share it.
             """
-        let shot = NSButton(checkboxWithTitle: "Include a screenshot of this window", target: nil, action: nil)
+        let shot = NSButton(checkboxWithTitle: "Include a screenshot (shows the open note)", target: nil, action: nil)
         shot.state = screenshot == nil ? .off : .on
         shot.isEnabled = screenshot != nil
         let logs = NSButton(checkboxWithTitle: "Include recent BoopStash log lines", target: nil, action: nil)

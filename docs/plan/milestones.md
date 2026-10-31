@@ -11,7 +11,7 @@ Each milestone ends in something that runs. Decisions behind them are in
 | M5 — Sync and iOS | Done; v0.3.0 |
 | M6 — Mac App Store | Done; 0.3.0 in App Review (macOS and iOS) |
 | M7 — Folding, command line, semantic search, more formatters | Done; v0.4.0, with the planned v0.3.1 changes |
-| v0.4.2 — Labels, Report a Problem | Planned |
+| v0.4.2 — Labels, Report a Problem | Done; v0.4.2 |
 
 Releases stay at most one version ahead of the App Store: while a version
 is in review, work lands on `main` and waits.
@@ -104,7 +104,7 @@ is in review, work lands on `main` and waits.
 - More formatters built as WebAssembly in the script service, for
   languages Prettier lacks (#158, ADR 0010).
 
-## v0.4.2 — Labels and Report a Problem
+## v0.4.2 — Labels and Report a Problem (done)
 
 - **Labels, model and sync** (ADR 0011). A synced, encrypted `Label`
   record (name, colour, description) as a third sync record kind, and an
