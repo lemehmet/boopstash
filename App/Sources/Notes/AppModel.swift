@@ -21,6 +21,10 @@ final class AppModel {
     }
     /// A one-line message for the window, such as why a capture was refused.
     var banner: String?
+    /// Every label and which notes carry them (#183), observed as a whole so
+    /// the list's chips cost no read per row.
+    var labelCatalog = LabelCatalog()
+    @ObservationIgnored var labelObservation: Task<Void, Never>?
     /// Whether the key window's focus is a note editor; editor-only menu
     /// commands are disabled otherwise (#25). It is worked out from the key
     /// window rather than kept from editor reports: each window keeps its
@@ -224,6 +228,7 @@ final class AppModel {
         drafts = NoteDrafts(store: store)
         drafts.onError = { [weak self] in self?.banner = $0 }
         observe()
+        observeLabels()
         if semanticSearchEnabled() { watchPendingEmbeddings() }
         // The store re-evaluates "last N days" on every fetch, but with no
         // edits nothing fetches; at midnight, start over so "Today" is today.
@@ -667,9 +672,10 @@ final class AppModel {
             try writeNote(note)
             // A filter that would hide the new note is cleared, so the
             // capture is visible where the user expects it: at the top.
-            if !query.text.isEmpty || query.days != nil {
+            if !query.text.isEmpty || query.days != nil || !query.labels.isEmpty {
                 query.text = ""
                 query.days = nil
+                query.labels = []
             }
             // Show Similar lists only related notes: back to the list (#166).
             similarTo = nil

@@ -16,6 +16,8 @@ struct NoteDetail: View {
     /// The language the editor highlights now: what the toolbar shows and
     /// what decides whether the preview renders (#151, #152).
     @State private var language: SyntaxLanguage?
+    /// The note's Labels popover (#183), from the toolbar or ⌃⌘L.
+    @State private var labelsShown = false
 
     private var canPreview: Bool { MarkdownPreview.canPreview(language) }
     /// This window's script picker, for the toolbar's Run Script.
@@ -81,7 +83,17 @@ struct NoteDetail: View {
             ToolbarItem {
                 LanguageMenu(choice: $syntax, current: language)
             }
+            ToolbarItem {
+                Button { labelsShown.toggle() } label: {
+                    Label("Labels", systemImage: model.labels(of: note.id).isEmpty ? "tag" : "tag.fill")
+                }
+                .help("Labels… (⌃⌘L): put labels on this note")
+                .popover(isPresented: $labelsShown, arrowEdge: .bottom) {
+                    LabelsPopover(model: model, noteID: note.id)
+                }
+            }
         }
+        .focusedSceneValue(\.labelsPopover, $labelsShown)
         // Compared with the note as it is now, so taking a remote change
         // into these fields is not itself saved as an edit.
         .onChange(of: syntax) {
