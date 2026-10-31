@@ -99,7 +99,7 @@ final class BoopTextView: NSTextView {
     let syntax = SyntaxPainter()
     /// Folded blocks (#155), the view's alone.
     let folding = Folding()
-    private var foldGutter: FoldGutter?
+    private(set) var foldGutter: FoldGutter?
 
     /// Always `init(usingTextLayoutManager: true)`: the frame-based
     /// initializers can build a TextKit 1 view (ADR 0006).
@@ -175,6 +175,7 @@ final class BoopTextView: NSTextView {
         let theme = activeTheme
         let text = theme.map { NSColor($0.foreground) } ?? .textColor
         self.font = font
+        foldGutter?.fontDidChange()
         if let storage = textStorage, storage.length > 0 {
             storage.beginEditing()
             storage.addAttributes([.font: font, .foregroundColor: text], range: NSRange(location: 0, length: storage.length))

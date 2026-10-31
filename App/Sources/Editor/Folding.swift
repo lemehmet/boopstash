@@ -164,8 +164,8 @@ final class FoldGutter: NSRulerView {
     init(scrollView: NSScrollView, editor: BoopTextView) {
         self.editor = editor
         super.init(scrollView: scrollView, orientation: .verticalRuler)
-        ruleThickness = 14
         clientView = editor
+        fontDidChange()
         // Views no longer clip to their bounds by default: the gutter's fill
         // would paint over the text beside it.
         clipsToBounds = true
@@ -174,6 +174,31 @@ final class FoldGutter: NSRulerView {
     required init(coder: NSCoder) { fatalError("unused") }
 
     override var isFlipped: Bool { true }
+
+    /// Sized from the editor font (#189).
+    private var metrics = FoldGutterMetrics(capHeight: NSFont.monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular).capHeight)
+    private var chevrons: (open: NSImage, folded: NSImage)?
+
+    /// The editor font changed: the chevron and the gutter's width follow.
+    func fontDidChange() {
+        let font = editor?.font ?? .monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
+        let next = FoldGutterMetrics(capHeight: font.capHeight)
+        let first = chevrons == nil
+        if first || next != metrics {
+            metrics = next
+            let configuration = NSImage.SymbolConfiguration(pointSize: font.pointSize, weight: .semibold)
+                .applying(NSImage.SymbolConfiguration(paletteColors: [.secondaryLabelColor]))
+            func symbol(_ name: String) -> NSImage {
+                NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(configuration) ?? NSImage()
+            }
+            chevrons = (symbol("chevron.down"), symbol("chevron.right"))
+            if ruleThickness != metrics.width {
+                ruleThickness = metrics.width
+                scrollView?.tile()
+            }
+        }
+        needsDisplay = true
+    }
 
     /// Each visible block start: its region and the line's frame here.
     private func visibleStarts() -> [(FoldRegion, NSRect)] {
@@ -211,18 +236,27 @@ final class FoldGutter: NSRulerView {
         drawHashMarksAndLabels(in: dirtyRect)
     }
 
+    /// A chevron, about the font's cap height, centred on each block's
+    /// first line: right when folded, down when open.
     override func drawHashMarksAndLabels(in rect: NSRect) {
-        guard let editor else { return }
-        let attributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 10), .foregroundColor: NSColor.secondaryLabelColor]
+        guard let editor, let chevrons else { return }
+        let side = metrics.chevronSide
         for (region, frame) in visibleStarts() {
-            let arrow = editor.folding.isFolded(region) ? "▸" : "▾"
-            let size = arrow.size(withAttributes: attributes)
-            arrow.draw(at: NSPoint(x: (ruleThickness - size.width) / 2, y: frame.midY - size.height / 2), withAttributes: attributes)
+            let image = editor.folding.isFolded(region) ? chevrons.folded : chevrons.open
+            guard image.size.width > 0, image.size.height > 0 else { continue }
+            // Fitted into a square of the cap height, keeping its shape.
+            let scale = side / max(image.size.width, image.size.height)
+            let size = NSSize(width: image.size.width * scale, height: image.size.height * scale)
+            let target = NSRect(x: ((bounds.width - size.width) / 2).rounded(), y: (frame.midY - size.height / 2).rounded(),
+                                width: size.width, height: size.height)
+            guard target.intersects(rect) else { continue }
+            image.draw(in: target, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
         }
     }
 
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
+        // Anywhere across the gutter beside the block's first line.
         guard let (region, _) = visibleStarts().first(where: { $0.1.insetBy(dx: 0, dy: -2).contains(NSPoint(x: $0.1.midX, y: point.y)) }) else { return }
         editor?.folding.toggle(region)
     }
