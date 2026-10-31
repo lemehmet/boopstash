@@ -32,6 +32,22 @@ import Testing
         #expect(abs(PreviewSplit.leadingWidth(total: 1400, fraction: fraction, divider: 1) - 612) < 0.0001)
     }
 
+    @Test func anAdjustmentMovesTheDividerByAStepAndStopsWhereADragWould() {
+        #expect(abs(PreviewSplit.adjusted(fraction: 0.5, by: 1, total: 1001, divider: 1) - 0.55) < 0.0001)
+        #expect(abs(PreviewSplit.adjusted(fraction: 0.5, by: -1, total: 1001, divider: 1) - 0.45) < 0.0001)
+        // 240 of 1000 is the editor's minimum; a further decrement stays there.
+        #expect(PreviewSplit.adjusted(fraction: 0.24, by: -1, total: 1000, divider: 0) == 0.24)
+        #expect(PreviewSplit.adjusted(fraction: 0.76, by: 1, total: 1000, divider: 0) == 0.76)
+        #expect(PreviewSplit.adjusted(fraction: 0.5, by: 1, total: 0, divider: 0) == PreviewSplit.defaultFraction)
+    }
+
+    @Test func theEditorsShareIsReadAsTheWidthItActuallyHas() {
+        #expect(PreviewSplit.editorPercent(total: 1001, fraction: 0.3, divider: 1) == 30)
+        // 10% asked for, but the minimum width gives the editor 24%.
+        #expect(PreviewSplit.editorPercent(total: 1000, fraction: 0.1, divider: 0) == 24)
+        #expect(PreviewSplit.editorPercent(total: 0, fraction: 0.5, divider: 0) == 50)
+    }
+
     @Test func aStoredFractionThatIsNoShareFallsBackToHalf() {
         for bad in [0, 1, -0.5, 3, .nan, .infinity] {
             #expect(PreviewSplit.clampedFraction(bad) == PreviewSplit.defaultFraction)

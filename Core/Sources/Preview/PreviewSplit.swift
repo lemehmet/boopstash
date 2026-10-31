@@ -32,6 +32,27 @@ public enum PreviewSplit {
         return min(max(width / available, 0.05), 0.95)
     }
 
+    /// How far one VoiceOver increment or decrement moves the divider: this
+    /// share of the space beside it.
+    public static let adjustmentStep = 0.05
+
+    /// The fraction after `steps` assistive-tech adjustments (positive widens
+    /// the editor), clamped exactly as a drag is.
+    public static func adjusted(fraction: Double, by steps: Int, total: Double, divider: Double) -> Double {
+        let available = max(total - divider, 0)
+        let width = leadingWidth(total: total, fraction: fraction, divider: divider)
+        return self.fraction(leadingWidth: width + Double(steps) * adjustmentStep * available,
+                             total: total, divider: divider)
+    }
+
+    /// The editor's share of the space beside the divider as a whole
+    /// percentage, for VoiceOver to read out.
+    public static func editorPercent(total: Double, fraction: Double, divider: Double) -> Int {
+        let available = max(total - divider, 0)
+        guard available > 0 else { return Int((clampedFraction(fraction) * 100).rounded()) }
+        return Int((leadingWidth(total: total, fraction: fraction, divider: divider) / available * 100).rounded())
+    }
+
     /// A stored fraction that is not a share of anything (a hand-edited
     /// default, NaN) falls back to half each.
     public static func clampedFraction(_ fraction: Double) -> Double {

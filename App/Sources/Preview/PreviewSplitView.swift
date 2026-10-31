@@ -35,6 +35,20 @@ struct PreviewSplitView<Leading: View, Trailing: View>: View {
                                                                      total: total, divider: Self.dividerWidth)
                                 }
                                 .onEnded { _ in dragStart = nil })
+                            // HSplitView's divider was adjustable from
+                            // VoiceOver; this one is too.
+                            .accessibilityElement()
+                            .accessibilityLabel("Editor and preview divider")
+                            .accessibilityValue("Editor \(PreviewSplit.editorPercent(total: total, fraction: fraction, divider: Self.dividerWidth)) percent")
+                            .accessibilityAdjustableAction { direction in
+                                let steps = switch direction {
+                                case .increment: 1
+                                case .decrement: -1
+                                @unknown default: 0
+                                }
+                                fraction = PreviewSplit.adjusted(fraction: fraction, by: steps,
+                                                                 total: total, divider: Self.dividerWidth)
+                            }
                     }
                 trailing.frame(maxWidth: .infinity)
             }
