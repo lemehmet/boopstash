@@ -47,20 +47,26 @@ struct LabelSettings: View {
 
     private func row(_ label: NoteLabel, uses: Int) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
-            LabelChip(label, font: .callout.weight(.medium))
-            VStack(alignment: .leading, spacing: 2) {
-                if !label.details.isEmpty {
-                    Text(label.details).lineLimit(2)
+            // The chip and its text read as one element; Edit and Delete stay
+            // separate controls for VoiceOver.
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                LabelChip(label, font: .callout.weight(.medium))
+                VStack(alignment: .leading, spacing: 2) {
+                    if !label.details.isEmpty {
+                        Text(label.details).lineLimit(2)
+                    }
+                    Text(uses == 1 ? "1 note" : "\(uses) notes")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
-                Text(uses == 1 ? "1 note" : "\(uses) notes")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
+            .accessibilityElement(children: .combine)
             Spacer()
             Button("Edit") { editing = LabelDraft(label) }
+                .accessibilityLabel("Edit \(label.name)")
             Button("Delete…", role: .destructive) { deleting = label }
+                .accessibilityLabel("Delete \(label.name)")
         }
-        .accessibilityElement(children: .combine)
     }
 
     private var deleteTitle: String {
