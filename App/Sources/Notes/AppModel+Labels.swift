@@ -34,12 +34,10 @@ extension AppModel {
 
     /// Puts the label on the note, or takes it off.
     func toggleLabel(_ labelID: UUID, on noteID: UUID) {
+        // Decided by the store, not the observed catalog, which may not
+        // have caught up with a toggle a moment ago.
         do {
-            if carries(labelID, noteID) {
-                try store.unassignLabel(labelID, from: noteID)
-            } else {
-                try store.assignLabel(labelID, to: noteID)
-            }
+            try store.toggleLabel(labelID, on: noteID)
         } catch {
             banner = "Could not change the note's labels: \(Self.describe(error))"
         }
@@ -50,9 +48,7 @@ extension AppModel {
     @discardableResult
     func createLabel(named name: String, on noteID: UUID) -> NoteLabel? {
         do {
-            let label = try store.createLabel(name: name, color: LabelColor.random())
-            try store.assignLabel(label.id, to: noteID)
-            return label
+            return try store.createLabel(name: name, color: LabelColor.random(), on: noteID)
         } catch {
             banner = "Could not create the label: \(Self.describe(error))"
             return nil
@@ -66,6 +62,8 @@ extension AppModel {
     }
 
     func toggleLabelFilter(_ labelID: UUID) {
+        // A filter shows the list, not "similar to" (#157).
+        similarTo = nil
         if query.labels.contains(labelID) { query.labels.remove(labelID) } else { query.labels.insert(labelID) }
     }
 
@@ -89,9 +87,7 @@ extension AppModel {
         let details = details.trimmingCharacters(in: .whitespacesAndNewlines)
         do {
             if let id {
-                try store.renameLabel(id: id, to: name)
-                try store.setLabelColor(id: id, parsed)
-                try store.setLabelDetails(id: id, details)
+                try store.updateLabel(id: id, name: name, color: parsed, details: details)
             } else {
                 try store.createLabel(name: name, color: parsed, details: details)
             }

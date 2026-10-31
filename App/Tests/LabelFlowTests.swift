@@ -47,6 +47,25 @@ struct LabelFlowTests {
         #expect(try model.store.labels(of: note.id).isEmpty)
     }
 
+    @Test func twoQuickTogglesUndoEachOther() async throws {
+        let note = notes[1]
+        let work = try model.store.createLabel(name: "work")
+        try await settle { model.labelCatalog.labels == [work] }
+        // No wait between them: the catalog has not caught up with the first.
+        model.toggleLabel(work.id, on: note.id)
+        model.toggleLabel(work.id, on: note.id)
+        #expect(try model.store.labels(of: note.id).isEmpty)
+        #expect(model.banner == nil)
+    }
+
+    @Test func creatingOnAGoneNoteLeavesNoLabel() async throws {
+        #expect(model.createLabel(named: "orphan", on: UUID()) == nil)
+        #expect(model.banner != nil)
+        #expect(try model.store.labels().isEmpty)
+        // So the same name can be made afterwards.
+        #expect(model.createLabel(named: "orphan", on: notes[0].id) != nil)
+    }
+
     @Test func renamingAndRecolouringReachesEveryRow() async throws {
         let work = try model.store.createLabel(name: "work", color: "#0e8a16")
         for note in notes { try model.store.assignLabel(work.id, to: note.id) }
@@ -91,6 +110,10 @@ struct LabelFlowTests {
         try await settle { model.notes.map(\.id) == [notes[0].id] }
         model.toggleLabelFilter(b.id)
         #expect(model.query.labels == [a.id])
+        // The Filter menu, like a chip, shows the list rather than "similar to".
+        model.similarTo = notes[0].id
+        model.toggleLabelFilter(b.id)
+        #expect(model.similarTo == nil)
     }
 
     @Test func clickingAChipAddsItsLabelToTheFilter() async throws {

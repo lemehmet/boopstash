@@ -49,6 +49,34 @@ extension NoteStore {
         return label
     }
 
+    /// A new label put on a note, in one transaction: if the note is gone,
+    /// no label is made (#183's popover "Create label").
+    @discardableResult
+    public func createLabel(name: String, color: String, details: String = "", on noteID: UUID, now: Date = Date()) throws -> NoteLabel {
+        guard let parsed = LabelColor.parse(color) else { throw LabelError.invalidColor(color) }
+        let label = NoteLabel(name: try Self.checkedName(name), color: parsed, details: details, createdAt: now)
+        try writer.write { db in
+            guard try Note.exists(db, key: noteID) else { throw LabelError.notFound }
+            try Self.checkUnique(label, db)
+            try label.insert(db)
+            try db.execute(sql: "INSERT INTO noteLabel (noteID, labelID) VALUES (?, ?)", arguments: [noteID, label.id])
+            try Self.markLabelsChanged(of: noteID, db)
+        }
+        return label
+    }
+
+    /// Changes a label's name, colour and description together, in one
+    /// transaction: all of them or none (Settings ▸ Labels' Save).
+    public func updateLabel(id: UUID, name: String, color: String, details: String, now: Date = Date()) throws {
+        let name = try Self.checkedName(name)
+        guard let parsed = LabelColor.parse(color) else { throw LabelError.invalidColor(color) }
+        try updateLabel(id: id, now: now) {
+            $0.name = name
+            $0.color = parsed
+            $0.details = details
+        }
+    }
+
     public func renameLabel(id: UUID, to name: String, now: Date = Date()) throws {
         let name = try Self.checkedName(name)
         try updateLabel(id: id, now: now) { $0.name = name }
@@ -81,6 +109,25 @@ extension NoteStore {
             guard try NoteLabel.exists(db, key: labelID), try Note.exists(db, key: noteID) else { throw LabelError.notFound }
             try db.execute(sql: "INSERT OR IGNORE INTO noteLabel (noteID, labelID) VALUES (?, ?)", arguments: [noteID, labelID])
             if db.changesCount > 0 { try Self.markLabelsChanged(of: noteID, db) }
+        }
+    }
+
+    /// Puts the label on the note if it is not there, else takes it off,
+    /// deciding inside the transaction, so two quick toggles always undo
+    /// each other. Returns whether the note carries it afterwards.
+    @discardableResult
+    public func toggleLabel(_ labelID: UUID, on noteID: UUID) throws -> Bool {
+        try writer.write { db in
+            if try Bool.fetchOne(db, sql: "SELECT 1 FROM noteLabel WHERE noteID = ? AND labelID = ?",
+                                 arguments: [noteID, labelID]) == true {
+                try db.execute(sql: "DELETE FROM noteLabel WHERE noteID = ? AND labelID = ?", arguments: [noteID, labelID])
+                try Self.markLabelsChanged(of: noteID, db)
+                return false
+            }
+            guard try NoteLabel.exists(db, key: labelID), try Note.exists(db, key: noteID) else { throw LabelError.notFound }
+            try db.execute(sql: "INSERT INTO noteLabel (noteID, labelID) VALUES (?, ?)", arguments: [noteID, labelID])
+            try Self.markLabelsChanged(of: noteID, db)
+            return true
         }
     }
 

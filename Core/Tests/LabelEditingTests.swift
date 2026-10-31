@@ -44,6 +44,56 @@ import Testing
         #expect(try store.label(id: bug.id)?.name == "Bug")
     }
 
+    // MARK: Store operations the Mac UI uses
+
+    @Test func toggleDecidesInTheStoreSoTwoTogglesUndoEachOther() throws {
+        let store = try NoteStore.inMemory()
+        let note = Note(title: "a", body: "a", createdAt: Self.start)
+        try store.save(note)
+        let work = try store.createLabel(name: "work", now: Self.start)
+        #expect(try store.toggleLabel(work.id, on: note.id))
+        #expect(try store.toggleLabel(work.id, on: note.id) == false)
+        #expect(try store.labels(of: note.id).isEmpty)
+        #expect(try store.toggleLabel(work.id, on: note.id))
+        #expect(try store.labels(of: note.id) == [work])
+        #expect(throws: LabelError.notFound) { try store.toggleLabel(UUID(), on: note.id) }
+        #expect(throws: LabelError.notFound) { try store.toggleLabel(work.id, on: UUID()) }
+    }
+
+    @Test func creatingALabelOnAMissingNoteMakesNoLabel() throws {
+        let store = try NoteStore.inMemory()
+        #expect(throws: LabelError.notFound) { try store.createLabel(name: "work", color: "#1d76db", on: UUID(), now: Self.start) }
+        #expect(try store.labels().isEmpty)
+
+        let note = Note(title: "a", body: "a", createdAt: Self.start)
+        try store.save(note)
+        let work = try store.createLabel(name: " work ", color: "#1D76DB", details: "office", on: note.id, now: Self.start)
+        #expect(work.name == "work" && work.color == "#1d76db")
+        #expect(try store.labels(of: note.id) == [work])
+        #expect(throws: LabelError.duplicateName("work")) { try store.createLabel(name: "Work", color: "#1d76db", on: note.id) }
+    }
+
+    @Test func anEditSavesEveryFieldOrNone() throws {
+        let store = try NoteStore.inMemory()
+        let work = try store.createLabel(name: "work", color: "#0e8a16", now: Self.start)
+        let bug = try store.createLabel(name: "bug", now: Self.start)
+        #expect(throws: LabelError.duplicateName("bug")) {
+            try store.updateLabel(id: work.id, name: "BUG", color: "#5319e7", details: "x", now: Self.start.addingTimeInterval(1))
+        }
+        #expect(try store.label(id: work.id) == work, "nothing changed")
+        #expect(throws: LabelError.invalidColor("blue")) {
+            try store.updateLabel(id: work.id, name: "office", color: "blue", details: "x")
+        }
+        #expect(try store.label(id: work.id) == work)
+        #expect(throws: LabelError.notFound) { try store.updateLabel(id: UUID(), name: "x", color: "#000000", details: "") }
+
+        try store.updateLabel(id: work.id, name: " office ", color: "#5319E7", details: "desk", now: Self.start.addingTimeInterval(2))
+        let edited = try #require(try store.label(id: work.id))
+        #expect(edited.name == "office" && edited.color == "#5319e7" && edited.details == "desk")
+        #expect(edited.updatedAt == Self.start.addingTimeInterval(2))
+        #expect(try store.label(id: bug.id) == bug)
+    }
+
     @Test func problemsReadAsSentences() {
         #expect(LabelName.message(.emptyName) == "A label needs a name.")
         #expect(LabelName.message(.duplicateName("bug")).contains("“bug”"))
