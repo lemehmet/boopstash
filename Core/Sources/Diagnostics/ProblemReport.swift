@@ -119,16 +119,19 @@ public struct ProblemReport: Equatable, Sendable {
     public var list: List
     /// Recent log lines; nil when the user left them out.
     public var logLines: [String]?
+    /// Why the log could not be read, when the user asked for it.
+    public var logError: String?
     /// The screenshot's attachment markdown; nil when left out.
     public var screenshot: String?
 
     public init(createdAt: Date, environment: Environment, note: SelectedNote?, list: List, logLines: [String]? = nil,
-                screenshot: String? = nil) {
+                logError: String? = nil, screenshot: String? = nil) {
         self.createdAt = createdAt
         self.environment = environment
         self.note = note
         self.list = list
         self.logLines = logLines
+        self.logError = logError
         self.screenshot = screenshot
     }
 
@@ -193,7 +196,9 @@ public struct ProblemReport: Equatable, Sendable {
             "- Filter text: \(list.hasFilterText ? "set" : "none")",
             "- Similar notes: \(list.similarNotes)",
         ]
-        if let logLines {
+        if let logError {
+            out += ["", "## Recent logs", "", "_The log could not be read: \(logError)_"]
+        } else if let logLines {
             let fence = Self.fence(for: logLines)
             out += ["", "## Recent logs", ""]
             out += logLines.isEmpty ? ["_No log lines in the last 10 minutes._"] : [fence] + logLines + [fence]
@@ -230,10 +235,10 @@ public struct ProblemReport: Equatable, Sendable {
     }
 
     /// A link reference definition naming an attachment, after any quote
-    /// markers, its destination on the same line or the next, with an
-    /// optional title. Group 1 is the definition without the quote markers.
+    /// or list markers, its destination on the same line or the next, with an
+    /// optional title. Group 1 is the definition without the markers.
     static let issueDefinitionPattern = try! NSRegularExpression(
-        pattern: #"^(?:[ \t]*>)*[ \t]*(\[(?:[^\]\\]|\\.)+\]:[ \t]*(?:\r?\n(?:[ \t]*>)*)?[ \t]*<?(?i:attachment):[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}>?(?:[ \t]+(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|\((?:[^)\\]|\\.)*\)))?)"#,
+        pattern: #"^(?:[ \t]*(?:>|[-+*](?=[ \t])|[0-9]{1,9}[.)](?=[ \t])))*[ \t]*(\[(?:[^\]\\]|\\.)+\]:[ \t]*(?:\r?\n(?:[ \t]*>)*)?[ \t]*<?(?i:attachment):[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}>?(?:[ \t]+(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|\((?:[^)\\]|\\.)*\)))?)"#,
         options: [.anchorsMatchLines]
     )
 

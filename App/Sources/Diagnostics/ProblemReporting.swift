@@ -74,25 +74,35 @@ extension AppModel {
     /// a note clears the list's filter and moves the selection.
     @discardableResult
     func createProblemReport(environment: ProblemReport.Environment, note selected: ProblemReport.SelectedNote?,
-                             list: ProblemReport.List, logLines: [String]?, screenshot: Data?,
-                             now: Date = Date()) -> Note? {
+                             list: ProblemReport.List, logLines: [String]?, logError: String? = nil,
+                             screenshot: Data?, now: Date = Date()) -> Note? {
         var note = Note(title: ProblemReport.title(for: now), body: "", createdAt: now)
         // The title stays: the model never renames a report.
         note.titleIsUserSet = true
         var attachment: NoteAttachment?
-        if let screenshot, case .success = ImageImport.check(screenshot, type: .png) {
-            do {
-                attachment = try store.addAttachment(screenshot, contentType: UTType.png.identifier, noteID: note.id, now: now)
-            } catch {
-                Log.diagnostics.error("screenshot not saved: \(error.localizedDescription, privacy: .private)")
+        var screenshotProblem: String?
+        if let screenshot {
+            if case .success = ImageImport.check(screenshot, type: .png) {
+                do {
+                    attachment = try store.addAttachment(screenshot, contentType: UTType.png.identifier, noteID: note.id, now: now)
+                } catch {
+                    Log.diagnostics.error("screenshot not saved: \(error.localizedDescription, privacy: .private)")
+                    screenshotProblem = error.localizedDescription
+                }
+            } else {
+                screenshotProblem = "the image was empty or too large"
             }
         }
         let report = ProblemReport(createdAt: now, environment: environment, note: selected, list: list, logLines: logLines,
+                                   logError: logError,
                                    screenshot: attachment.map { AttachmentReference.markdown(for: $0.id, alt: "Screenshot") })
         note.body = report.markdown()
         guard insert(note) else {
             if let attachment { try? store.deleteAttachment(id: attachment.id) }
             return nil
+        }
+        if let screenshotProblem {
+            banner = "The report was made without its screenshot: \(screenshotProblem)"
         }
         var labelled: Set<UUID> = []
         do {
@@ -115,13 +125,17 @@ extension AppModel {
     /// no request; the browser opens a page with nothing in its URL.
     @discardableResult
     func copySelectionAsGitHubIssue(pasteboard: NSPasteboard = .general,
-                                    open: (URL) -> Void = { NSWorkspace.shared.open($0) }) -> Bool {
+                                    open: (URL) -> Void = { NSWorkspace.shared.open($0) },
+                                    write: (NSPasteboard, String) -> Bool = { $0.clearContents(); return $0.setString($1, forType: .string) }) -> Bool {
         guard let id = selection, let note = note(id: id) else {
             NSSound.beep()
             return false
         }
-        pasteboard.clearContents()
-        pasteboard.setString(ProblemReport.issueMarkdown(note.body), forType: .string)
+        // Nothing copied, nothing to paste: the browser stays shut.
+        guard write(pasteboard, ProblemReport.issueMarkdown(note.body)) else {
+            banner = "Could not copy the note to the clipboard."
+            return false
+        }
         open(ProblemReport.newIssueURL)
         banner = AttachmentReference.ids(in: note.body).isEmpty
             ? "Copied as Markdown: paste it into the new issue."
@@ -170,10 +184,16 @@ enum ProblemReportSheet {
             let options = AppModel.ProblemReportOptions(screenshot: shot.state == .on, logs: logs.state == .on)
             Task { @MainActor in
                 let since = started.addingTimeInterval(-ProblemReport.logWindow)
-                let lines: [String]? = options.logs
-                    ? await Task.detached(priority: .userInitiated) { LiveDiagnostics.recentLog(since: since) }.value
-                    : nil
-                model.createProblemReport(environment: environment, note: note, list: list, logLines: lines,
+                var lines: [String]?
+                var logError: String?
+                if options.logs {
+                    do {
+                        lines = try await Task.detached(priority: .userInitiated) { try LiveDiagnostics.recentLog(since: since) }.value
+                    } catch {
+                        logError = error.localizedDescription
+                    }
+                }
+                model.createProblemReport(environment: environment, note: note, list: list, logLines: lines, logError: logError,
                                           screenshot: options.screenshot ? screenshot : nil)
             }
         }

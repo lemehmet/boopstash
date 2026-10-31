@@ -107,6 +107,15 @@ import Testing
         #expect(!text.contains("```"))
     }
 
+    @Test func anUnreadableLogSaysSo() {
+        var report = full()
+        report.logLines = nil
+        report.logError = "no access"
+        let text = report.markdown(timeZone: Self.utc)
+        #expect(text.contains("## Recent logs\n\n_The log could not be read: no access_"))
+        #expect(!text.contains("No log lines"))
+    }
+
     @Test func logFenceOutlastsBackticksInside() {
         var report = full()
         report.logLines = ["a ``` b", "c ```` d"]
@@ -157,12 +166,14 @@ import Testing
     }
 
     /// Reference-style images in the forms only the parser sees: inside a
-    /// quote, with CRLF line ends, with a title, by shortcut (#185).
+    /// quote or a list, with CRLF line ends, with a title, by shortcut (#185).
     @Test(arguments: [
         "> ![plot][img]\n>\n> [img]: attachment:%@",
         "![plot][img]\r\n\r\n[img]:\r\n attachment:%@",
         "![plot][img]\n\n[img]: <attachment:%@> \"A title\"",
         "![img]\n\n[img]: attachment:%@",
+        "- [img]: attachment:%@\n\n  ![plot][img]",
+        "1. ![plot][img]\n\n   [img]: attachment:%@",
     ])
     func issueMarkdownReplacesReferenceStyleImages(_ form: String) {
         let body = "Before\n\n" + String(format: form, UUID().uuidString)

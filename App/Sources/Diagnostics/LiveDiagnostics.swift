@@ -39,11 +39,12 @@ enum LiveDiagnostics {
 
     /// This process's log lines from BoopStash's own subsystem since
     /// `since`, oldest first, capped. Reading the store can take a moment:
-    /// call it off the main actor.
-    nonisolated static func recentLog(since: Date) -> [String] {
-        guard let store = try? OSLogStore(scope: .currentProcessIdentifier) else { return [] }
+    /// call it off the main actor. Throws when the log cannot be read, so
+    /// the report says so rather than showing an empty log.
+    nonisolated static func recentLog(since: Date) throws -> [String] {
+        let store = try OSLogStore(scope: .currentProcessIdentifier)
         let predicate = NSPredicate(format: "subsystem == %@", Log.subsystem)
-        guard let entries = try? store.getEntries(at: store.position(date: since), matching: predicate) else { return [] }
+        let entries = try store.getEntries(at: store.position(date: since), matching: predicate)
         let time = DateFormatter()
         time.locale = Locale(identifier: "en_US_POSIX")
         time.dateFormat = "HH:mm:ss.SSS"

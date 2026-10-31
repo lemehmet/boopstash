@@ -124,6 +124,24 @@ struct ProblemReportFlowTests {
         #expect(opened.first?.query == nil)
     }
 
+    @Test func aFailedCopyOpensNothing() throws {
+        _ = try report(logs: nil, screenshot: false)
+        let pasteboard = NSPasteboard.withUniqueName()
+        defer { pasteboard.releaseGlobally() }
+        var opened: [URL] = []
+        #expect(!model.copySelectionAsGitHubIssue(pasteboard: pasteboard, open: { opened.append($0) }, write: { _, _ in false }))
+        #expect(opened.isEmpty)
+        #expect(model.banner?.contains("Could not copy") == true)
+    }
+
+    @Test func aScreenshotThatCannotBeKeptIsSaid() throws {
+        let made = model.createProblemReport(environment: model.problemReportEnvironment(), note: nil,
+                                             list: model.problemReportList(), logLines: nil, screenshot: Data())
+        let note = try #require(made)
+        #expect(!note.body.contains("## Screenshot"))
+        #expect(model.banner?.contains("without its screenshot") == true)
+    }
+
     @Test func copyAsGitHubIssueNeedsASelection() {
         model.selection = nil
         let pasteboard = NSPasteboard.withUniqueName()
@@ -163,7 +181,7 @@ struct ProblemReportFlowTests {
         let token = UUID().uuidString
         let since = Date().addingTimeInterval(-5)
         Log.diagnostics.notice("report test \(token, privacy: .public)")
-        let lines = await Task.detached { LiveDiagnostics.recentLog(since: since) }.value
+        let lines = try await Task.detached { try LiveDiagnostics.recentLog(since: since) }.value
         #expect(lines.contains { $0.contains(token) && $0.contains("diagnostics") }, "\(lines.suffix(5))")
     }
 }
