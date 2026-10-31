@@ -6,6 +6,15 @@ breaking changes may land in a minor release.
 
 ## Unreleased
 
+### New
+
+- **Labels on the Mac.** Put coloured labels on notes, as on GitHub
+  issues: Note ▸ Labels… (⌃⌘L) or the tag button in the toolbar lists them,
+  filters as you type and creates a label you name. Labels show as chips in
+  the note list; click one, or check labels in the Filter menu, to list only
+  the notes carrying all of them. Settings ▸ Labels creates, renames,
+  recolours and deletes them.
+
 ### Fixed
 
 - **Clearing a note's setting syncs.** Setting a note's highlighting back to

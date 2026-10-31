@@ -65,6 +65,7 @@ struct BoopstashApp: App {
                 .disabled(!(delegate.model?.editorHasFocus ?? false))
             }
             ScriptCommands(model: delegate.model)
+            NoteCommands()
             CommandGroup(after: .textEditing) {
                 // Shortcuts come from the key-binding preset (⇧⌥F in VS Code,
                 // ⌥⌘L in JetBrains), so the menu shows none of its own.
@@ -240,7 +241,7 @@ private struct DemoSettingsOpener: ViewModifier {
             openSettings()
             // Tall enough to show every section, centred on the main window.
             try? await Task.sleep(for: .seconds(1))
-            guard let settings = NSApp.windows.first(where: { ["General", "Editor", "Keyboard"].contains($0.title) }),
+            guard let settings = NSApp.windows.first(where: { ["General", "Editor", "Keyboard", "Labels"].contains($0.title) }),
                   let main = NSApp.windows.first(where: { $0.frame.width == 1440 && $0.frame.height == 900 })
             else { return }
             let size = NSSize(width: 560, height: 820)

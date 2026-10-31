@@ -97,6 +97,8 @@ extension AppModel {
                                    logError: logError,
                                    screenshot: attachment.map { AttachmentReference.markdown(for: $0.id, alt: "Screenshot") })
         note.body = report.markdown()
+        // `insert` clears the label filter; a `bug` filter comes back below.
+        let labelFilter = query.labels
         guard insert(note) else {
             if let attachment { try? store.deleteAttachment(id: attachment.id) }
             return nil
@@ -114,7 +116,8 @@ extension AppModel {
         }
         // A label filter the report does not carry would hide it while it
         // is selected: only `bug`, if filtered by, stays.
-        if !query.labels.isSubset(of: labelled) { query.labels.formIntersection(labelled) }
+        let kept = labelFilter.intersection(labelled)
+        if query.labels != kept { query.labels = kept }
         Log.diagnostics.info("problem report made: screenshot \(attachment != nil), logs \(logLines != nil)")
         return note
     }

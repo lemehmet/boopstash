@@ -14,6 +14,7 @@ struct SettingsView: View {
             Tab("General", systemImage: "gearshape", value: "general") { GeneralSettings(model: model) }
             Tab("Editor", systemImage: "textformat", value: "editor") { EditorSettingsView() }
             Tab("Keyboard", systemImage: "keyboard", value: "keyboard") { KeyboardSettings(preset: $preset, linuxHabits: $linuxHabits) }
+            Tab("Labels", systemImage: "tag", value: "labels") { LabelSettings(model: model) }
         }
         .frame(width: 520)
     }
