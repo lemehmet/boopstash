@@ -6,8 +6,9 @@ import SwiftUI
 /// share is kept in user defaults.
 struct PreviewSplitView<Leading: View, Trailing: View>: View {
     @AppStorage(PreviewSettings.splitFractionKey) private var fraction = PreviewSplit.defaultFraction
-    /// The editor's width while the divider is being dragged.
-    @State private var dragStart: Double?
+    /// The editor's width when the drag began. Gesture state, so it is
+    /// cleared however the drag ends, cancelled included.
+    @GestureState private var dragStart: Double?
     @ViewBuilder let leading: Leading
     @ViewBuilder let trailing: Trailing
 
@@ -28,13 +29,13 @@ struct PreviewSplitView<Leading: View, Trailing: View>: View {
                             .contentShape(Rectangle())
                             .pointerStyle(.columnResize)
                             .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
-                                .onChanged { drag in
-                                    let start = dragStart ?? width
-                                    dragStart = start
-                                    fraction = PreviewSplit.fraction(leadingWidth: start + drag.translation.width,
-                                                                     total: total, divider: Self.dividerWidth)
+                                .updating($dragStart) { _, start, _ in
+                                    if start == nil { start = width }
                                 }
-                                .onEnded { _ in dragStart = nil })
+                                .onChanged { drag in
+                                    fraction = PreviewSplit.fraction(leadingWidth: (dragStart ?? width) + drag.translation.width,
+                                                                     total: total, divider: Self.dividerWidth)
+                                })
                             // HSplitView's divider was adjustable from
                             // VoiceOver; this one is too.
                             .accessibilityElement()
@@ -50,6 +51,9 @@ struct PreviewSplitView<Leading: View, Trailing: View>: View {
                                                                  total: total, divider: Self.dividerWidth)
                             }
                     }
+                    // Above the preview, which comes later and would
+                    // otherwise take the half of the grab area over it.
+                    .zIndex(1)
                 trailing.frame(maxWidth: .infinity)
             }
         }
