@@ -25,11 +25,13 @@ public enum PreviewSplit {
     public static func fraction(leadingWidth: Double, total: Double, divider: Double) -> Double {
         let available = max(total - divider, 0)
         guard available > 0 else { return defaultFraction }
-        let width = available >= 2 * minimumPaneWidth
-            ? min(max(leadingWidth, minimumPaneWidth), available - minimumPaneWidth)
-            : leadingWidth
+        if available >= 2 * minimumPaneWidth {
+            // The pane minimums are the only floor here: a fixed share would
+            // win over them on a split wider than 4800pt and move the divider.
+            return min(max(leadingWidth, minimumPaneWidth), available - minimumPaneWidth) / available
+        }
         // Never all one pane: a divider dragged to the edge stays findable.
-        return min(max(width / available, 0.05), 0.95)
+        return min(max(leadingWidth / available, 0.05), 0.95)
     }
 
     /// How far one VoiceOver increment or decrement moves the divider: this

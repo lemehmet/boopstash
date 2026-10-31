@@ -27,6 +27,14 @@ import Testing
         #expect(PreviewSplit.fraction(leadingWidth: 10, total: 0, divider: 0) == PreviewSplit.defaultFraction)
     }
 
+    @Test func onAVeryWideSplitADragStopsAtThePaneMinimumNotAShare() {
+        // 240 of 6016 is under 5%; the drag still stops at 240 on both sides.
+        let low = PreviewSplit.fraction(leadingWidth: 100, total: 6016, divider: 0)
+        #expect(abs(PreviewSplit.leadingWidth(total: 6016, fraction: low, divider: 0) - 240) < 0.0001)
+        let high = PreviewSplit.fraction(leadingWidth: 6000, total: 6016, divider: 0)
+        #expect(abs(PreviewSplit.leadingWidth(total: 6016, fraction: high, divider: 0) - 5776) < 0.0001)
+    }
+
     @Test func aDraggedFractionGivesBackTheSameWidth() {
         let fraction = PreviewSplit.fraction(leadingWidth: 612, total: 1400, divider: 1)
         #expect(abs(PreviewSplit.leadingWidth(total: 1400, fraction: fraction, divider: 1) - 612) < 0.0001)
