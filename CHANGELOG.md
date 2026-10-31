@@ -6,6 +6,11 @@ breaking changes may land in a minor release.
 
 ## Unreleased
 
+### Fixed
+
+- **iPhone: notes after the first stayed blank with the preview on.** The
+  first note opened rendered; every later one showed only its title (#206).
+
 ## v0.4.2 — 2026-10-31
 
 ### New
