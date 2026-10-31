@@ -31,6 +31,19 @@ import Testing
         #expect(await older.value == nil)
     }
 
+    @Test func aTaskCancelledForNewerTextDoesNotRenderItsOwn() async {
+        // SwiftUI's order on new text: cancel the old task, then start the new.
+        let renders = PreviewRenders()
+        let rendered = Rendered()
+        let older = Task { await renders.render("a", debounce: .seconds(60)) { await rendered.add($0) } }
+        while renders.requested != "a" { await Task.yield() }
+        older.cancel()
+        let newer = Task { await renders.render("ab") { await rendered.add($0) } }
+        #expect(await older.value == nil)
+        #expect(await newer.value == "ab")
+        #expect(await rendered.texts == ["ab"])
+    }
+
     @Test func newerTextDuringTheRenderDropsIt() async {
         let renders = PreviewRenders()
         let (gate, open) = AsyncStream<Void>.makeStream()
@@ -44,5 +57,15 @@ import Testing
         #expect(await renders.render("ab") { $0 } == "ab")
         open.finish()
         #expect(await older.value == nil)
+    }
+}
+
+/// The texts a test's renders were run for.
+private actor Rendered {
+    var texts: [String] = []
+
+    func add(_ text: String) -> String {
+        texts.append(text)
+        return text
     }
 }

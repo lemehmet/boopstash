@@ -18,6 +18,10 @@ public final class PreviewRenders {
     ) async -> Output? {
         requested = markdown
         if let debounce { try? await Task.sleep(for: debounce) }
+        // Cancelled for newer text, this task can resume before its
+        // replacement records that text; let the replacement go first so
+        // typing does not render every superseded keystroke.
+        if Task.isCancelled { await Task.yield() }
         guard requested == markdown else { return nil }
         let output = await render(markdown)
         return requested == markdown ? output : nil
