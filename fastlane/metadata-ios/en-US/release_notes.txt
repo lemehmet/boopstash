@@ -1,2 +1,3 @@
+• Labels made on your Mac show as coloured chips, and the Filter menu lists only the notes carrying the labels you check.
 • Search by meaning: a search also finds notes that say the same thing in other words, using a small language model on your device. Show Similar Notes lists a note's closest neighbours.
 • Notes shared from other apps are found by meaning too.

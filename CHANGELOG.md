@@ -6,6 +6,8 @@ breaking changes may land in a minor release.
 
 ## Unreleased
 
+## v0.4.2 — 2026-10-31
+
 ### New
 
 - **Labels on the Mac.** Put coloured labels on notes, as on GitHub
@@ -21,8 +23,17 @@ breaking changes may land in a minor release.
   `--label NAME` (or `-l`) to list or search only notes carrying every
   named label, or to label a captured note, making the label if there is
   none; `--json` output includes each note's labels.
+- **Report a Problem** on the Mac. Help ▸ Report a Problem… makes a note
+  labelled `bug` describing the app and what is on screen: versions, sync
+  state and the open note's settings, never its text. A screenshot of the
+  window and recent log lines can be left out. You add what happened, and
+  Help ▸ Copy as GitHub Issue copies it for an issue. The report is an
+  ordinary note: it syncs if sync is on, and nothing is sent anywhere else.
 
 ### Fixed
+
+- **The folding arrows were dots.** They are chevrons now, sized from the
+  editor's font, with a gutter that grows to match.
 
 - **Clearing a note's setting syncs.** Setting a note's highlighting back to
   automatic on one device left the old language on the others.
