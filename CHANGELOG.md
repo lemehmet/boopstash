@@ -6,6 +6,8 @@ breaking changes may land in a minor release.
 
 ## Unreleased
 
+## v0.4.3 — 2026-10-31
+
 ### Fixed
 
 - **Mac: the preview beside the editor keeps its size.** Dragging the

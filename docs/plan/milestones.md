@@ -12,6 +12,7 @@ Each milestone ends in something that runs. Decisions behind them are in
 | M6 — Mac App Store | Done; 0.3.0 in App Review (macOS and iOS) |
 | M7 — Folding, command line, semantic search, more formatters | Done; v0.4.0, with the planned v0.3.1 changes |
 | v0.4.2 — Labels, Report a Problem | Done; v0.4.2 |
+| v0.4.3 — Preview fixes | TestFlight beta; tagged once the remaining 0.4.3 bugs are fixed |
 
 Releases stay at most one version ahead of the App Store: while a version
 is in review, work lands on `main` and waits.
