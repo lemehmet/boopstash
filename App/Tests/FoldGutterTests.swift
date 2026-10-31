@@ -26,18 +26,19 @@ struct FoldGutterTests {
         return (window, scroll, view, try #require(view.foldGutter))
     }
 
-    /// Ink (non-background) pixels the gutter draws.
-    func inkRows(_ gutter: FoldGutter) -> (count: Int, rows: ClosedRange<Int>?) {
+    /// Ink (non-background) pixels the gutter draws, and the rows and
+    /// columns they span.
+    func ink(_ gutter: FoldGutter) -> (count: Int, rows: ClosedRange<Int>?, columns: ClosedRange<Int>?) {
         let rep = try! #require(gutter.bitmapImageRepForCachingDisplay(in: gutter.bounds))
         gutter.cacheDisplay(in: gutter.bounds, to: rep)
         let background = rep.colorAt(x: 0, y: 0)
-        var count = 0, minY = Int.max, maxY = Int.min
+        var count = 0, minY = Int.max, maxY = Int.min, minX = Int.max, maxX = Int.min
         for y in 0..<rep.pixelsHigh {
             for x in 0..<rep.pixelsWide where rep.colorAt(x: x, y: y) != background {
-                count += 1; minY = min(minY, y); maxY = max(maxY, y)
+                count += 1; minY = min(minY, y); maxY = max(maxY, y); minX = min(minX, x); maxX = max(maxX, x)
             }
         }
-        return (count, count > 0 ? minY...maxY : nil)
+        return (count, count > 0 ? minY...maxY : nil, count > 0 ? minX...maxX : nil)
     }
 
     @Test(arguments: [9.0, 13.0, 24.0, 36.0])
@@ -51,17 +52,28 @@ struct FoldGutterTests {
         let gutterEnd = scroll.convert(NSPoint(x: gutter.bounds.maxX, y: 0), from: gutter).x
         #expect(textStart >= gutterEnd, "the first column of text is not under the gutter")
         #expect(gutter.clipsToBounds)
-        #expect(inkRows(gutter).count > 0, "a chevron is drawn")
+        #expect(ink(gutter).count > 0, "a chevron is drawn")
         window.close()
     }
 
-    @Test func theChevronIsAboutTheCapHeight() async throws {
-        let (window, _, view, gutter) = try await host(fontSize: 24)
-        let rows = try #require(inkRows(gutter).rows)
-        // Two chevrons: the first one's rows sit in the first line.
+    /// One block, so the ink is one chevron: open (down), then folded
+    /// (right), each about the size of the text's capitals: the right one
+    /// as tall, the open one as wide.
+    @Test(arguments: [13.0, 24.0])
+    func theChevronIsAboutTheCapHeight(size: Double) async throws {
+        let (window, _, view, gutter) = try await host(fontSize: size)
+        view.folding.setRegions([FoldRegion(startLine: 0, hidden: 1...2)])
         let scale = CGFloat(try #require(gutter.bitmapImageRepForCachingDisplay(in: gutter.bounds)).pixelsHigh) / gutter.bounds.height
         let capHeight = try #require(view.font).capHeight
-        #expect(CGFloat(rows.count) / scale > capHeight, "at 24 pt an arrow, not a 10 pt dot")
+        for folded in [false, true] {
+            if folded { view.folding.foldAll() }
+            let drawn = ink(gutter)
+            let rows = try #require(drawn.rows), columns = try #require(drawn.columns)
+            let extent = CGFloat(folded ? rows.count : columns.count) / scale
+            #expect(extent >= capHeight * 0.6, "an arrow about the capitals' size, not a dot")
+            #expect(extent <= capHeight * 1.3, "no larger than the capitals")
+            #expect(columns.upperBound < Int(gutter.bounds.width * scale) - 1, "not clipped by the gutter's edge")
+        }
         window.close()
     }
 

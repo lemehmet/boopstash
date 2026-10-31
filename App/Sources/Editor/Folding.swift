@@ -236,16 +236,16 @@ final class FoldGutter: NSRulerView {
         drawHashMarksAndLabels(in: dirtyRect)
     }
 
-    /// A chevron, about the font's cap height, centred on each block's
+    /// A chevron about the font's cap height, centred on each block's
     /// first line: right when folded, down when open.
     override func drawHashMarksAndLabels(in rect: NSRect) {
         guard let editor, let chevrons else { return }
-        let side = metrics.chevronSide
+        // One scale for both, so they match: the right chevron is the cap
+        // height tall, and the open one as wide, as if turned.
+        guard chevrons.folded.size.height > 0 else { return }
+        let scale = metrics.chevronSide / chevrons.folded.size.height
         for (region, frame) in visibleStarts() {
             let image = editor.folding.isFolded(region) ? chevrons.folded : chevrons.open
-            guard image.size.width > 0, image.size.height > 0 else { continue }
-            // Fitted into a square of the cap height, keeping its shape.
-            let scale = side / max(image.size.width, image.size.height)
             let size = NSSize(width: image.size.width * scale, height: image.size.height * scale)
             let target = NSRect(x: ((bounds.width - size.width) / 2).rounded(), y: (frame.midY - size.height / 2).rounded(),
                                 width: size.width, height: size.height)

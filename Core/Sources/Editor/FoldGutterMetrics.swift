@@ -1,4 +1,4 @@
-import CoreGraphics
+import Foundation
 
 /// The folding gutter's size for an editor font (#189): the chevron is
 /// about the height of the font's capital letters, and the gutter is wide
