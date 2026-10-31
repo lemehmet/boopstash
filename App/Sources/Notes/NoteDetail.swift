@@ -33,12 +33,10 @@ struct NoteDetail: View {
                 .padding(.bottom, 4)
             Divider()
             if previewShown && sideBySide {
-                HSplitView {
-                    editor.frame(minWidth: 240)
-                    Group {
-                        if canPreview { preview } else { notPreviewable }
-                    }
-                    .frame(minWidth: 240)
+                PreviewSplitView {
+                    editor
+                } trailing: {
+                    if canPreview { preview } else { notPreviewable }
                 }
             } else if previewShown && canPreview {
                 preview

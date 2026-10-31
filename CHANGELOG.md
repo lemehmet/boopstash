@@ -6,6 +6,12 @@ breaking changes may land in a minor release.
 
 ## Unreleased
 
+### Fixed
+
+- **Mac: the preview beside the editor keeps its size.** Dragging the
+  divider now lasts through switching notes, hiding and showing the
+  preview, and relaunching; it starts at half each (#207).
+
 ## v0.4.2 — 2026-10-31
 
 ### New
