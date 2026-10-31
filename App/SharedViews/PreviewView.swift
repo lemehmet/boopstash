@@ -12,8 +12,7 @@ struct PreviewView: View {
     var image: @Sendable (UUID) async -> PlatformImage? = { _ in nil }
     @Environment(\.colorScheme) private var colorScheme
     @State private var blocks: [PreviewBlock] = []
-    /// The text the newest render was started for.
-    @State private var requested: String?
+    @State private var renders = PreviewRenders()
 
     private var theme: Theme? { appearance.theme(dark: colorScheme == .dark) }
     private var palette: PreviewPalette { PreviewPalette(theme: theme) }
@@ -34,15 +33,12 @@ struct PreviewView: View {
         .foregroundStyle(palette.text)
         // Typing re-renders after a short pause, not on every key.
         .task(id: markdown) {
-            requested = markdown
+            renders.start(markdown)
             if !blocks.isEmpty { try? await Task.sleep(for: .milliseconds(250)) }
             guard !Task.isCancelled else { return }
             let rendered = await MarkdownPreview.blocks(for: markdown)
-            // Kept even if the task was cancelled, unless newer text was
-            // asked for since: on iOS, opening a second note can cancel the
-            // task of a preview that stays on screen, which then never
-            // appears again to start another, and stayed blank.
-            if requested == markdown { blocks = rendered }
+            // Not `!Task.isCancelled`: see PreviewRenders (#206).
+            if renders.keeps(markdown) { blocks = rendered }
         }
         .environment(\.openURL, OpenURLAction { url in
             // Only links Core judged safe carry a URL at all; attachments
