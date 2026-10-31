@@ -11,6 +11,8 @@ breaking changes may land in a minor release.
 - **Mac: the preview beside the editor keeps its size.** Dragging the
   divider now lasts through switching notes, hiding and showing the
   preview, and relaunching; it starts at half each (#207).
+- **iPhone: notes after the first stayed blank with the preview on.** The
+  first note opened rendered; every later one showed only its title (#206).
 
 ## v0.4.2 — 2026-10-31
 
