@@ -33,12 +33,11 @@ struct PreviewView: View {
         .foregroundStyle(palette.text)
         // Typing re-renders after a short pause, not on every key.
         .task(id: markdown) {
-            renders.start(markdown)
-            if !blocks.isEmpty { try? await Task.sleep(for: .milliseconds(250)) }
-            guard !Task.isCancelled else { return }
-            let rendered = await MarkdownPreview.blocks(for: markdown)
-            // Not `!Task.isCancelled`: see PreviewRenders (#206).
-            if renders.keeps(markdown) { blocks = rendered }
+            // Never gated on `Task.isCancelled`: see PreviewRenders (#206).
+            let debounce: Duration? = blocks.isEmpty ? nil : .milliseconds(250)
+            if let rendered = await renders.render(markdown, debounce: debounce, { await MarkdownPreview.blocks(for: $0) }) {
+                blocks = rendered
+            }
         }
         .environment(\.openURL, OpenURLAction { url in
             // Only links Core judged safe carry a URL at all; attachments

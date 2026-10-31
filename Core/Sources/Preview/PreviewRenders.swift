@@ -1,20 +1,25 @@
-/// Which finished preview render may show (#206). A render that completes is
-/// kept even if its task was cancelled, unless newer text was asked for
-/// since: on iOS, opening a second note can cancel the render of a preview
-/// that stays on screen and is never asked to render again.
-public struct PreviewRenders: Equatable, Sendable {
-    /// The text the newest render was started for.
+/// The preview's renders (#206). A render shows unless newer text was asked
+/// for since, however its task ended: on iOS, opening a second note can
+/// cancel the task of a preview that stays on screen and is never asked to
+/// render again, so cancellation alone must not drop it.
+@MainActor
+public final class PreviewRenders {
+    /// The text the newest render was asked for.
     public private(set) var requested: String?
 
     public init() {}
 
-    /// A render was started for `markdown`.
-    public mutating func start(_ markdown: String) {
+    /// Renders `markdown` after `debounce`, or nil when newer text was asked
+    /// for before it finished. A cancelled debounce ends early and renders.
+    public func render<Output: Sendable>(
+        _ markdown: String,
+        debounce: Duration? = nil,
+        _ render: @Sendable (String) async -> Output
+    ) async -> Output? {
         requested = markdown
-    }
-
-    /// Whether a finished render of `markdown` should replace what shows.
-    public func keeps(_ markdown: String) -> Bool {
-        requested == markdown
+        if let debounce { try? await Task.sleep(for: debounce) }
+        guard requested == markdown else { return nil }
+        let output = await render(markdown)
+        return requested == markdown ? output : nil
     }
 }
