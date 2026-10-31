@@ -10,28 +10,23 @@ public enum PreviewSplit {
     public static let minimumPaneWidth = 240.0
 
     /// The editor's width for `fraction` of the space left beside the
-    /// divider. Both panes keep the minimum width when there is room for
-    /// it; when there is not, the space is split by the fraction alone.
+    /// divider. Neither pane is narrower than the minimum; when there is no
+    /// room for two minimums the panes take half each, so the divider moves
+    /// smoothly as the split narrows past the point where they meet.
     public static func leadingWidth(total: Double, fraction: Double, divider: Double) -> Double {
         let available = max(total - divider, 0)
-        let wanted = available * clampedFraction(fraction)
-        guard available >= 2 * minimumPaneWidth else { return wanted }
-        return min(max(wanted, minimumPaneWidth), available - minimumPaneWidth)
+        let minimum = min(minimumPaneWidth, available / 2)
+        return min(max(available * clampedFraction(fraction), minimum), available - minimum)
     }
 
     /// The fraction to keep after the divider is dragged so that the editor
-    /// would be `leadingWidth` wide: clamped as `leadingWidth(total:…)` would
-    /// clamp it, so a drag past a pane's minimum stops at it.
-    public static func fraction(leadingWidth: Double, total: Double, divider: Double) -> Double {
+    /// would be `leadingWidth` wide, clamped as `leadingWidth(total:…)`
+    /// clamps it so a drag past a pane's minimum stops at it. `nil` when the
+    /// split is too narrow for the divider to move: the kept share stands.
+    public static func fraction(leadingWidth: Double, total: Double, divider: Double) -> Double? {
         let available = max(total - divider, 0)
-        guard available > 0 else { return defaultFraction }
-        if available >= 2 * minimumPaneWidth {
-            // The pane minimums are the only floor here: a fixed share would
-            // win over them on a split wider than 4800pt and move the divider.
-            return min(max(leadingWidth, minimumPaneWidth), available - minimumPaneWidth) / available
-        }
-        // Never all one pane: a divider dragged to the edge stays findable.
-        return min(max(leadingWidth / available, 0.05), 0.95)
+        guard available > 2 * minimumPaneWidth else { return nil }
+        return min(max(leadingWidth, minimumPaneWidth), available - minimumPaneWidth) / available
     }
 
     /// How far one VoiceOver increment or decrement moves the divider: this
@@ -39,19 +34,20 @@ public enum PreviewSplit {
     public static let adjustmentStep = 0.05
 
     /// The fraction after `steps` assistive-tech adjustments (positive widens
-    /// the editor), clamped exactly as a drag is.
+    /// the editor), clamped exactly as a drag is; unchanged where a drag
+    /// could not move the divider either.
     public static func adjusted(fraction: Double, by steps: Int, total: Double, divider: Double) -> Double {
         let available = max(total - divider, 0)
         let width = leadingWidth(total: total, fraction: fraction, divider: divider)
         return self.fraction(leadingWidth: width + Double(steps) * adjustmentStep * available,
-                             total: total, divider: divider)
+                             total: total, divider: divider) ?? fraction
     }
 
     /// The editor's share of the space beside the divider as a whole
     /// percentage, for VoiceOver to read out.
     public static func editorPercent(total: Double, fraction: Double, divider: Double) -> Int {
         let available = max(total - divider, 0)
-        guard available > 0 else { return Int((clampedFraction(fraction) * 100).rounded()) }
+        guard available > 0 else { return 50 }
         return Int((leadingWidth(total: total, fraction: fraction, divider: divider) / available * 100).rounded())
     }
 

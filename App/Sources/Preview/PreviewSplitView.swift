@@ -33,8 +33,10 @@ struct PreviewSplitView<Leading: View, Trailing: View>: View {
                                     if start == nil { start = width }
                                 }
                                 .onChanged { drag in
-                                    fraction = PreviewSplit.fraction(leadingWidth: (dragStart ?? width) + drag.translation.width,
-                                                                     total: total, divider: Self.dividerWidth)
+                                    if let dragged = PreviewSplit.fraction(leadingWidth: (dragStart ?? width) + drag.translation.width,
+                                                                           total: total, divider: Self.dividerWidth) {
+                                        fraction = dragged
+                                    }
                                 })
                             // HSplitView's divider was adjustable from
                             // VoiceOver; this one is too.
