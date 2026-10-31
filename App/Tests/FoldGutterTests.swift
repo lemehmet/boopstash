@@ -17,9 +17,10 @@ struct FoldGutterTests {
         window.isReleasedWhenClosed = false
         window.contentView = scroll
         view.editorAppearance = EditorAppearance(fontSize: fontSize)
+        // The blocks below are the test's: no parse may report its own
+        // (empty) ones later and replace them.
+        view.syntax.onFoldRegions = nil
         view.load(Self.text, syntax: .plain)
-        // Let the plain-text parse report its (empty) blocks first.
-        try await Task.sleep(for: .milliseconds(300))
         view.folding.setRegions([FoldRegion(startLine: 0, hidden: 1...2), FoldRegion(startLine: 3, hidden: 4...4)])
         scroll.layoutSubtreeIfNeeded()
         view.textLayoutManager?.textViewportLayoutController.layoutViewport()
@@ -99,8 +100,10 @@ struct FoldGutterTests {
         let light = try #require(inkBrightness(gutter))
         window.appearance = NSAppearance(named: .darkAqua)
         let dark = try #require(inkBrightness(gutter))
-        #expect(light < -0.2, "dark ink on a light editor")
-        #expect(dark > 0.2, "light ink on a dark editor")
+        // 0.1, not more: at a 1x backing scale (CI) antialiasing leaves the
+        // thin stroke's darkest pixel only about 0.18 below the background.
+        #expect(light < -0.1, "dark ink on a light editor")
+        #expect(dark > 0.1, "light ink on a dark editor")
         window.close()
     }
 
