@@ -1,0 +1,26 @@
+SCREEN RECORDING
+Attached to this submission (App Review Information ▸ Attachment), recorded on a Mac running the latest macOS. It starts at launch and shows the typical flow. BoopStash has no accounts, no sign-in, no user-generated content shared between users, and no paid content or In-App Purchases, so none of those flows exist.
+
+PURPOSE AND AUDIENCE
+BoopStash is a private scratch pad for developers and other people who work with text: code snippets, terminal and AI-agent output, logs, JSON, screenshots. Plain editors make you name and file every scrap, and clipboard histories forget them. BoopStash keeps each note, titles it for you, and lets you find it again by its words, its meaning, when you saved it or the app it came from. It includes a plain-text editor with syntax highlighting, code formatting and text transforms (encode, decode, hash, sort).
+
+SETTING UP AND USING THE APP
+No login, account or sample files are needed. On first launch a window opens with an empty note list.
+1. Choose File ▸ New Note (⌘N) and type, or paste text or an image with ⌘V. The note is saved and titled automatically.
+2. Paste a screenshot: its text is recognised on the device and becomes searchable.
+3. Type in the Filter field above the list: matches come from titles, text and text in images. The filter menu in the toolbar narrows by date (Today, Last 7 days, Last 30 days) and by label. Search by meaning is on by default: "invoice" also finds "bill for March". Right-click a note ▸ Show Similar Notes.
+4. In a note with JSON or code: Edit ▸ Format Document. Scripts ▸ Run Script… (⌘B) transforms the selection (e.g. Base64 encode, hash, sort lines).
+5. Labels: Note ▸ Labels… (⌃⌘L), or right-click a note ▸ Labels.
+6. Settings (⌘,): key bindings (VS Code or JetBrains), editor theme, labels, and the optional "Sync with iCloud" toggle (off by default).
+7. Capture from other apps: select text, then Services ▸ Save to BoopStash; or turn on the ⌃⌥⌘V shortcut in Settings ▸ General to save the clipboard from any app.
+8. File ▸ Export All Notes… writes every note as Markdown files.
+
+EXTERNAL SERVICES
+- Apple iCloud (CloudKit, the user's own private database), only if the user turns on Sync with iCloud. It is off by default.
+No other network service is used: no account system, no analytics, no crash reporting, no advertising, no payment processor and no server of ours. All AI runs on the device: Apple's Foundation Models framework for titles (on-device model only, never Private Cloud Compute), Apple's Vision framework for text in images, and a small embedding model bundled in the app (Core ML) for search by meaning.
+
+REGIONAL DIFFERENCES
+The app works the same in all regions. Titling by Apple's on-device model is available only where Apple Intelligence is available and turned on; elsewhere and on Macs without Apple Intelligence, titles come from a built-in rule-based titler and every other feature is unchanged.
+
+REGULATED INDUSTRY / THIRD-PARTY MATERIAL
+Not applicable: the app is not in a regulated industry and contains no protected third-party content. It is open source (Apache-2.0); the bundled open-source components and their licences are listed at https://github.com/lemehmet/boopstash.

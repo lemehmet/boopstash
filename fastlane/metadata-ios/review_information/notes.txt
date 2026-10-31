@@ -1,0 +1,23 @@
+SCREEN RECORDING
+Attached to this submission (App Review Information ▸ Attachment), recorded on an iPhone running the latest iOS. It starts at launch and shows the typical flow. BoopStash has no accounts, no sign-in, no user-generated content shared between users, and no paid content or In-App Purchases, so none of those flows exist.
+
+PURPOSE AND AUDIENCE
+BoopStash is a private scratch pad for developers and other people who work with text: code snippets, terminal and AI-agent output, logs, JSON, screenshots. On iPhone and iPad it keeps those notes at hand: listed newest first, titled automatically, searchable by words, by meaning and by date, and editable in a plain-text editor with syntax highlighting. It is the companion of BoopStash for Mac but works on its own.
+
+SETTING UP AND USING THE APP
+No login, account or sample files are needed. On first launch the note list is empty.
+1. Tap New Note and type, or tap From Clipboard to save what was copied (text or an image). The note is saved and titled automatically.
+2. From another app, use the Share sheet ▸ BoopStash to save text or an image as a note.
+3. Search: pull down the list to reveal the Filter field; matches come from titles, text and text in images. The filter menu at the top left narrows by date (Today, Last 7 days, Last 30 days) and by label. Search by meaning: "invoice" also finds "bill for March". Long-press a note ▸ Show Similar Notes.
+4. Open a note to read or edit it; code is syntax highlighted, and Markdown has a Preview.
+5. Settings (gear button): the optional "Sync with iCloud" toggle (off by default) shares notes, and their labels, with BoopStash on the user's Mac through their own iCloud.
+
+EXTERNAL SERVICES
+- Apple iCloud (CloudKit, the user's own private database), only if the user turns on Sync with iCloud. It is off by default.
+No other network service is used: no account system, no analytics, no crash reporting, no advertising, no payment processor and no server of ours. All AI runs on the device: Apple's Foundation Models framework for titles (on-device model only, never Private Cloud Compute), Apple's Vision framework for text in images, and a small embedding model bundled in the app (Core ML) for search by meaning.
+
+REGIONAL DIFFERENCES
+The app works the same in all regions. Titling by Apple's on-device model is available only where Apple Intelligence is available and turned on; elsewhere, and on devices without Apple Intelligence, titles come from a built-in rule-based titler and every other feature is unchanged.
+
+REGULATED INDUSTRY / THIRD-PARTY MATERIAL
+Not applicable: the app is not in a regulated industry and contains no protected third-party content. It is open source (Apache-2.0); the bundled open-source components and their licences are listed at https://github.com/lemehmet/boopstash.
