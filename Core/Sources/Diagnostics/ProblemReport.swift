@@ -245,7 +245,7 @@ public struct ProblemReport: Equatable, Sendable {
     /// or list markers, its destination on the same line or the next, with an
     /// optional title. Group 1 is the definition without the markers.
     static let issueDefinitionPattern = try! NSRegularExpression(
-        pattern: #"^(?:[ \t]*(?:>|[-+*](?=[ \t])|[0-9]{1,9}[.)](?=[ \t])))*[ \t]*(\[(?:[^\]\\]|\\.)+\]:[ \t]*(?:\r?\n(?:[ \t]*>)*)?[ \t]*<?(?i:attachment):[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}>?(?:[ \t]+(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|\((?:[^)\\]|\\.)*\)))?)"#,
+        pattern: #"^(?:[ \t]*(?:>|[-+*](?=[ \t])|[0-9]{1,9}[.)](?=[ \t])))*[ \t]*(\[(?:[^\]\\]|\\.)+\]:[ \t]*(?:(?:\r\n?|\n)(?:[ \t]*>)*)?[ \t]*<?(?i:attachment):[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}>?(?:[ \t]+(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|\((?:[^)\\]|\\.)*\)))?)"#,
         options: [.anchorsMatchLines]
     )
 

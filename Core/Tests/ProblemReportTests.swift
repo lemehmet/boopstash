@@ -178,10 +178,12 @@ import Testing
     }
 
     /// Reference-style images in the forms only the parser sees: inside a
-    /// quote or a list, with CRLF line ends, with a title, by shortcut (#185).
+    /// quote or a list, with CRLF or lone-CR line ends, with a title, by
+    /// shortcut (#185, #191).
     @Test(arguments: [
         "> ![plot][img]\n>\n> [img]: attachment:%@",
         "![plot][img]\r\n\r\n[img]:\r\n attachment:%@",
+        "[img]:\r attachment:%@\r\r![plot][img]",
         "![plot][img]\n\n[img]: <attachment:%@> \"A title\"",
         "![img]\n\n[img]: attachment:%@",
         "- [img]: attachment:%@\n\n  ![plot][img]",
