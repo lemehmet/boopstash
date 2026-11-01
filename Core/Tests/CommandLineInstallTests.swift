@@ -43,6 +43,9 @@ import Testing
         // A link to anything else is someone else's, broken or not.
         #expect(plan(.link(destination: "/usr/bin/true", resolves: true)) == .occupied)
         #expect(plan(.link(destination: "/gone/boopstash", resolves: false)) == .occupied)
+        // Another app's helper of the same name is not ours either.
+        #expect(plan(.link(destination: "/gone/Other.app/Contents/Helpers/boopstash", resolves: false)) == .occupied)
+        #expect(plan(.link(destination: "/gone/BoopStash 2.app/Contents/Helpers/boopstash", resolves: false)) == .replaceBroken)
     }
 
     @Test func shellCommandQuotesPaths() {

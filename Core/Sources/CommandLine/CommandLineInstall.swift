@@ -99,8 +99,14 @@ public enum CommandLineInstall {
         (path as NSString).standardizingPath
     }
 
+    /// A helper inside an app named BoopStash (or a copy, such as
+    /// "BoopStash 2.app"). Another app's `Helpers/boopstash` is not ours,
+    /// so a broken link to one is never replaced.
     static func isBoopStashHelper(_ path: String) -> Bool {
-        path.hasSuffix(".app/Contents/Helpers/\(commandName)")
+        let suffix = "/Contents/Helpers/\(commandName)"
+        guard path.hasSuffix(suffix) else { return false }
+        let app = (String(path.dropLast(suffix.count)) as NSString).lastPathComponent
+        return app.hasSuffix(".app") && app.lowercased().hasPrefix("boopstash")
     }
 
     /// The line to run in Terminal when the folder cannot be written from
