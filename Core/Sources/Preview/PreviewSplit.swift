@@ -29,6 +29,19 @@ public enum PreviewSplit {
         return min(max(leadingWidth, minimumPaneWidth), available - minimumPaneWidth) / available
     }
 
+    /// The fraction to keep while the divider is dragged by `translation`
+    /// from where the stored `startFraction` put it (`startWidth`). A drag
+    /// that is back where it began, or that a pane's minimum holds there,
+    /// keeps the stored share, also one that renders clamped: a 0.10 share
+    /// showing as 240 of 1000 is not replaced by 0.24 (#226). `nil` when the
+    /// split is too narrow for the divider to move.
+    public static func dragged(from startFraction: Double, startWidth: Double, by translation: Double,
+                               total: Double, divider: Double) -> Double? {
+        guard let next = fraction(leadingWidth: startWidth + translation, total: total, divider: divider) else { return nil }
+        let width = leadingWidth(total: total, fraction: next, divider: divider)
+        return abs(width - startWidth) < 0.000_001 ? startFraction : next
+    }
+
     /// How far one VoiceOver increment or decrement moves the divider: this
     /// share of the space beside it.
     public static let adjustmentStep = 0.05

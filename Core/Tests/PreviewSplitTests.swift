@@ -66,6 +66,22 @@ import Testing
         #expect(PreviewSplit.adjusted(fraction: 0.1, by: 0, total: 1000, divider: 0) == 0.1)
     }
 
+    /// A drag that ends where it began keeps the stored share, also one
+    /// that renders clamped at a pane's minimum (#226).
+    @Test func aDragBackToItsStartKeepsTheStoredShare() throws {
+        let clamped = PreviewSplit.leadingWidth(total: 1000, fraction: 0.1, divider: 1)
+        #expect(clamped == 240)
+        #expect(PreviewSplit.dragged(from: 0.1, startWidth: clamped, by: 0, total: 1000, divider: 1) == 0.1)
+        // Toward the minimum it is already at: held there, still kept.
+        #expect(PreviewSplit.dragged(from: 0.1, startWidth: clamped, by: -30, total: 1000, divider: 1) == 0.1)
+        // A real move stores what is shown.
+        let moved = try #require(PreviewSplit.dragged(from: 0.1, startWidth: clamped, by: 30, total: 1000, divider: 1))
+        #expect(abs(moved - 270.0 / 999) < 0.0001)
+        #expect(PreviewSplit.dragged(from: 0.5, startWidth: 499.5, by: 0, total: 1000, divider: 1) == 0.5)
+        // No room to move: nothing to store.
+        #expect(PreviewSplit.dragged(from: 0.3, startWidth: 200, by: 10, total: 400, divider: 0) == nil)
+    }
+
     @Test func theEditorsShareIsReadAsTheWidthItActuallyHas() {
         #expect(PreviewSplit.editorPercent(total: 1001, fraction: 0.3, divider: 1) == 30)
         // 10% asked for, but the minimum width gives the editor 24%.
