@@ -64,6 +64,10 @@ import Testing
         // No steps: a share that renders clamped (0.10 shows as 240 of 1000)
         // is kept, not replaced by the clamped one (#210).
         #expect(PreviewSplit.adjusted(fraction: 0.1, by: 0, total: 1000, divider: 0) == 0.1)
+        // A decrement it is already held at the minimum against keeps it
+        // too; an increment moves it from what is shown (#226).
+        #expect(PreviewSplit.adjusted(fraction: 0.1, by: -1, total: 1000, divider: 1) == 0.1)
+        #expect(abs(PreviewSplit.adjusted(fraction: 0.1, by: 1, total: 1000, divider: 1) - (240 + 49.95) / 999) < 0.0001)
     }
 
     /// A drag that ends where it began keeps the stored share, also one
