@@ -7,7 +7,7 @@ import Foundation
 extension AppModel {
     func observeLabels() {
         labelObservation?.cancel()
-        let values = store.labelCatalogs()
+        let values = labelCatalogResults()
         labelObservation = Task { [weak self] in
             do {
                 for try await catalog in values {

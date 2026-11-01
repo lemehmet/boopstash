@@ -356,9 +356,14 @@ final class AppModel {
         }
     }
 
+    /// The list's results for a query, and the label catalog, as the store
+    /// delivers them; replaceable so a test can deliver them by hand (#221).
+    @ObservationIgnored lazy var noteResults: (NoteQuery) -> any AsyncSequence<[Note], any Error> = { [store] in store.results($0) }
+    @ObservationIgnored lazy var labelCatalogResults: () -> any AsyncSequence<LabelCatalog, any Error> = { [store] in store.labelCatalogs() }
+
     private func observe() {
         observation?.cancel()
-        let values = store.results(query)
+        let values = noteResults(query)
         observation = Task { [weak self] in
             do {
                 for try await notes in values {
