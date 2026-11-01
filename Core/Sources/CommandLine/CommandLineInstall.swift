@@ -68,6 +68,23 @@ public enum CommandLineInstall {
         }
     }
 
+    /// What a failed `lstat` of the command's path says is there: `ENOENT`
+    /// or `ENOTDIR` mean nothing is; anything else (the sandbox's `EPERM`
+    /// once the panel's grant is gone after a relaunch) means the app
+    /// could not look, so nothing is known.
+    public static func existing(afterLookupError code: Int32) -> Existing? {
+        code == ENOENT || code == ENOTDIR ? .nothing : nil
+    }
+
+    /// Whether Settings may still say the command is linked at a path it
+    /// linked earlier. A path the app cannot read any more keeps the
+    /// claim; one that is gone, or no longer links to this app's helper
+    /// (the link was removed, the cask uninstalled, the app moved), drops it.
+    public static func stillInstalled(existing: Existing?, folder: String, helper: String) -> Bool {
+        guard let existing else { return true }
+        return plan(existing: existing, folder: folder, helper: helper) == .alreadyInstalled
+    }
+
     /// A link's destination as an absolute, standardized path.
     static func resolved(_ destination: String, in folder: String) -> String {
         let absolute = destination.hasPrefix("/") ? destination : (folder as NSString).appendingPathComponent(destination)
@@ -83,9 +100,10 @@ public enum CommandLineInstall {
     }
 
     /// The line to run in Terminal when the folder cannot be written from
-    /// the app (`/usr/local/bin` is often root's).
-    public static func shellCommand(helper: String, folder: String) -> String {
-        "sudo ln -s \(shellQuoted(helper)) \(shellQuoted((folder as NSString).appendingPathComponent(commandName)))"
+    /// the app (`/usr/local/bin` is often root's). `replacing` a broken
+    /// link needs `-f`: plain `ln -s` stops at the link still there.
+    public static func shellCommand(helper: String, folder: String, replacing: Bool = false) -> String {
+        "sudo ln -s\(replacing ? "f" : "") \(shellQuoted(helper)) \(shellQuoted((folder as NSString).appendingPathComponent(commandName)))"
     }
 
     static func shellQuoted(_ path: String) -> String {

@@ -32,7 +32,10 @@ enum CommandLineInstaller {
         let folder = folderURL.path
         let link = folderURL.appendingPathComponent(CommandLineInstall.commandName)
 
-        switch CommandLineInstall.plan(existing: existing(at: link), folder: folder, helper: helper) {
+        // The panel's grant makes the path readable; an unreadable one is
+        // left alone like anything else not ours.
+        let plan = CommandLineInstall.plan(existing: existing(at: link) ?? .other, folder: folder, helper: helper)
+        switch plan {
         case .alreadyInstalled:
             UserDefaults.standard.set(link.path, forKey: linkPathKey)
             alert("The command is already installed", "\(link.path) runs this BoopStash's command.")
@@ -52,7 +55,7 @@ enum CommandLineInstaller {
                 alert("The command is installed",
                       "\(link.path) now runs BoopStash's command. In a new terminal window, try `boopstash --help`. If the shell cannot find it, add \(folder) to your PATH.")
             } catch {
-                offerShellCommand(CommandLineInstall.shellCommand(helper: helper, folder: folder), folder: folder)
+                offerShellCommand(CommandLineInstall.shellCommand(helper: helper, folder: folder, replacing: plan == .replaceBroken), folder: folder)
             }
         }
     }
@@ -77,11 +80,24 @@ enum CommandLineInstaller {
         alert.runModal()
     }
 
-    private static func existing(at link: URL) -> CommandLineInstall.Existing {
-        if let destination = FileManager.default.destinationOfSymbolicLinkIfAny(at: link) {
+    /// The recorded link path, if it still runs this app's command (#212):
+    /// Settings ▸ General shows it only then.
+    static func verifiedLinkPath(_ path: String) -> String? {
+        guard !path.isEmpty else { return nil }
+        let link = URL(fileURLWithPath: path)
+        let helper = CommandLineInstall.helperPath(appPath: Bundle.main.bundleURL.path)
+        let folder = link.deletingLastPathComponent().path
+        return CommandLineInstall.stillInstalled(existing: existing(at: link), folder: folder, helper: helper) ? path : nil
+    }
+
+    /// What is at `link`, or nil when the sandbox does not let the app look.
+    private static func existing(at link: URL) -> CommandLineInstall.Existing? {
+        var info = stat()
+        guard lstat(link.path, &info) == 0 else { return CommandLineInstall.existing(afterLookupError: errno) }
+        if info.st_mode & S_IFMT == S_IFLNK, let destination = FileManager.default.destinationOfSymbolicLinkIfAny(at: link) {
             return .link(destination: destination, resolves: FileManager.default.fileExists(atPath: link.path))
         }
-        return FileManager.default.fileExists(atPath: link.path) ? .other : .nothing
+        return .other
     }
 
     /// The user's home, not the sandbox container `NSHomeDirectory()` gives.

@@ -27,6 +27,8 @@ struct GeneralSettings: View {
     @AppStorage(AppDelegate.hotKeyKey) private var globalShortcut = true
     @AppStorage(AppModel.semanticSearchKey) private var semanticSearch = true
     @AppStorage(CommandLineInstaller.linkPathKey) private var linkPath = ""
+    /// `linkPath` once checked to still run this app's command.
+    @State private var verifiedLinkPath: String?
 
     var body: some View {
         Form {
@@ -70,11 +72,11 @@ struct GeneralSettings: View {
                 LabeledContent("boopstash command") {
                     Button("Install…") { CommandLineInstaller.run() }
                 }
-                Text(linkPath.isEmpty
-                     ? "Pipe text into a new note from Terminal: some-command | boopstash. Install links the command into a folder on your PATH."
-                     : "Linked at \(linkPath). Pipe text into a new note from Terminal: some-command | boopstash.")
+                Text(verifiedLinkPath.map { "Linked at \($0). Pipe text into a new note from Terminal: some-command | boopstash." }
+                     ?? "Pipe text into a new note from Terminal: some-command | boopstash. Install links the command into a folder on your PATH.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .task(id: linkPath) { verifiedLinkPath = CommandLineInstaller.verifiedLinkPath(linkPath) }
             }
             if let model { SyncSettings(model: model) }
             Section("Clipboard history") {

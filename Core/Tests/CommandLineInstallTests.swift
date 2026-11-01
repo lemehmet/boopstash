@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import BoopstashCore
 
@@ -47,5 +48,29 @@ import Testing
             == "sudo ln -s '/Applications/BoopStash.app/Contents/Helpers/boopstash' '/usr/local/bin/boopstash'")
         #expect(Install.shellCommand(helper: "/Users/o'b/BoopStash.app/Contents/Helpers/boopstash", folder: "/usr/local/bin")
             == #"sudo ln -s '/Users/o'\''b/BoopStash.app/Contents/Helpers/boopstash' '/usr/local/bin/boopstash'"#)
+        // A broken link is still there when the folder is root's: -f replaces it.
+        #expect(Install.shellCommand(helper: helper, folder: "/usr/local/bin", replacing: true)
+            == "sudo ln -sf '/Applications/BoopStash.app/Contents/Helpers/boopstash' '/usr/local/bin/boopstash'")
+    }
+
+    @Test func lookupErrors() {
+        #expect(Install.existing(afterLookupError: ENOENT) == .nothing)
+        #expect(Install.existing(afterLookupError: ENOTDIR) == .nothing)
+        // The sandbox denies the read once the panel's grant is gone.
+        #expect(Install.existing(afterLookupError: EPERM) == nil)
+        #expect(Install.existing(afterLookupError: EACCES) == nil)
+    }
+
+    @Test func stillInstalled() {
+        let folder = "/opt/homebrew/bin"
+        func still(_ existing: Install.Existing?) -> Bool { Install.stillInstalled(existing: existing, folder: folder, helper: helper) }
+        #expect(still(.link(destination: helper, resolves: true)))
+        // Unreadable after a relaunch: keep what was recorded.
+        #expect(still(nil))
+        // Removed, uninstalled, replaced, or the app moved.
+        #expect(!still(.nothing))
+        #expect(!still(.other))
+        #expect(!still(.link(destination: "/Users/a/Applications/BoopStash.app/Contents/Helpers/boopstash", resolves: true)))
+        #expect(!still(.link(destination: "/Users/a/Applications/BoopStash.app/Contents/Helpers/boopstash", resolves: false)))
     }
 }
