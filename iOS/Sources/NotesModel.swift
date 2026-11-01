@@ -283,6 +283,9 @@ final class NotesModel {
         observation = Task { [weak self] in
             do {
                 for try await notes in values {
+                    // A value the replaced observation had already received
+                    // would otherwise overwrite the new query's list (#200).
+                    guard !Task.isCancelled else { return }
                     self?.notes = notes
                     // A change may have brought an image to read.
                     self?.recognizePendingImages()
@@ -302,7 +305,9 @@ final class NotesModel {
         labelObservation = Task { [weak self] in
             do {
                 for try await catalog in values {
-                    guard let self else { return }
+                    // A replaced observation's catalog would overwrite the
+                    // new one and could prune the filter from it (#200).
+                    guard !Task.isCancelled, let self else { return }
                     self.labelCatalog = catalog
                     let kept = catalog.pruned(self.query.labels)
                     if kept != self.query.labels { self.query.labels = kept }

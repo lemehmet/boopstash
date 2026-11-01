@@ -8,10 +8,11 @@ breaking changes may land in a minor release.
 
 ### Fixed
 
-- **Mac: the note list could stay on an old filter.** Changing the filter
+- **The note list could stay on an old filter.** Changing the filter
   twice in quick succession, as New Note does when it clears a label
   filter, could leave the list showing the first filter's notes until the
-  next edit (#200).
+  next edit, on the Mac, iPhone and iPad. The label list had the same
+  race (#200).
 
 ## v0.4.4 — 2026-11-01
 
