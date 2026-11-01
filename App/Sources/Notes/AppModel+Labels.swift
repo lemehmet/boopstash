@@ -11,7 +11,9 @@ extension AppModel {
         labelObservation = Task { [weak self] in
             do {
                 for try await catalog in values {
-                    guard let self else { return }
+                    // A replaced observation's catalog would overwrite the
+                    // new one and could prune the filter from it (#200).
+                    guard !Task.isCancelled, let self else { return }
                     self.labelCatalog = catalog
                     // A label deleted here, elsewhere or folded into a
                     // same-name one leaves the filter too.

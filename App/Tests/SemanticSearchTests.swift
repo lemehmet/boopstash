@@ -44,11 +44,6 @@ struct SemanticSearchTests {
         return axis == 3 ? [0, 1] : [1, 0]
     }
 
-    func eventually(_ condition: () -> Bool) async throws -> Bool {
-        for _ in 0..<150 where !condition() { try await Task.sleep(for: .milliseconds(20)) }
-        return condition()
-    }
-
     @Test func aSearchListsNotesCloseInMeaningAfterItsMatches() async throws {
         let model = AppModel(store: try .inMemory())
         model.embed = Self.embed

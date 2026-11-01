@@ -24,8 +24,7 @@ struct LabelFlowTests {
 
     /// Waits until the observed catalog and list show what `ready` asks for.
     func settle(_ ready: () -> Bool) async throws {
-        for _ in 0..<200 where !ready() { try await Task.sleep(for: .milliseconds(10)) }
-        #expect(ready())
+        #expect(try await eventually(ready))
     }
 
     @Test func creatingFromThePopoverAssignsANewPresetColouredLabel() async throws {
