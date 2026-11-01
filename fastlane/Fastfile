@@ -51,6 +51,10 @@ Deliver::UploadMetadata.prepend(KeepReviewAttachments)
 # The release lanes stop before submitting when the version being prepared
 # has no recording (#205): the review notes say one is attached.
 def require_review_attachment!(platform)
+  # The patch above only works while deliver still has the method it replaces.
+  unless Deliver::UploadMetadata.instance_method(:review_attachment_file).super_method
+    UI.user_error!("deliver no longer has review_attachment_file, so it would delete the screen recording: update KeepReviewAttachments for this fastlane")
+  end
   Spaceship::ConnectAPI.token = Spaceship::ConnectAPI::Token.from(hash: api_key)
   app = Spaceship::ConnectAPI::App.find(APP_ID) || UI.user_error!("#{APP_ID} is not in App Store Connect")
   version = app.get_edit_app_store_version(platform: platform)
