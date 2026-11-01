@@ -73,6 +73,7 @@ final class Gate<Element: Sendable>: AsyncSequence, Sendable {
         var waiting: CheckedContinuation<Element?, Never>?
         var requests = 0
         var ended = false
+        var finished = false
     }
     private let state = Mutex(State())
 
@@ -88,10 +89,11 @@ final class Gate<Element: Sendable>: AsyncSequence, Sendable {
         }
     }
 
-    /// Ends the sequence for a reader still waiting, so none is left
-    /// suspended after the test.
+    /// Ends the sequence for a reader waiting now or asking later, so none
+    /// is left suspended after the test whichever comes first.
     func finish() {
         state.withLock { state in
+            state.finished = true
             state.waiting?.resume(returning: nil)
             state.waiting = nil
         }
@@ -107,7 +109,11 @@ final class Gate<Element: Sendable>: AsyncSequence, Sendable {
             await withCheckedContinuation { continuation in
                 gate.state.withLock { state in
                     state.requests += 1
-                    state.waiting = continuation
+                    if state.finished {
+                        continuation.resume(returning: nil)
+                    } else {
+                        state.waiting = continuation
+                    }
                 }
             }
         }
