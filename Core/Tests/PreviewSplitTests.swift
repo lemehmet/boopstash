@@ -61,6 +61,9 @@ import Testing
         // No room to move: the kept share stands.
         #expect(PreviewSplit.adjusted(fraction: 0.3, by: 1, total: 400, divider: 0) == 0.3)
         #expect(PreviewSplit.adjusted(fraction: 0.5, by: 1, total: 0, divider: 0) == 0.5)
+        // No steps: a share that renders clamped (0.10 shows as 240 of 1000)
+        // is kept, not replaced by the clamped one (#210).
+        #expect(PreviewSplit.adjusted(fraction: 0.1, by: 0, total: 1000, divider: 0) == 0.1)
     }
 
     @Test func theEditorsShareIsReadAsTheWidthItActuallyHas() {
