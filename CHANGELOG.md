@@ -8,6 +8,12 @@ breaking changes may land in a minor release.
 
 ### Fixed
 
+- **With iCloud sync on, a note could be emptied into a "(conflict)" copy.**
+  Editing a note soon after it was first synced, for example pasting into
+  a new note and running Format or a script, then moving to another note,
+  could leave the note as it was first uploaded and put the edit in a
+  conflict copy. The upload coming back from iCloud was taken for an edit
+  made on another device (#215, #216).
 - **The note list could stay on an old filter.** Changing the filter
   twice in quick succession, as New Note does when it clears a label
   filter, could leave the list showing the first filter's notes until the

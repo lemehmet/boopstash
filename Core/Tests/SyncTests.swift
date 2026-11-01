@@ -138,6 +138,65 @@ import Testing
         #expect(try pendingNames().contains("save Note \(copy.id.uuidString.lowercased())"), "the copy is sent too")
     }
 
+    /// #215: a new note is uploaded empty, then filled in and formatted
+    /// before the next send; a fetch hands back the empty upload. It is this
+    /// device's own record (the tag stored when it was acknowledged), so the
+    /// edits stay, pending, and no conflict copy is made.
+    @Test func ownUploadComingBackKeepsTheEditsWithoutACopy() throws {
+        var mine = note("")
+        try store.save(mine)
+        let name = mine.id.uuidString.lowercased()
+        let sent = try #require(try version(of: name))
+        let uploaded = try #require(try store.pendingSyncChanges().compactMap { change -> SyncRecord? in
+            if case .save(let record, _, _) = change { return record }
+            return nil
+        }.first)
+        try store.acknowledgeSave(kind: .note, name: name, version: sent, systemFields: fields, changeTag: "tag-1")
+        mine.body = "{\n  \"a\": 1\n}"
+        mine.updatedAt = mine.updatedAt.addingTimeInterval(20)
+        try store.save(mine)
+
+        #expect(try store.applyServerRecord(uploaded, systemFields: fields, changeTag: "tag-1") == nil)
+        #expect(try store.note(id: mine.id)?.body == mine.body)
+        #expect(try store.notes(matching: NoteQuery()).count == 1, "no conflict copy")
+        #expect(try pendingNames() == ["save Note \(name)"], "the edits are still to send")
+    }
+
+    /// The same record with another tag is a change made elsewhere: both
+    /// edits are kept, as before.
+    @Test func aChangedTagStillMergesWithACopy() throws {
+        let base = note("base", title: "Plan")
+        try store.applyServerRecord(SyncMapping.record(for: base), systemFields: fields, changeTag: "tag-1")
+        var mine = base
+        mine.body = "my edit"
+        mine.updatedAt = base.updatedAt.addingTimeInterval(10)
+        try store.save(mine)
+        var theirs = base
+        theirs.body = "their edit"
+        theirs.updatedAt = base.updatedAt.addingTimeInterval(5)
+
+        let copy = try #require(try store.applyServerRecord(SyncMapping.record(for: theirs), systemFields: fields, changeTag: "tag-2"))
+        #expect(try store.note(id: base.id)?.body == "their edit")
+        #expect(copy.body == "my edit")
+    }
+
+    /// A stale acknowledgement, whose system fields are not kept, does not
+    /// leave its tag either: a later record with that tag is merged.
+    @Test func aStaleAcknowledgementLeavesNoTag() throws {
+        let mine = note("mine")
+        try store.applyServerRecord(SyncMapping.record(for: mine), systemFields: fields, changeTag: "tag-1")
+        try store.applyServerDeletion(kind: .note, name: mine.id.uuidString.lowercased())
+        let name = mine.id.uuidString.lowercased()
+        // Sent again as new; an acknowledgement of an upload from before is stale.
+        try store.acknowledgeSave(kind: .note, name: name, version: 1, systemFields: Data("old-record".utf8), changeTag: "tag-old")
+        var edited = mine
+        edited.body = "edited"
+        try store.save(edited)
+        var theirs = mine
+        theirs.body = "theirs"
+        #expect(try store.applyServerRecord(SyncMapping.record(for: theirs), systemFields: fields, changeTag: "tag-old") != nil)
+    }
+
     @Test func aUserTitleBeatsAGeneratedOne() {
         var local = note("same", title: "My name")
         local.titleIsUserSet = true

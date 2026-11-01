@@ -278,7 +278,8 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
             guard let kind = SyncRecord.Kind(rawValue: record.recordType) else { continue }
             let version = state.withLock { $0.sentVersions.removeValue(forKey: record.recordID) }
             if let version {
-                try? store.acknowledgeSave(kind: kind, name: record.recordID.recordName, version: version, systemFields: Self.systemFields(of: record))
+                try? store.acknowledgeSave(kind: kind, name: record.recordID.recordName, version: version, systemFields: Self.systemFields(of: record),
+                                           changeTag: record.recordChangeTag)
             }
         }
         for failure in sent.failedRecordSaves {
@@ -295,6 +296,7 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
                 // store marks what is still to send, and the watcher re-adds it.
                 // The generation now, not when the task runs: an account switch
                 // in between must not take this account's record.
+                Self.log.info("save of \(record.recordID.recordName, privacy: .public) refused: changed on the server")
                 let generation = state.withLock { $0.generation }
                 if let server = failure.error.serverRecord { Task { await self.applyFetched([server], deletions: [], generation: generation) } }
                 engine.state.add(pendingRecordZoneChanges: [.saveRecord(record.recordID)])
@@ -429,6 +431,7 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
     private struct Incoming: Sendable {
         var record: SyncRecord
         var systemFields: Data
+        var changeTag: String?
         var asset: Data?
     }
 
@@ -450,7 +453,7 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
                 }
                 asset = data
             }
-            incoming.append(Incoming(record: sync, systemFields: Self.systemFields(of: record), asset: asset))
+            incoming.append(Incoming(record: sync, systemFields: Self.systemFields(of: record), changeTag: record.recordChangeTag, asset: asset))
         }
         let deleted = deletions.compactMap { id, type in SyncRecord.Kind(rawValue: type).map { Deletion(kind: $0, name: id.recordName) } }
         // Every record that arrived, read or not, voids an older deletion of
@@ -476,7 +479,11 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
             let ordered = incoming.filter { $0.record.kind == .label } + incoming.filter { $0.record.kind != .label }
             for item in ordered {
                 do {
-                    let copy = try store.applyServerRecord(item.record, systemFields: item.systemFields, assetData: item.asset)
+                    let copy = try store.applyServerRecord(item.record, systemFields: item.systemFields, changeTag: item.changeTag,
+                                                           assetData: item.asset)
+                    if let copy {
+                        Self.log.info("conflict copy \(copy.id.uuidString, privacy: .public) of \(item.record.name, privacy: .public)")
+                    }
                     // A newer version arrived: an older deletion waiting to be
                     // applied again no longer holds.
                     _ = state.withLock { $0.retryingDeletions.remove(item.record.name) }
