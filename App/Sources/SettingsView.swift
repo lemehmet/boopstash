@@ -77,6 +77,9 @@ struct GeneralSettings: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .task(id: linkPath) { linkStatus = CommandLineInstaller.linkStatus(linkPath) }
+                    .onReceive(NotificationCenter.default.publisher(for: CommandLineInstaller.didRun)) { _ in
+                        linkStatus = CommandLineInstaller.linkStatus(UserDefaults.standard.string(forKey: CommandLineInstaller.linkPathKey) ?? "")
+                    }
             }
             if let model { SyncSettings(model: model) }
             Section("Clipboard history") {

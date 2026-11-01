@@ -8,8 +8,12 @@ import BoopstashCore
 enum CommandLineInstaller {
     /// Where the last link was made, for Settings ▸ General.
     static let linkPathKey = "commandLineLinkPath"
+    /// Posted when `run()` returns, so Settings re-checks the link even
+    /// when its recorded path did not change.
+    static let didRun = Notification.Name("CommandLineInstaller.didRun")
 
     static func run() {
+        defer { NotificationCenter.default.post(name: didRun, object: nil) }
         let appPath = Bundle.main.bundleURL.path
         guard !CommandLineInstall.isTranslocated(appPath: appPath) else {
             alert("Move BoopStash to Applications first",
