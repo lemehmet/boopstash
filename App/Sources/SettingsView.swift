@@ -27,8 +27,9 @@ struct GeneralSettings: View {
     @AppStorage(AppDelegate.hotKeyKey) private var globalShortcut = true
     @AppStorage(AppModel.semanticSearchKey) private var semanticSearch = true
     @AppStorage(CommandLineInstaller.linkPathKey) private var linkPath = ""
-    /// `linkPath` once checked to still run this app's command.
-    @State private var verifiedLinkPath: String?
+    /// Whether `linkPath` still runs this app's command; nil when the
+    /// sandbox no longer lets the app look.
+    @State private var linkStatus: Bool? = false
 
     var body: some View {
         Form {
@@ -72,11 +73,10 @@ struct GeneralSettings: View {
                 LabeledContent("boopstash command") {
                     Button("Install…") { CommandLineInstaller.run() }
                 }
-                Text(verifiedLinkPath.map { "Linked at \($0). Pipe text into a new note from Terminal: some-command | boopstash." }
-                     ?? "Pipe text into a new note from Terminal: some-command | boopstash. Install links the command into a folder on your PATH.")
+                Text(commandLineText)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                    .task(id: linkPath) { verifiedLinkPath = CommandLineInstaller.verifiedLinkPath(linkPath) }
+                    .task(id: linkPath) { linkStatus = CommandLineInstaller.linkStatus(linkPath) }
             }
             if let model { SyncSettings(model: model) }
             Section("Clipboard history") {
@@ -86,6 +86,15 @@ struct GeneralSettings: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    private var commandLineText: String {
+        let usage = "Pipe text into a new note from Terminal: some-command | boopstash."
+        switch linkStatus {
+        case .some(true): return "Linked at \(linkPath). \(usage)"
+        case .none: return "Last linked at \(linkPath). \(usage)"
+        case .some(false): return "\(usage) Install links the command into a folder on your PATH."
+        }
     }
 }
 

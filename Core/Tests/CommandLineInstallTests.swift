@@ -38,6 +38,8 @@ import Testing
         let other = "/Users/a/Applications/BoopStash.app/Contents/Helpers/boopstash"
         #expect(plan(.link(destination: other, resolves: true)) == .linkedElsewhere(other))
         #expect(plan(.link(destination: other, resolves: false)) == .replaceBroken)
+        // Outside the grant the app cannot tell: never replace a maybe-working link.
+        #expect(plan(.link(destination: other, resolves: nil)) == .linkedElsewhere(other))
         // A link to anything else is someone else's, broken or not.
         #expect(plan(.link(destination: "/usr/bin/true", resolves: true)) == .occupied)
         #expect(plan(.link(destination: "/gone/boopstash", resolves: false)) == .occupied)
@@ -54,23 +56,25 @@ import Testing
     }
 
     @Test func lookupErrors() {
-        #expect(Install.existing(afterLookupError: ENOENT) == .nothing)
-        #expect(Install.existing(afterLookupError: ENOTDIR) == .nothing)
-        // The sandbox denies the read once the panel's grant is gone.
-        #expect(Install.existing(afterLookupError: EPERM) == nil)
-        #expect(Install.existing(afterLookupError: EACCES) == nil)
+        #expect(Install.found(lookupError: nil) == true)
+        #expect(Install.found(lookupError: ENOENT) == false)
+        #expect(Install.found(lookupError: ENOTDIR) == false)
+        // The sandbox denies the read outside the panel's grant.
+        #expect(Install.found(lookupError: EPERM) == nil)
+        #expect(Install.found(lookupError: EACCES) == nil)
     }
 
     @Test func stillInstalled() {
         let folder = "/opt/homebrew/bin"
-        func still(_ existing: Install.Existing?) -> Bool { Install.stillInstalled(existing: existing, folder: folder, helper: helper) }
-        #expect(still(.link(destination: helper, resolves: true)))
-        // Unreadable after a relaunch: keep what was recorded.
-        #expect(still(nil))
+        func still(_ existing: Install.Existing?) -> Bool? { Install.stillInstalled(existing: existing, folder: folder, helper: helper) }
+        #expect(still(.link(destination: helper, resolves: true)) == true)
+        #expect(still(.link(destination: helper, resolves: nil)) == true)
+        // Unreadable after a relaunch: unknown.
+        #expect(still(nil) == nil)
         // Removed, uninstalled, replaced, or the app moved.
-        #expect(!still(.nothing))
-        #expect(!still(.other))
-        #expect(!still(.link(destination: "/Users/a/Applications/BoopStash.app/Contents/Helpers/boopstash", resolves: true)))
-        #expect(!still(.link(destination: "/Users/a/Applications/BoopStash.app/Contents/Helpers/boopstash", resolves: false)))
+        #expect(still(.nothing) == false)
+        #expect(still(.other) == false)
+        #expect(still(.link(destination: "/Users/a/Applications/BoopStash.app/Contents/Helpers/boopstash", resolves: true)) == false)
+        #expect(still(.link(destination: "/Users/a/Applications/BoopStash.app/Contents/Helpers/boopstash", resolves: false)) == false)
     }
 }

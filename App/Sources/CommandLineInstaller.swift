@@ -25,7 +25,9 @@ enum CommandLineInstaller {
         panel.showsHiddenFiles = true
         panel.prompt = "Install"
         panel.message = "Choose a folder on your PATH. BoopStash links the boopstash command there."
-        if let folder = CommandLineInstall.defaultFolder(home: realHome, exists: { FileManager.default.fileExists(atPath: $0) }) {
+        // Before the panel nothing is granted: a folder the sandbox hides
+        // counts as there, only one known to be missing is skipped.
+        if let folder = CommandLineInstall.defaultFolder(home: realHome, exists: { CommandLineInstall.found(lookupError: lookupError($0, following: false)) != false }) {
             panel.directoryURL = URL(fileURLWithPath: folder, isDirectory: true)
         }
         guard panel.runModal() == .OK, let folderURL = panel.url else { return }
@@ -80,24 +82,34 @@ enum CommandLineInstaller {
         alert.runModal()
     }
 
-    /// The recorded link path, if it still runs this app's command (#212):
-    /// Settings ▸ General shows it only then.
-    static func verifiedLinkPath(_ path: String) -> String? {
-        guard !path.isEmpty else { return nil }
+    /// Whether the recorded link path still runs this app's command
+    /// (#212), for Settings ▸ General; nil when the app cannot look.
+    static func linkStatus(_ path: String) -> Bool? {
+        guard !path.isEmpty else { return false }
         let link = URL(fileURLWithPath: path)
         let helper = CommandLineInstall.helperPath(appPath: Bundle.main.bundleURL.path)
         let folder = link.deletingLastPathComponent().path
-        return CommandLineInstall.stillInstalled(existing: existing(at: link), folder: folder, helper: helper) ? path : nil
+        return CommandLineInstall.stillInstalled(existing: existing(at: link), folder: folder, helper: helper)
     }
 
     /// What is at `link`, or nil when the sandbox does not let the app look.
     private static func existing(at link: URL) -> CommandLineInstall.Existing? {
-        var info = stat()
-        guard lstat(link.path, &info) == 0 else { return CommandLineInstall.existing(afterLookupError: errno) }
-        if info.st_mode & S_IFMT == S_IFLNK, let destination = FileManager.default.destinationOfSymbolicLinkIfAny(at: link) {
-            return .link(destination: destination, resolves: FileManager.default.fileExists(atPath: link.path))
+        switch CommandLineInstall.found(lookupError: lookupError(link.path, following: false)) {
+        case .some(false): return .nothing
+        case .none: return nil
+        case .some(true):
+            guard let destination = FileManager.default.destinationOfSymbolicLinkIfAny(at: link) else { return .other }
+            // stat follows the link; the destination may be outside the grant.
+            return .link(destination: destination, resolves: CommandLineInstall.found(lookupError: lookupError(link.path, following: true)))
         }
-        return .other
+    }
+
+    /// `errno` of a failed `stat` (`following` a link) or `lstat`, nil
+    /// when it succeeded.
+    private static func lookupError(_ path: String, following: Bool) -> Int32? {
+        var info = stat()
+        let result = following ? stat(path, &info) : lstat(path, &info)
+        return result == 0 ? nil : errno
     }
 
     /// The user's home, not the sandbox container `NSHomeDirectory()` gives.

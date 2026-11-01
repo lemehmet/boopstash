@@ -34,8 +34,9 @@ public enum CommandLineInstall {
     public enum Existing: Equatable, Sendable {
         case nothing
         /// A symbolic link, its destination as written (maybe relative),
-        /// and whether that destination exists.
-        case link(destination: String, resolves: Bool)
+        /// and whether that destination exists: nil when the sandbox would
+        /// not let the app look (another copy's helper is outside the grant).
+        case link(destination: String, resolves: Bool?)
         /// A file, folder or anything else not made by a link.
         case other
     }
@@ -64,24 +65,27 @@ public enum CommandLineInstall {
             let target = resolved(destination, in: folder)
             if target == standardized(helper) { return .alreadyInstalled }
             guard isBoopStashHelper(target) else { return .occupied }
-            return resolves ? .linkedElsewhere(target) : .replaceBroken
+            // Only a destination known to be gone is replaced; one the app
+            // cannot see may be a working copy's.
+            return resolves == false ? .replaceBroken : .linkedElsewhere(target)
         }
     }
 
-    /// What a failed `lstat` of the command's path says is there: `ENOENT`
-    /// or `ENOTDIR` mean nothing is; anything else (the sandbox's `EPERM`
-    /// once the panel's grant is gone after a relaunch) means the app
-    /// could not look, so nothing is known.
-    public static func existing(afterLookupError code: Int32) -> Existing? {
-        code == ENOENT || code == ENOTDIR ? .nothing : nil
+    /// Whether a `stat`/`lstat` found its path, from the call's `errno`
+    /// (nil when it succeeded): `ENOENT` or `ENOTDIR` mean the path is not
+    /// there; anything else (the sandbox's `EPERM` outside the panel's
+    /// grant, or after a relaunch) means the app could not look: nil.
+    public static func found(lookupError code: Int32?) -> Bool? {
+        guard let code else { return true }
+        return code == ENOENT || code == ENOTDIR ? false : nil
     }
 
-    /// Whether Settings may still say the command is linked at a path it
-    /// linked earlier. A path the app cannot read any more keeps the
-    /// claim; one that is gone, or no longer links to this app's helper
-    /// (the link was removed, the cask uninstalled, the app moved), drops it.
-    public static func stillInstalled(existing: Existing?, folder: String, helper: String) -> Bool {
-        guard let existing else { return true }
+    /// Whether Settings may say the command is linked at a path it linked
+    /// earlier: true while it still links to this app's helper, false once
+    /// it is gone or links elsewhere (removed, the cask uninstalled, the
+    /// app moved), nil when the app cannot look any more.
+    public static func stillInstalled(existing: Existing?, folder: String, helper: String) -> Bool? {
+        guard let existing else { return nil }
         return plan(existing: existing, folder: folder, helper: helper) == .alreadyInstalled
     }
 
