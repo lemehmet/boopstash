@@ -37,6 +37,38 @@ def api_key
   )
 end
 
+# App Review's screen recording (App Review Information ▸ Attachment) is
+# attached by hand in App Store Connect: it is too large for the repository
+# and may show personal data. deliver deletes any attachment it was not given
+# a file for, which stripped both 0.4.4 submissions of theirs, so its
+# attachment step is turned off and the release lanes only check one is there.
+require "deliver"
+module KeepReviewAttachments
+  def review_attachment_file(_version); end
+end
+Deliver::UploadMetadata.prepend(KeepReviewAttachments)
+
+# The release lanes stop before submitting when the version being prepared
+# has no recording (#205): the review notes say one is attached.
+def require_review_attachment!(platform)
+  # The patch above only works while deliver still has the method it replaces.
+  unless Deliver::UploadMetadata.instance_method(:review_attachment_file).super_method
+    UI.user_error!("deliver no longer has review_attachment_file, so it would delete the screen recording: update KeepReviewAttachments for this fastlane")
+  end
+  Spaceship::ConnectAPI.token = Spaceship::ConnectAPI::Token.from(hash: api_key)
+  app = Spaceship::ConnectAPI::App.find(APP_ID) || UI.user_error!("#{APP_ID} is not in App Store Connect")
+  version = app.get_edit_app_store_version(platform: platform)
+  name = platform == Spaceship::ConnectAPI::Platform::MAC_OS ? "macOS" : "iOS"
+  UI.user_error!("no #{name} version to submit: add one in App Store Connect and attach the screen recording") unless version
+  if version.app_version_state == Spaceship::ConnectAPI::AppStoreVersion::AppVersionState::WAITING_FOR_REVIEW
+    UI.user_error!("#{name} #{version.version_string} is already waiting for review")
+  end
+  attachments = version.fetch_app_store_review_detail&.app_store_review_attachments || []
+  return unless attachments.empty?
+
+  UI.user_error!("#{name} #{version.version_string} has no screen recording: attach it in App Store Connect ▸ App Review Information ▸ Attachment, then run release again")
+end
+
 SHARE_ID = "#{APP_ID}.share"
 
 # The app's profile name; on iOS the share extension (#66) has its own, read
@@ -177,6 +209,7 @@ platform :mac do
   desc "Submit the newest TestFlight build with the metadata for review"
   lane :release do
     require_environment!
+    require_review_attachment!(Spaceship::ConnectAPI::Platform::MAC_OS)
     deliver(api_key: api_key, platform: "osx", app_version: version, submit_for_review: true,
             metadata_path: "./fastlane/metadata",
             screenshots_path: "./fastlane/screenshots", overwrite_screenshots: true,
@@ -224,6 +257,7 @@ platform :ios do
   desc "Submit the newest TestFlight build with the metadata for review"
   lane :release do
     require_environment!
+    require_review_attachment!(Spaceship::ConnectAPI::Platform::IOS)
     deliver(api_key: api_key, platform: "ios", app_version: version, submit_for_review: true,
             metadata_path: "./fastlane/metadata-ios",
             screenshots_path: "./fastlane/screenshots-ios", overwrite_screenshots: true,

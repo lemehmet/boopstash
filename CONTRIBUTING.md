@@ -114,7 +114,10 @@ The Mac App Store and TestFlight builds go through fastlane (`fastlane/Fastfile`
   only what the iOS app does). What's New is the platform's
   `en-US/release_notes.txt` there, or, without one, the changelog's
   section for the version. The files outlive a version: update or delete
-  them with each release. It never releases automatically.
+  them with each release. It never releases automatically. App Review's
+  screen recording is attached by hand first, on the version's App Review
+  Information ▸ Attachment in App Store Connect; `release` stops if it is
+  missing, and leaves it in place.
 
 Screenshots come from `scripts/screenshots/take.sh`, which runs the debug build's
 demo mode (made-up notes in memory, never a real store) on the Mac and in the
