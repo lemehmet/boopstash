@@ -26,6 +26,10 @@ struct GeneralSettings: View {
     @AppStorage(AppModel.modelTitlesKey) private var modelTitles = true
     @AppStorage(AppDelegate.hotKeyKey) private var globalShortcut = true
     @AppStorage(AppModel.semanticSearchKey) private var semanticSearch = true
+    @AppStorage(CommandLineInstaller.linkPathKey) private var linkPath = ""
+    /// Whether `linkPath` still runs this app's command; nil when the
+    /// sandbox no longer lets the app look.
+    @State private var linkStatus: Bool? = false
 
     var body: some View {
         Form {
@@ -65,6 +69,18 @@ struct GeneralSettings: View {
                         .foregroundStyle(.red)
                 }
             }
+            Section("Command line") {
+                LabeledContent("boopstash command") {
+                    Button("Install…") { CommandLineInstaller.run() }
+                }
+                Text(commandLineText)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .task(id: linkPath) { linkStatus = CommandLineInstaller.linkStatus(linkPath) }
+                    .onReceive(NotificationCenter.default.publisher(for: CommandLineInstaller.didRun)) { _ in
+                        linkStatus = CommandLineInstaller.linkStatus(UserDefaults.standard.string(forKey: CommandLineInstaller.linkPathKey) ?? "")
+                    }
+            }
             if let model { SyncSettings(model: model) }
             Section("Clipboard history") {
                 Text("BoopStash never watches the clipboard. For a history of what you copied, macOS has one: turn on System Settings ▸ Spotlight ▸ Clipboard, then press ⌘Space and ⌘4.")
@@ -73,6 +89,15 @@ struct GeneralSettings: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    private var commandLineText: String {
+        let usage = "Pipe text into a new note from Terminal: some-command | boopstash."
+        switch linkStatus {
+        case .some(true): return "Linked at \(linkPath). \(usage)"
+        case .none: return "Last linked at \(linkPath). \(usage)"
+        case .some(false): return "\(usage) Install links the command into a folder on your PATH."
+        }
     }
 }
 

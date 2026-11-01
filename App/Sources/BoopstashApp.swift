@@ -36,6 +36,9 @@ struct BoopstashApp: App {
             }
         }
         .commands {
+            CommandGroup(after: .appSettings) {
+                Button("Install Command Line Tool…") { CommandLineInstaller.run() }
+            }
             CommandGroup(replacing: .newItem) {
                 Button("New Note") { delegate.model?.newNote() }
                     .keyboardShortcut("n")

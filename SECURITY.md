@@ -33,8 +33,9 @@ around that, and each point is enforceable rather than aspirational:
 - **Files: only where you point it.** Beyond its own container and its App
   Group's container (where the Mac keeps the notes for the `boopstash`
   command, ADR 0009), the app can write only into a folder you choose in an
-  open panel, which is how export works. It cannot read or write anything
-  else on disk.
+  open panel, which is how export works and how Install Command Line Tool…
+  links the `boopstash` command into a folder on your `PATH`. It cannot read
+  or write anything else on disk.
 - **No network access except your iCloud.** There is no network-client
   entitlement. No analytics, no crash reporting service, no update checks. The
   only remote endpoint is the private database of the app's iCloud container,

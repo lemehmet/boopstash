@@ -45,7 +45,8 @@ Boop's scripts keep working.
 ## Command line
 
 The app carries a sandboxed `boopstash` command. The Homebrew cask puts
-it on your `PATH`. With the App Store version, link it yourself:
+it on your `PATH`. Otherwise choose **BoopStash ▸ Install Command Line
+Tool…** and pick a folder on your `PATH`, or link it yourself:
 `ln -s /Applications/BoopStash.app/Contents/Helpers/boopstash /usr/local/bin/`.
 
 ```sh
