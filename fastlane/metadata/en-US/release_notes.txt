@@ -7,3 +7,4 @@
 • The language menu shows the language in use; the toolbar has Paste as Markdown, Run Script and the previews.
 • The preview is for Markdown notes; XML formatting keeps text exactly; long notes with many images scroll smoothly.
 • The preview beside the editor keeps the size you drag it to, across notes and relaunches.
+• BoopStash ▸ Install Command Line Tool… puts the boopstash command on your PATH, for copies not installed with Homebrew.

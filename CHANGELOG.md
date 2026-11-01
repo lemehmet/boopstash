@@ -6,6 +6,8 @@ breaking changes may land in a minor release.
 
 ## Unreleased
 
+## v0.4.4 — 2026-11-01
+
 ### New
 
 - **Mac: install the `boopstash` command from the app.** BoopStash ▸
