@@ -181,20 +181,33 @@ import Testing
     }
 
     /// A stale acknowledgement, whose system fields are not kept, does not
-    /// leave its tag either: a later record with that tag is merged.
+    /// leave its tag either: the newer acknowledgement's tag stays, and a
+    /// later record with the stale tag is merged.
     @Test func aStaleAcknowledgementLeavesNoTag() throws {
         let mine = note("mine")
-        try store.applyServerRecord(SyncMapping.record(for: mine), systemFields: fields, changeTag: "tag-1")
-        try store.applyServerDeletion(kind: .note, name: mine.id.uuidString.lowercased())
         let name = mine.id.uuidString.lowercased()
-        // Sent again as new; an acknowledgement of an upload from before is stale.
-        try store.acknowledgeSave(kind: .note, name: name, version: 1, systemFields: Data("old-record".utf8), changeTag: "tag-old")
+        try store.applyServerRecord(SyncMapping.record(for: mine), systemFields: fields, changeTag: "tag-1")
         var edited = mine
         edited.body = "edited"
+        edited.updatedAt = mine.updatedAt.addingTimeInterval(10)
+        try store.save(edited)
+        let inFlight = try #require(try version(of: name))
+        // Deleted elsewhere with this edit unsent: kept, and sent again as new.
+        try store.applyServerDeletion(kind: .note, name: name)
+        let resent = try #require(try version(of: name))
+        try store.acknowledgeSave(kind: .note, name: name, version: resent, systemFields: Data("new-record".utf8), changeTag: "tag-new")
+        // The upload from before the deletion is acknowledged late: stale.
+        try store.acknowledgeSave(kind: .note, name: name, version: inFlight, systemFields: Data("old-record".utf8), changeTag: "tag-old")
+        edited.body = "edited again"
+        edited.updatedAt = mine.updatedAt.addingTimeInterval(20)
         try store.save(edited)
         var theirs = mine
         theirs.body = "theirs"
-        #expect(try store.applyServerRecord(SyncMapping.record(for: theirs), systemFields: fields, changeTag: "tag-old") != nil)
+        theirs.updatedAt = mine.updatedAt.addingTimeInterval(5)
+        let record = SyncMapping.record(for: theirs)
+
+        #expect(try store.applyServerRecord(record, systemFields: fields, changeTag: "tag-new") == nil, "the newer tag is kept")
+        #expect(try store.applyServerRecord(record, systemFields: fields, changeTag: "tag-old") != nil, "the stale tag is not")
     }
 
     @Test func aUserTitleBeatsAGeneratedOne() {
