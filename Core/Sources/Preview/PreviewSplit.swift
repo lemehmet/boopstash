@@ -35,8 +35,10 @@ public enum PreviewSplit {
 
     /// The fraction after `steps` assistive-tech adjustments (positive widens
     /// the editor), clamped exactly as a drag is; unchanged where a drag
-    /// could not move the divider either.
+    /// could not move the divider either. No steps keep the share as it is,
+    /// also when it renders clamped at a pane's minimum (#210).
     public static func adjusted(fraction: Double, by steps: Int, total: Double, divider: Double) -> Double {
+        guard steps != 0 else { return fraction }
         let available = max(total - divider, 0)
         let width = leadingWidth(total: total, fraction: fraction, divider: divider)
         return self.fraction(leadingWidth: width + Double(steps) * adjustmentStep * available,
