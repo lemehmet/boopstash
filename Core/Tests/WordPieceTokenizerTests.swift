@@ -49,11 +49,15 @@ import Testing
     }
 
     /// A long run without a word break is one [UNK], found without folding
-    /// all of it (#170 review).
-    @Test func anUnbrokenRunIsOneUnknownQuickly() {
-        let started = ContinuousClock.now
+    /// all of it (#170 review). Checked by what reaches the word handler,
+    /// not by a clock, which shared CI runners do not keep to (#220): the
+    /// run is cut after `longWord` scalars and stands for itself as one
+    /// over-long placeholder, so the 5,000,000 scalars are never one word.
+    @Test func anUnbrokenRunIsCutNotFolded() {
+        var words: [String] = []
+        tokenizer.forEachWord(in: String(repeating: "b", count: 5_000_000)) { words.append($0); return true }
+        #expect(words == [String(repeating: "a", count: WordPieceTokenizer.maxWordLength + 1)])
         #expect(ids(String(repeating: "a", count: 5_000_000)) == [101, 100, 102])
-        #expect(ContinuousClock.now - started < .milliseconds(1500))
         #expect(ids(String(repeating: "b", count: 2000) + " invoice") == [101, 100, 1999, 6767, 6610, 102])
         #expect(ids(String(repeating: "c", count: 150) + ".invoice") == [101, 100, 1012, 1999, 6767, 6610, 102])
         // Characters folding removes do not make a word long.
