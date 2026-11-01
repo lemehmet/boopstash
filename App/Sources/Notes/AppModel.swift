@@ -362,6 +362,10 @@ final class AppModel {
         observation = Task { [weak self] in
             do {
                 for try await notes in values {
+                    // A value the replaced observation had already received
+                    // would otherwise overwrite the new query's list, and
+                    // nothing re-delivers until the next change (#200).
+                    guard !Task.isCancelled else { return }
                     self?.notes = notes
                     self?.titleCommandNotes(notes)
                     // A change may have added an image to read.

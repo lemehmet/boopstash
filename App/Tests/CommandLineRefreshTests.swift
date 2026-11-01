@@ -25,7 +25,7 @@ struct CommandLineRefreshTests {
         try await Task.sleep(for: .milliseconds(300))
         #expect(model.notes.isEmpty, "not seen without the notification")
         notify_post(SharedStore.changedNotification)
-        for _ in 0..<100 where model.notes.isEmpty { try await Task.sleep(for: .milliseconds(20)) }
+        _ = try await eventually { !model.notes.isEmpty }
         #expect(model.notes.map(\.title) == ["from the shell"])
     }
 
@@ -44,7 +44,7 @@ struct CommandLineRefreshTests {
         try await Task.sleep(for: .milliseconds(300))
         #expect(model.labelCatalog.labels.isEmpty, "not seen without the notification")
         notify_post(SharedStore.changedNotification)
-        for _ in 0..<100 where model.labelCatalog.labels.isEmpty || model.notes.isEmpty { try await Task.sleep(for: .milliseconds(20)) }
+        _ = try await eventually { !model.labelCatalog.labels.isEmpty && !model.notes.isEmpty }
         #expect(model.labelCatalog.labels.map(\.name) == ["work"])
         let noteID = try #require(model.notes.first?.id)
         #expect(model.labels(of: noteID).map(\.name) == ["work"])
@@ -64,7 +64,7 @@ struct CommandLineRefreshTests {
         let other = try NoteStore.open(at: url, shared: true)
         _ = CommandLineTool.run(.capture(title: "t"), store: other, input: { Data("hello\n".utf8) }, version: "1")
         notify_post(SharedStore.changedNotification)
-        for _ in 0..<150 where (try? model.store.notesAwaitingEmbedding().isEmpty) != true { try await Task.sleep(for: .milliseconds(20)) }
+        _ = try await eventually { try model.store.notesAwaitingEmbedding().isEmpty }
         #expect(try model.store.notesAwaitingEmbedding().isEmpty)
     }
 
@@ -82,7 +82,7 @@ struct CommandLineRefreshTests {
         let other = try NoteStore.open(at: url, shared: true)
         _ = CommandLineTool.run(.capture(title: nil), store: other, input: { Data("NAME READY\napi-1 1/1\n".utf8) }, version: "1")
         notify_post(SharedStore.changedNotification)
-        for _ in 0..<150 where model.notes.first?.title != "Pod listing" { try await Task.sleep(for: .milliseconds(20)) }
+        _ = try await eventually { model.notes.first?.title == "Pod listing" }
         #expect(model.notes.map(\.title) == ["Pod listing"])
     }
 }

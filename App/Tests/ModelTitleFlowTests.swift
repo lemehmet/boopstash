@@ -19,14 +19,6 @@ struct ModelTitleFlowTests {
         try model.store.notes(matching: NoteQuery()).first
     }
 
-    func eventually(_ condition: () throws -> Bool) async throws -> Bool {
-        for _ in 0..<250 {
-            if try condition() { return true }
-            try await Task.sleep(for: .milliseconds(20))
-        }
-        return try condition()
-    }
-
     @Test func aModelReplyBecomesTheTitle() async throws {
         model.modelTitler = { _, _ in "Deploy checklist" }
         model.save("step one\nstep two", origin: .menu)
