@@ -60,7 +60,7 @@ def require_review_attachment!(platform)
   version = app.get_edit_app_store_version(platform: platform)
   name = platform == Spaceship::ConnectAPI::Platform::MAC_OS ? "macOS" : "iOS"
   UI.user_error!("no #{name} version to submit: add one in App Store Connect and attach the screen recording") unless version
-  if version.app_store_state == Spaceship::ConnectAPI::AppStoreVersion::AppVersionState::WAITING_FOR_REVIEW
+  if version.app_version_state == Spaceship::ConnectAPI::AppStoreVersion::AppVersionState::WAITING_FOR_REVIEW
     UI.user_error!("#{name} #{version.version_string} is already waiting for review")
   end
   attachments = version.fetch_app_store_review_detail&.app_store_review_attachments || []
