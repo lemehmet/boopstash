@@ -26,6 +26,7 @@ struct GeneralSettings: View {
     @AppStorage(AppModel.modelTitlesKey) private var modelTitles = true
     @AppStorage(AppDelegate.hotKeyKey) private var globalShortcut = true
     @AppStorage(AppModel.semanticSearchKey) private var semanticSearch = true
+    @AppStorage(CommandLineInstaller.linkPathKey) private var linkPath = ""
 
     var body: some View {
         Form {
@@ -64,6 +65,16 @@ struct GeneralSettings: View {
                         .font(.caption)
                         .foregroundStyle(.red)
                 }
+            }
+            Section("Command line") {
+                LabeledContent("boopstash command") {
+                    Button("Install…") { CommandLineInstaller.run() }
+                }
+                Text(linkPath.isEmpty
+                     ? "Pipe text into a new note from Terminal: some-command | boopstash. Install links the command into a folder on your PATH."
+                     : "Linked at \(linkPath). Pipe text into a new note from Terminal: some-command | boopstash.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
             if let model { SyncSettings(model: model) }
             Section("Clipboard history") {

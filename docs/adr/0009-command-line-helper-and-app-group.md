@@ -73,6 +73,17 @@ Options considered:
 - **Homebrew.** The cask links the helper onto `PATH` with `binary`. The
   App Store app carries the same helper, and its users can link it
   themselves; the README says how.
+- **The app links it for other installs.** *Amended 2026-11-01 (#212).*
+  GitHub, TestFlight and App Store installs left the command off `PATH`.
+  BoopStash ▸ Install Command Line Tool… asks for a folder in an open panel
+  (starting at `/opt/homebrew/bin`, `/usr/local/bin` or `~/.local/bin`) and
+  links `boopstash` there to the running app's helper. The panel's grant
+  comes from `files.user-selected.read-write`, which the app already has, so
+  no entitlement is added and the entitlement checks are unchanged. It never
+  overwrites anything but a broken link to a BoopStash helper, leaves a
+  working link to one (the cask's) alone, refuses while the app runs
+  translocated, and offers the `sudo ln -s` line for a folder it cannot
+  write.
 
 ## Consequences
 

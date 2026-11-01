@@ -6,6 +6,13 @@ breaking changes may land in a minor release.
 
 ## Unreleased
 
+### New
+
+- **Mac: install the `boopstash` command from the app.** BoopStash ▸
+  Install Command Line Tool…, or Settings ▸ General, links it into a folder
+  on your `PATH`, for installs from the GitHub download, TestFlight or the
+  App Store; the Homebrew cask already does (#212).
+
 ## v0.4.3 — 2026-10-31
 
 ### Fixed
