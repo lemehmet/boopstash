@@ -641,6 +641,27 @@ import Testing
         #expect(try store.prepareSync(environment: "Production") == false, "recorded")
     }
 
+    /// The bodies sent belong to the environment they were sent to, also
+    /// when nothing there was acknowledged yet: in another one, a record
+    /// with one of them is not this device's upload.
+    @Test func anotherEnvironmentForgetsTheBodiesSent() throws {
+        try store.prepareSync(environment: "Development")
+        let first = note("first")
+        try store.save(first)
+        let name = first.id.uuidString.lowercased()
+        guard case .save(let uploaded, _, _)? = try store.pendingSave(kind: .note, name: name) else {
+            Issue.record("not pending")
+            return
+        }
+        #expect(try store.prepareSync(environment: "Production") == false, "nothing synced yet")
+        var mine = first
+        mine.body = "edited"
+        mine.updatedAt = first.updatedAt.addingTimeInterval(10)
+        try store.save(mine)
+
+        #expect(try store.applyServerRecord(uploaded, systemFields: fields) != nil, "merged, with a copy")
+    }
+
     /// A store that synced before environments were recorded is treated as
     /// from another one.
     @Test func anUnrecordedEnvironmentStartsOver() throws {

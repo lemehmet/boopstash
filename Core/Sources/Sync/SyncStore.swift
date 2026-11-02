@@ -381,9 +381,11 @@ extension NoteStore {
                 // Deletions the other environment never heard of are not this
                 // one's business either.
                 try db.execute(sql: "DELETE FROM syncTombstone")
-                try db.execute(sql: "DELETE FROM syncUpload")
                 try db.execute(sql: "DELETE FROM syncState")
             }
+            // Bodies built for the other environment, also before anything
+            // there was acknowledged or the engine state saved.
+            try db.execute(sql: "DELETE FROM syncUpload")
             try db.execute(sql: "INSERT OR REPLACE INTO syncState (key, value) VALUES ('environment', ?)", arguments: [Data(environment.utf8)])
             return synced
         }
