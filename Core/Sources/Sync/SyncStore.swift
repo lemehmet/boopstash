@@ -78,35 +78,39 @@ extension NoteStore {
     /// acknowledgement is lost (#229).
     public func pendingSave(kind: SyncRecord.Kind, name: String) throws -> SyncChange? {
         guard let id = UUID(uuidString: name) else { return nil }
-        // Built from a snapshot, so a record that is not a note's never waits
-        // on a writer; only a note's sent body is then written down.
-        let (change, sentBody) = try writer.read { db -> (SyncChange?, String?) in
-            guard let row = try Row.fetchOne(db, sql: "SELECT * FROM \(Self.table(kind)) WHERE id = ? AND syncPending > syncAcknowledged", arguments: [id])
-            else { return (nil, nil) }
-            let record: SyncRecord
-            var sentBody: String?
-            switch kind {
-            case .note:
-                let note = try Note(row: row)
-                record = SyncMapping.record(for: note, labelIDs: try Self.labelIDs(of: id, db))
-                sentBody = note.body
-            case .label:
-                record = SyncMapping.record(for: try NoteLabel(row: row))
-            case .attachment:
-                let attachment = try NoteAttachment(row: row)
-                record = SyncMapping.record(for: attachment, file: fileURL(for: attachment))
+        guard kind == .note else { return try writer.read { db in try buildSave(kind, id, db).change } }
+        // Only a note with a save waiting takes the write lock, and its body
+        // is written down in the transaction that builds it: a foreign record
+        // applied meanwhile forgets it after, never before (#229).
+        guard try hasPendingSave(kind: .note, name: name) else { return nil }
+        return try writer.write { db in
+            let (change, body) = try buildSave(.note, id, db)
+            if let body {
+                try db.execute(sql: "INSERT OR IGNORE INTO syncUpload (noteID, digest) VALUES (?, ?)",
+                               arguments: [id, Note.contentHash(body)])
             }
-            return (.save(record, systemFields: row["syncSystemFields"], version: row["syncPending"]), sentBody)
+            return change
         }
-        if let sentBody {
-            // Before the record is sent, so it cannot come back first; none
-            // when the note was deleted meanwhile.
-            try writer.write { db in
-                try db.execute(sql: "INSERT OR IGNORE INTO syncUpload (noteID, digest) SELECT id, ? FROM note WHERE id = ?",
-                               arguments: [Note.contentHash(sentBody), id])
-            }
+    }
+
+    /// The save of one pending record, with a note's body.
+    private func buildSave(_ kind: SyncRecord.Kind, _ id: UUID, _ db: Database) throws -> (change: SyncChange?, body: String?) {
+        guard let row = try Row.fetchOne(db, sql: "SELECT * FROM \(Self.table(kind)) WHERE id = ? AND syncPending > syncAcknowledged", arguments: [id])
+        else { return (nil, nil) }
+        let record: SyncRecord
+        var body: String?
+        switch kind {
+        case .note:
+            let note = try Note(row: row)
+            record = SyncMapping.record(for: note, labelIDs: try Self.labelIDs(of: id, db))
+            body = note.body
+        case .label:
+            record = SyncMapping.record(for: try NoteLabel(row: row))
+        case .attachment:
+            let attachment = try NoteAttachment(row: row)
+            record = SyncMapping.record(for: attachment, file: fileURL(for: attachment))
         }
-        return change
+        return (.save(record, systemFields: row["syncSystemFields"], version: row["syncPending"]), body)
     }
 
     /// Whether a record has a save waiting, without building it.
