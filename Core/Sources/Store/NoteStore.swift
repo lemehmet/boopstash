@@ -425,6 +425,15 @@ public final class NoteStore: Sendable {
                 t.primaryKey(["noteID", "labelID"])
             }
         }
+        migrator.registerMigration("v11-sync-change-tag") { db in
+            // The server's change tag of a note's record, kept with its
+            // system fields: a fetched record with the same tag is this
+            // device's own upload coming back, not an edit made elsewhere
+            // (#215). Local only; the CloudKit schema is unchanged.
+            try db.alter(table: "note") { t in
+                t.add(column: "syncChangeTag", .text)
+            }
+        }
         return migrator
     }
 
