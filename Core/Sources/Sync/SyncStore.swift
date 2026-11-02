@@ -72,20 +72,45 @@ extension NoteStore {
     }
 
     /// The save to send for one record, built now; nil when it has nothing
-    /// to send (acknowledged, or deleted, meanwhile).
+    /// to send (acknowledged, or deleted, meanwhile). A note's body is
+    /// remembered as sent until the note is back in step, so the record
+    /// coming back is known as this device's own even if its
+    /// acknowledgement is lost (#229).
     public func pendingSave(kind: SyncRecord.Kind, name: String) throws -> SyncChange? {
         guard let id = UUID(uuidString: name) else { return nil }
-        return try writer.read { db in
+        return try writer.write { db in
             guard let row = try Row.fetchOne(db, sql: "SELECT * FROM \(Self.table(kind)) WHERE id = ? AND syncPending > syncAcknowledged", arguments: [id])
             else { return nil }
-            let record: SyncRecord = switch kind {
-            case .note: SyncMapping.record(for: try Note(row: row), labelIDs: try Self.labelIDs(of: id, db))
-            case .label: SyncMapping.record(for: try NoteLabel(row: row))
+            let record: SyncRecord
+            switch kind {
+            case .note:
+                let note = try Note(row: row)
+                record = SyncMapping.record(for: note, labelIDs: try Self.labelIDs(of: id, db))
+                try db.execute(sql: "INSERT OR IGNORE INTO syncUpload (noteID, digest) VALUES (?, ?)",
+                               arguments: [id, Note.contentHash(note.body)])
+            case .label:
+                record = SyncMapping.record(for: try NoteLabel(row: row))
             case .attachment:
-                try { let attachment = try NoteAttachment(row: row); return SyncMapping.record(for: attachment, file: fileURL(for: attachment)) }()
+                let attachment = try NoteAttachment(row: row)
+                record = SyncMapping.record(for: attachment, file: fileURL(for: attachment))
             }
             return .save(record, systemFields: row["syncSystemFields"], version: row["syncPending"])
         }
+    }
+
+    /// Whether a record has a save waiting, without building it.
+    public func hasPendingSave(kind: SyncRecord.Kind, name: String) throws -> Bool {
+        guard let id = UUID(uuidString: name) else { return false }
+        return try writer.read { db in
+            try Bool.fetchOne(db, sql: "SELECT EXISTS (SELECT 1 FROM \(Self.table(kind)) WHERE id = ? AND syncPending > syncAcknowledged)",
+                              arguments: [id]) ?? false
+        }
+    }
+
+    /// Forgets the bodies sent of a note the server has caught up with, or
+    /// moved past: none of them can come back as the server's latest.
+    static func forgetUploads(of noteID: UUID, _ db: Database) throws {
+        try db.execute(sql: "DELETE FROM syncUpload WHERE noteID = ?", arguments: [noteID])
     }
 
     /// The server saved what was sent at `version`; the row stays pending
@@ -111,6 +136,10 @@ extension NoteStore {
                     UPDATE note SET syncChangeTag = ?
                     WHERE id = ? AND syncSystemFields = ?
                     """, arguments: [changeTag, id, systemFields])
+                // In step: the server holds the last body built (#229).
+                if try Bool.fetchOne(db, sql: "SELECT syncAcknowledged >= syncPending FROM note WHERE id = ?", arguments: [id]) == true {
+                    try Self.forgetUploads(of: id, db)
+                }
             }
         }
     }
@@ -132,7 +161,10 @@ extension NoteStore {
     /// `changeTag` is the record's server change tag. A note record whose
     /// tag is the one stored at this device's last acknowledgement is its
     /// own upload coming back: the server has not changed since, so unsent
-    /// edits here are kept and sent, with no merge and no copy (#215).
+    /// edits here are kept and sent, with no merge and no copy (#215). So is
+    /// one whose body this device built for sending since the note was last
+    /// in step, acknowledged or not (#229); the server's metadata is then
+    /// taken, so the next send is not refused again.
     public func applyServerRecord(_ record: SyncRecord, systemFields: Data, changeTag: String? = nil, assetData: Data? = nil,
                                   now: Date = Date()) throws -> Note? {
         // Deleted here, deletion not yet sent: a stale save from the server
@@ -202,15 +234,27 @@ extension NoteStore {
             return try writer.write { db -> Note? in
                 guard try !Self.isTombstoned(record, db) else { return nil }
                 let row = try Row.fetchOne(db, sql: """
-                    SELECT syncPending, syncAcknowledged, syncSystemFields IS NOT NULL AND syncChangeTag = ? AS unchangedSince
+                    SELECT syncPending, syncAcknowledged, syncSystemFields IS NOT NULL AND syncChangeTag = ? AS unchangedSince,
+                        EXISTS (SELECT 1 FROM syncUpload WHERE noteID = note.id AND digest = ?) AS sentHere
                     FROM note WHERE id = ?
-                    """, arguments: [changeTag, server.id])
+                    """, arguments: [changeTag, Note.contentHash(server.body), server.id])
                 let changedHere = row.map { ($0["syncPending"] as Int) > ($0["syncAcknowledged"] as Int) } ?? false
                 if changedHere, changeTag != nil, row?["unchangedSince"] == true {
                     // The server still holds what this device last sent: the
                     // edits here are newer, and stay pending to be sent.
                     return nil
                 }
+                if changedHere, row?["sentHere"] == true {
+                    // This device's own upload, whose acknowledgement was lost
+                    // or is still to come: the edits here are newer, and stay
+                    // pending, to be sent over the server's record (#229).
+                    try db.execute(sql: "UPDATE note SET syncSystemFields = ?, syncChangeTag = ? WHERE id = ?",
+                                   arguments: [systemFields, changeTag, server.id])
+                    return nil
+                }
+                // Anything else is the server's latest, past every body sent
+                // from here.
+                try Self.forgetUploads(of: server.id, db)
                 guard changedHere, let local = try Note.fetchOne(db, key: server.id) else {
                     // New here, or unchanged here: the server's version wins.
                     // Its labels are kept as sent, also those whose label has
@@ -264,6 +308,7 @@ extension NoteStore {
                     UPDATE \(table) SET syncSystemFields = NULL, syncPending = syncPending + 1, syncStaleBelow = syncPending + 1
                     WHERE id = ?
                     """, arguments: [id])
+                if kind == .note { try Self.forgetUploads(of: id, db) }
                 return nil
             }
             switch kind {
@@ -293,6 +338,7 @@ extension NoteStore {
                 try db.execute(sql: "UPDATE \(Self.table(kind)) SET syncPending = syncPending + 1, syncSystemFields = NULL, syncStaleBelow = syncPending + 1")
             }
             try db.execute(sql: "DELETE FROM syncTombstone")
+            try db.execute(sql: "DELETE FROM syncUpload")
             try db.execute(sql: "DELETE FROM syncState WHERE key != 'environment'")
         }
     }
@@ -320,6 +366,7 @@ extension NoteStore {
                 // Deletions the other environment never heard of are not this
                 // one's business either.
                 try db.execute(sql: "DELETE FROM syncTombstone")
+                try db.execute(sql: "DELETE FROM syncUpload")
                 try db.execute(sql: "DELETE FROM syncState")
             }
             try db.execute(sql: "INSERT OR REPLACE INTO syncState (key, value) VALUES ('environment', ?)", arguments: [Data(environment.utf8)])
