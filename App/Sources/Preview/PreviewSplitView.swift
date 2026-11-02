@@ -6,11 +6,18 @@ import SwiftUI
 /// share is kept in user defaults.
 struct PreviewSplitView<Leading: View, Trailing: View>: View {
     @AppStorage(PreviewSettings.splitFractionKey) private var fraction = PreviewSplit.defaultFraction
-    /// The editor's width when the drag began. Gesture state, so it is
-    /// cleared however the drag ends, cancelled included.
-    @GestureState private var dragStart: Double?
+    /// The editor's width, the split's width and the stored share when the
+    /// drag began. Gesture state, so it is cleared however the drag ends,
+    /// cancelled included.
+    @GestureState private var dragStart: DragStart?
     @ViewBuilder let leading: Leading
     @ViewBuilder let trailing: Trailing
+
+    private struct DragStart {
+        var width: Double
+        var total: Double
+        var fraction: Double
+    }
 
     private static var dividerWidth: Double { 1 }
     /// Wider than the line, so the divider is easy to grab.
@@ -30,11 +37,13 @@ struct PreviewSplitView<Leading: View, Trailing: View>: View {
                             .pointerStyle(.columnResize)
                             .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
                                 .updating($dragStart) { _, start, _ in
-                                    if start == nil { start = width }
+                                    if start == nil { start = DragStart(width: width, total: total, fraction: fraction) }
                                 }
                                 .onChanged { drag in
-                                    if let dragged = PreviewSplit.fraction(leadingWidth: (dragStart ?? width) + drag.translation.width,
-                                                                           total: total, divider: Self.dividerWidth) {
+                                    let start = dragStart ?? DragStart(width: width, total: total, fraction: fraction)
+                                    if let dragged = PreviewSplit.dragged(from: start.fraction, startWidth: start.width,
+                                                                          startTotal: start.total, by: drag.translation.width,
+                                                                          total: total, divider: Self.dividerWidth) {
                                         fraction = dragged
                                     }
                                 })

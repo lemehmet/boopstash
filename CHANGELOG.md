@@ -14,6 +14,11 @@ breaking changes may land in a minor release.
   could leave the note as it was first uploaded and put the edit in a
   conflict copy. The upload coming back from iCloud was taken for an edit
   made on another device (#215, #216).
+- **Mac: letting go of the preview divider where you grabbed it no longer
+  changes the split.** With the editor at its narrowest, such a drag
+  stored the narrowest width over the size you had set, so a wider window
+  later split differently (#226). A VoiceOver decrement at the narrowest
+  width no longer does either.
 - **The note list could stay on an old filter.** Changing the filter
   twice in quick succession, as New Note does when it clears a label
   filter, could leave the list showing the first filter's notes until the
