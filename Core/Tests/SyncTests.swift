@@ -273,6 +273,40 @@ import Testing
         #expect(try store.applyServerRecord(SyncMapping.record(for: reverted), systemFields: fields, changeTag: "tag-3") != nil)
     }
 
+    /// Two devices in step label the same note at once: the other device's
+    /// record has the body this one built, but not its labels, so it is an
+    /// edit made elsewhere and the labels merge, on both devices.
+    @Test func aForeignLabelOnTheSameBodyStillMerges() throws {
+        let base = note("base", title: "Plan")
+        let name = base.id.uuidString.lowercased()
+        try store.applyServerRecord(SyncMapping.record(for: base), systemFields: fields, changeTag: "tag-1")
+        let mine = try store.createLabel(name: "mine"), theirs = try store.createLabel(name: "theirs")
+        try store.assignLabel(mine.id, to: base.id)
+        _ = try #require(try store.pendingSave(kind: .note, name: name))
+
+        try store.applyServerRecord(SyncMapping.record(for: base, labelIDs: [theirs.id]), systemFields: fields, changeTag: "tag-2")
+        #expect(Set(try store.labels(of: base.id).map(\.id)) == [mine.id, theirs.id])
+        guard case .save(let record, _, _)? = try store.pendingSave(kind: .note, name: name) else {
+            Issue.record("not pending")
+            return
+        }
+        #expect(SyncMapping.labelIDs(from: record) == [mine.id, theirs.id], "the merge is sent")
+    }
+
+    /// The digest leaves out the dates, which do not come back exactly as
+    /// sent, and nothing else.
+    @Test func theContentDigestIgnoresOnlyDates() {
+        let base = note("base", title: "Plan")
+        var later = base
+        later.updatedAt = base.updatedAt.addingTimeInterval(0.001)
+        var retitled = base
+        retitled.title = "Other"
+        let digest = SyncMapping.record(for: base).contentDigest
+        #expect(SyncMapping.record(for: later).contentDigest == digest)
+        #expect(SyncMapping.record(for: retitled).contentDigest != digest)
+        #expect(SyncMapping.record(for: base, labelIDs: [UUID()]).contentDigest != digest)
+    }
+
     /// Once the server has acknowledged the last body built, the note is in
     /// step and the bodies sent are forgotten: one of them arriving later,
     /// with another tag, is an edit made elsewhere.

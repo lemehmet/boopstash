@@ -435,8 +435,8 @@ public final class NoteStore: Sendable {
             }
         }
         migrator.registerMigration("v12-sync-uploads") { db in
-            // The bodies of the note records built for sending since the note
-            // was last in step, as digests: a record coming back with one of
+            // The note records built for sending since the note was last in
+            // step, as `SyncRecord.contentDigest`s: a record coming back with one of
             // them is this device's own upload, also when its acknowledgement
             // never arrived (#229). Local only; the CloudKit schema is
             // unchanged.
