@@ -94,7 +94,7 @@ extension NoteStore {
     /// upload was built before the row had to go up again as new, or a
     /// newer upload was acknowledged first. Versions only grow, so neither
     /// check is ever undone.
-    public func acknowledgeSave(kind: SyncRecord.Kind, name: String, version: Int, systemFields: Data) throws {
+    public func acknowledgeSave(kind: SyncRecord.Kind, name: String, version: Int, systemFields: Data, changeTag: String? = nil) throws {
         guard let id = UUID(uuidString: name) else { return }
         try writer.write { db in
             // SQLite evaluates every right-hand side with the old values.
@@ -104,6 +104,14 @@ extension NoteStore {
                     syncAcknowledged = MAX(syncAcknowledged, ?)
                 WHERE id = ?
                 """, arguments: [version, systemFields, version, id])
+            // A note's change tag goes with its system fields (#215); the
+            // CASE above has already run, so the version check is repeated.
+            if kind == .note {
+                try db.execute(sql: """
+                    UPDATE note SET syncChangeTag = ?
+                    WHERE id = ? AND syncSystemFields = ?
+                    """, arguments: [changeTag, id, systemFields])
+            }
         }
     }
 
@@ -120,7 +128,13 @@ extension NoteStore {
     /// edit, and a label with the same name as another here becomes one with
     /// it (`takeLabel`, ADR 0011).
     @discardableResult
-    public func applyServerRecord(_ record: SyncRecord, systemFields: Data, assetData: Data? = nil, now: Date = Date()) throws -> Note? {
+    ///
+    /// `changeTag` is the record's server change tag. A note record whose
+    /// tag is the one stored at this device's last acknowledgement is its
+    /// own upload coming back: the server has not changed since, so unsent
+    /// edits here are kept and sent, with no merge and no copy (#215).
+    public func applyServerRecord(_ record: SyncRecord, systemFields: Data, changeTag: String? = nil, assetData: Data? = nil,
+                                  now: Date = Date()) throws -> Note? {
         // Deleted here, deletion not yet sent: a stale save from the server
         // must not bring the record back. Checked again inside each write,
         // where a local delete cannot slip in between (#110).
@@ -187,8 +201,16 @@ extension NoteStore {
             let serverLabels = SyncMapping.labelIDs(from: record)
             return try writer.write { db -> Note? in
                 guard try !Self.isTombstoned(record, db) else { return nil }
-                let row = try Row.fetchOne(db, sql: "SELECT syncPending, syncAcknowledged FROM note WHERE id = ?", arguments: [server.id])
+                let row = try Row.fetchOne(db, sql: """
+                    SELECT syncPending, syncAcknowledged, syncSystemFields IS NOT NULL AND syncChangeTag = ? AS unchangedSince
+                    FROM note WHERE id = ?
+                    """, arguments: [changeTag, server.id])
                 let changedHere = row.map { ($0["syncPending"] as Int) > ($0["syncAcknowledged"] as Int) } ?? false
+                if changedHere, changeTag != nil, row?["unchangedSince"] == true {
+                    // The server still holds what this device last sent: the
+                    // edits here are newer, and stay pending to be sent.
+                    return nil
+                }
                 guard changedHere, let local = try Note.fetchOne(db, key: server.id) else {
                     // New here, or unchanged here: the server's version wins.
                     // Its labels are kept as sent, also those whose label has
@@ -196,7 +218,8 @@ extension NoteStore {
                     try server.save(db)
                     try Self.setLabelIDs(serverLabels, of: server.id, db)
                     try Self.refreshImageText(of: server.id, body: server.body, db)
-                    try db.execute(sql: "UPDATE note SET syncAcknowledged = syncPending, syncSystemFields = ? WHERE id = ?", arguments: [systemFields, server.id])
+                    try db.execute(sql: "UPDATE note SET syncAcknowledged = syncPending, syncSystemFields = ?, syncChangeTag = ? WHERE id = ?",
+                                   arguments: [systemFields, changeTag, server.id])
                     return nil
                 }
                 let outcome = SyncMerge.merge(local: local, server: server, localLabels: try Self.labelIDs(of: local.id, db),
@@ -207,9 +230,9 @@ extension NoteStore {
                 // Still different from the server's: a new version to send.
                 // The same: in step.
                 try db.execute(sql: outcome.stillPending
-                                   ? "UPDATE note SET syncPending = syncPending + 1, syncSystemFields = ? WHERE id = ?"
-                                   : "UPDATE note SET syncAcknowledged = syncPending, syncSystemFields = ? WHERE id = ?",
-                               arguments: [systemFields, server.id])
+                                   ? "UPDATE note SET syncPending = syncPending + 1, syncSystemFields = ?, syncChangeTag = ? WHERE id = ?"
+                                   : "UPDATE note SET syncAcknowledged = syncPending, syncSystemFields = ?, syncChangeTag = ? WHERE id = ?",
+                               arguments: [systemFields, changeTag, server.id])
                 if let copy = outcome.conflictCopy {
                     try copy.insert(db)
                     try Self.refreshImageText(of: copy.id, body: copy.body, db)
