@@ -30,16 +30,19 @@ public enum PreviewSplit {
     }
 
     /// The fraction to keep while the divider is dragged by `translation`
-    /// from where the stored `startFraction` put it (`startWidth`). A drag
-    /// that is back where it began, or that a pane's minimum holds there,
-    /// keeps the stored share, also one that renders clamped: a 0.10 share
-    /// showing as 240 of 1000 is not replaced by 0.24 (#226). `nil` when the
+    /// from where the stored `startFraction` put it (`startWidth` of
+    /// `startTotal`). A drag that is back where it began, or that a pane's
+    /// minimum holds there, keeps the stored share, also one that renders
+    /// clamped: a 0.10 share showing as 240 of 1000 is not replaced by 0.24
+    /// (#226). Only while the split is still `startTotal` wide: after a
+    /// resize the stored share would render somewhere else. `nil` when the
     /// split is too narrow for the divider to move.
-    public static func dragged(from startFraction: Double, startWidth: Double, by translation: Double,
-                               total: Double, divider: Double) -> Double? {
+    public static func dragged(from startFraction: Double, startWidth: Double, startTotal: Double,
+                               by translation: Double, total: Double, divider: Double) -> Double? {
         guard let next = fraction(leadingWidth: startWidth + translation, total: total, divider: divider) else { return nil }
         let width = leadingWidth(total: total, fraction: next, divider: divider)
-        return abs(width - startWidth) < 0.000_001 ? startFraction : next
+        let unmoved = total == startTotal && abs(width - startWidth) < 0.000_001
+        return unmoved ? startFraction : next
     }
 
     /// How far one VoiceOver increment or decrement moves the divider: this
@@ -55,8 +58,8 @@ public enum PreviewSplit {
         guard steps != 0 else { return fraction }
         let available = max(total - divider, 0)
         let width = leadingWidth(total: total, fraction: fraction, divider: divider)
-        return dragged(from: fraction, startWidth: width, by: Double(steps) * adjustmentStep * available,
-                       total: total, divider: divider) ?? fraction
+        return dragged(from: fraction, startWidth: width, startTotal: total,
+                       by: Double(steps) * adjustmentStep * available, total: total, divider: divider) ?? fraction
     }
 
     /// The editor's share of the space beside the divider as a whole
