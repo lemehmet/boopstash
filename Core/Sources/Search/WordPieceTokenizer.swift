@@ -59,6 +59,15 @@ public struct WordPieceTokenizer: Sendable {
     /// ending where a word ends (whitespace, punctuation, CJK), so stopping
     /// early skips the rest and the words are the same as folding it whole.
     func forEachWord(in text: String, _ body: (String) -> Bool) {
+        forEachWord(scalars: text.unicodeScalars, body)
+    }
+
+    /// `forEachWord(in:)` over any scalars, so a test can count how many
+    /// were read when a word arrives: the long-run cut must come before the
+    /// rest of the run is read, not after (#227). Specialized for the
+    /// `String` path, which stays as fast as before.
+    @_specialize(where S == String.UnicodeScalarView)
+    func forEachWord<S: Sequence>(scalars: S, _ body: (String) -> Bool) where S.Element == Unicode.Scalar {
         var chunk = String.UnicodeScalarView()
         var stopped = false
         func process() {
@@ -90,7 +99,7 @@ public struct WordPieceTokenizer: Sendable {
         // punctuation or CJK character, each of which ends a word.
         var run = String.UnicodeScalarView()
         var skipping = false
-        for scalar in text.unicodeScalars {
+        for scalar in scalars {
             let ends = scalar.properties.isWhitespace || Self.isPunctuation(scalar) || Self.isCJK(scalar)
             guard ends else {
                 // Scalars folding drops (marks, control and format
