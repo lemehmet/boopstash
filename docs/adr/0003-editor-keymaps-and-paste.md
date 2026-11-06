@@ -47,6 +47,24 @@ be a rich-text or full markdown editor.
     `NSAttributedString(html:)`; it is a pure function in Core with tests.
 - **Folding is deferred** but is a selection criterion for the engine:
   structural ranges from tree-sitter for code, headings for markdown.
+- **Find and replace follows VS Code** (added 2026-11-05), not AppKit's
+  find bar: a widget at the editor's top right with the query, Match Case,
+  Whole Word and Regular Expression toggles, "3 of 12", previous and next,
+  and a replace row that unfolds under it. Every match is highlighted and
+  the current one is the selection, so Replace acts on what is seen; when
+  the selection is not on a match, Replace first finds one. `$1` works in
+  a regex replacement. ⌘F seeds the query from the selection or the word at
+  the caret. Keys are the macOS ones, which VS Code shares: ⌘F, ⌥⌘F (⌘R in
+  JetBrains; ⌃S opens it in Emacs), ⌘G / ⇧⌘G (which show the widget
+  without taking the keyboard), ⌘E, Enter / ⇧Enter in the query, Enter in
+  the replacement replaces, Escape closes; the toggles are ⌥⌘C, ⌥⌘W, ⌥⌘R
+  and Replace All is ⌥⌘Enter. ⌥⌘W is taken from Close All while the
+  editor has the keyboard, as in VS Code. The keys are taken by a local
+  event monitor, since SwiftUI's sidebar filter claims ⌘F ahead of the
+  editor's own key handling, and the widget's fields are the first
+  responder while it is used. The matching is a pure function in Core
+  (`TextFind`); the search runs off the main thread, as the formatters
+  do, with a cap of 20,000 matches.
 
 ## Engine spike criteria (milestone 1)
 

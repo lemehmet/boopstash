@@ -43,6 +43,22 @@ import Testing
         }
     }
 
+    @Test func findKeysAreTheMacOSOnesEverywhere() {
+        for preset in KeymapPreset.allCases {
+            let keymap = Keymap(preset: preset)
+            #expect(keymap.command(for: KeyChord("f", .command)) == .find, "\(preset)")
+            #expect(keymap.command(for: KeyChord("f", [.command, .option])) == .findAndReplace, "\(preset)")
+            #expect(keymap.command(for: KeyChord("g", .command)) == .findNext, "\(preset)")
+            #expect(keymap.command(for: KeyChord("g", [.command, .shift])) == .findPrevious, "\(preset)")
+            #expect(keymap.command(for: KeyChord("e", .command)) == .useSelectionForFind, "\(preset)")
+            #expect(keymap.command(for: KeyChord("c", [.command, .option])) == .toggleMatchCase, "\(preset)")
+            #expect(keymap.command(for: KeyChord("enter", [.command, .option])) == .replaceAll, "\(preset)")
+        }
+        #expect(Keymap(preset: .jetBrains).command(for: KeyChord("r", .command)) == .findAndReplace)
+        #expect(Keymap(preset: .vsCode).command(for: KeyChord("r", .command)) == nil)
+        #expect(Keymap(preset: .emacs).command(for: KeyChord("s", .control)) == .find)
+    }
+
     // MARK: Parsing
 
     @Test(arguments: [
