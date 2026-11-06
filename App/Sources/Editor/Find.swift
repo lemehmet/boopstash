@@ -67,9 +67,16 @@ final class FindController {
     private var stale = false
     private var generation = 0
     private var searching: Task<Void, Never>?
+    /// The Replace All in flight, so a second press (a double-click, key
+    /// repeat) is not a second pass that finds the note "changed".
+    private var replacing: Task<Void, Never>?
     private var frameObserver: NSObjectProtocol?
 
+    /// An editor going away takes its searches with it: a dropped task
+    /// handle does not cancel the detached worker.
     isolated deinit {
+        searching?.cancel()
+        replacing?.cancel()
         if let frameObserver { NotificationCenter.default.removeObserver(frameObserver) }
     }
 
@@ -343,12 +350,13 @@ final class FindController {
     /// changed meanwhile. Only with the replace row shown: the query and
     /// the replacement are then in view, not ones left by another note.
     func replaceAll() {
-        guard isShown, replaceShown, let view, view.isEditable, !query.isEmpty else { return }
+        guard isShown, replaceShown, let view, view.isEditable, !query.isEmpty, replacing == nil else { return }
         let snapshot = view.string
         let query = query
         let template = replacement
         let generation = view.documentGeneration
-        Task { [weak self] in
+        replacing = Task { [weak self] in
+            defer { self?.replacing = nil }
             let worker = Task.detached(priority: .userInitiated) { () -> Result<[(range: NSRange, text: String)], FindError> in
                 do throws(FindError) {
                     // Every match, not the widget's counting cap: a replace

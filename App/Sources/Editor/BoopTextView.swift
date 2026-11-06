@@ -288,18 +288,21 @@ final class BoopTextView: NSTextView {
         if item.action == #selector(pasteAsMarkdown(_:)) {
             return isEditable && NSPasteboard.general.availableType(from: [.html, .rtf, .string]) != nil
         }
-        // Edit ▸ Find's items drive the find widget; AppKit would
+        // The standard find actions drive the find widget; AppKit would
         // refuse them with its find bar off.
-        if item.action == #selector(performTextFinderAction(_:)) || item.action == #selector(performFindPanelAction(_:)) {
-            return validatesFindItem(tag: item.tag)
+        if item.action == #selector(performTextFinderAction(_:)) {
+            return validatesFindItem(NSTextFinder.Action(rawValue: item.tag))
+        }
+        if item.action == #selector(performFindPanelAction(_:)) {
+            return validatesFindItem(Self.textFinderAction(for: NSFindPanelAction(rawValue: UInt(item.tag))))
         }
         return super.validateUserInterfaceItem(item)
     }
 
     // MARK: - Find and replace
 
-    private func validatesFindItem(tag: Int) -> Bool {
-        switch NSTextFinder.Action(rawValue: tag) {
+    private func validatesFindItem(_ action: NSTextFinder.Action?) -> Bool {
+        switch action {
         case .setSearchString: selectedRange().length > 0
         case .replace, .replaceAll, .replaceAndFind: isEditable
         // The widget has no "in selection" scope: these would act on the
@@ -320,7 +323,11 @@ final class BoopTextView: NSTextView {
     /// Use Selection for Find: the menu's items, with the standard tags.
     override func performTextFinderAction(_ sender: Any?) {
         guard let tag = (sender as? (any NSValidatedUserInterfaceItem))?.tag else { return }
-        switch NSTextFinder.Action(rawValue: tag) {
+        perform(NSTextFinder.Action(rawValue: tag))
+    }
+
+    func perform(_ action: NSTextFinder.Action?) {
+        switch action {
         case .showFindInterface: find.show(replace: false)
         case .showReplaceInterface: find.show(replace: true)
         case .nextMatch: find.next()
@@ -333,10 +340,27 @@ final class BoopTextView: NSTextView {
         }
     }
 
-    /// The older find-panel selector maps to the same actions (its tags
-    /// agree with the text finder's for the ones used).
+    /// The older find-panel selector, translated case by case rather than
+    /// by tag, so nothing rests on the two enums' numbering.
     override func performFindPanelAction(_ sender: Any?) {
-        performTextFinderAction(sender)
+        guard let tag = (sender as? (any NSValidatedUserInterfaceItem))?.tag else { return }
+        perform(Self.textFinderAction(for: NSFindPanelAction(rawValue: UInt(tag))))
+    }
+
+    static func textFinderAction(for action: NSFindPanelAction?) -> NSTextFinder.Action? {
+        switch action {
+        case .showFindPanel: .showFindInterface
+        case .next: .nextMatch
+        case .previous: .previousMatch
+        case .replaceAll: .replaceAll
+        case .replace: .replace
+        case .replaceAndFind: .replaceAndFind
+        case .setFindString: .setSearchString
+        case .replaceAllInSelection: .replaceAllInSelection
+        case .selectAll: .selectAll
+        case .selectAllInSelection: .selectAllInSelection
+        default: nil
+        }
     }
 
     /// Edit ▸ Find's items, which SwiftUI's menu sends to the first

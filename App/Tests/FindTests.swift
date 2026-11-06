@@ -443,6 +443,47 @@ struct FindTests {
         host.close()
     }
 
+    // MARK: Round 4 of the review (#236)
+
+    @Test func legacyFindPanelActionsAreTranslatedCaseByCase() async throws {
+        let host = Host("old old")
+        host.view.setSelectedRange(NSRange(location: 4, length: 3))
+        let item = NSMenuItem()
+        item.action = #selector(NSTextView.performFindPanelAction(_:))
+        item.tag = Int(NSFindPanelAction.showFindPanel.rawValue)
+        #expect(host.view.validateUserInterfaceItem(item))
+        host.view.performFindPanelAction(item)
+        #expect(host.view.find.isShown)
+        #expect(!host.view.find.replaceShown)
+        #expect(try await matches(of: host, 2))
+        host.view.find.setReplacement("new")
+        // Legacy Replace is one match, never Replace All.
+        host.view.find.toggleReplaceRow()
+        item.tag = Int(NSFindPanelAction.replace.rawValue)
+        host.view.performFindPanelAction(item)
+        #expect(host.view.string == "old new")
+        item.tag = Int(NSFindPanelAction.replaceAllInSelection.rawValue)
+        #expect(!host.view.validateUserInterfaceItem(item))
+        #expect(BoopTextView.textFinderAction(for: .setFindString) == .setSearchString)
+        host.close()
+    }
+
+    @Test func aSecondReplaceAllInFlightIsIgnored() async throws {
+        let host = Host("d d d")
+        var messages: [String] = []
+        host.view.showMessage = { messages.append($0) }
+        host.view.find.show(replace: true)
+        host.view.find.setQueryText("d")
+        host.view.find.setReplacement("e")
+        #expect(try await matches(of: host, 3))
+        host.view.find.replaceAll()
+        host.view.find.replaceAll()
+        #expect(try await eventually { host.view.string == "e e e" })
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(messages == ["Replaced 3 matches."])
+        host.close()
+    }
+
     @Test func theQueryCarriesOverToTheNextEditor() async throws {
         let first = Host("carry")
         first.view.find.show(replace: false)
