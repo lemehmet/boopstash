@@ -14,6 +14,7 @@ Each milestone ends in something that runs. Decisions behind them are in
 | v0.4.2 — Labels, Report a Problem | Done; v0.4.2 |
 | v0.4.3 — Preview fixes | Done; v0.4.3 (GitHub, Homebrew, TestFlight) |
 | v0.4.4 — Command line install | Mac 0.4.4 and iOS 0.4.3 in App Review |
+| v0.4.5 — Find and replace | Done; v0.4.5 (GitHub, Homebrew, TestFlight) |
 
 Releases stay at most one version ahead of the App Store: while a version
 is in review, work lands on `main` and waits.
