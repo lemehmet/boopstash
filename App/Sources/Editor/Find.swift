@@ -37,12 +37,17 @@ final class FindController {
         case keep
         case first(from: NSRange)
         case next(after: NSRange)
+        case previous(before: NSRange)
     }
 
     private var pending: Pending = .keep
     /// Set before an edit of the editor's own, for the search that edit
     /// triggers.
     private var pendingAfterEdit: Pending?
+    /// The text changed under the matches and the search for the new text
+    /// has not delivered: the ranges may not fit the text any more, so
+    /// nothing is selected or drawn from them until it has.
+    private var stale = false
     private var generation = 0
     private var searching: Task<Void, Never>?
     private var frameObserver: NSObjectProtocol?
@@ -174,10 +179,13 @@ final class FindController {
     func toggleWholeWord() { setOptions { $0.wholeWord.toggle() } }
     func toggleRegex() { setOptions { $0.isRegex.toggle() } }
 
+    /// The toggles, like Replace, only act with the widget shown (VS Code
+    /// gates them on the widget too): a hidden query is nothing the user
+    /// can see.
     private func setOptions(_ change: (inout FindQuery) -> Void) {
+        guard isShown, let view else { return }
         change(&query)
         panel?.update()
-        guard isShown, let view else { return }
         search(then: .first(from: view.selectedRange()))
     }
 
@@ -204,8 +212,9 @@ final class FindController {
     /// Next does the same).
     func next() {
         guard let view else { return }
-        guard isShown else {
-            show(replace: false, focus: false)
+        guard isShown, !stale else {
+            // Opened or edited: the step is applied when the search delivers.
+            if !isShown { show(replace: false, focus: false) }
             pending = .next(after: view.selectedRange())
             return
         }
@@ -218,8 +227,9 @@ final class FindController {
 
     func previous() {
         guard let view else { return }
-        guard isShown else {
-            show(replace: false, focus: false)
+        guard isShown, !stale else {
+            if !isShown { show(replace: false, focus: false) }
+            pending = .previous(before: view.selectedRange())
             return
         }
         guard let index = TextFind.previous(before: view.selectedRange(), in: matches) else {
@@ -261,7 +271,13 @@ final class FindController {
     /// selection is not on a match, the first press only finds one, as in
     /// VS Code, so nothing is replaced unseen.
     func replaceCurrent() {
-        guard let view, view.isEditable, !query.isEmpty else { return }
+        guard isShown, let view, view.isEditable, !query.isEmpty else { return }
+        // Until the search for the edited text delivers, the matches may
+        // not fit the text: step to the next one then, replace nothing.
+        guard !stale else {
+            next()
+            return
+        }
         let selection = view.selectedRange()
         guard TextFind.index(of: selection, in: matches) != nil,
               let text = try? TextFind.replacement(for: selection, in: view.string, query: query, template: replacement)
@@ -283,12 +299,15 @@ final class FindController {
 
     /// Every match, as one undoable edit. Matches are found again on the
     /// text as it is now, off the main thread like a format (#97), and
-    /// applied only if the text has not changed meanwhile.
+    /// applied only if the note is the same one and its text has not
+    /// changed meanwhile. Only with the widget shown: the query is then
+    /// in view, not one left by another note.
     func replaceAll() {
-        guard let view, view.isEditable, !query.isEmpty else { return }
+        guard isShown, let view, view.isEditable, !query.isEmpty else { return }
         let snapshot = view.string
         let query = query
         let template = replacement
+        let generation = view.documentGeneration
         Task { [weak self] in
             let worker = Task.detached(priority: .userInitiated) { () -> Result<[(range: NSRange, text: String)], FindError> in
                 do throws(FindError) {
@@ -299,7 +318,9 @@ final class FindController {
             }
             let result = await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
             guard let self, let view = self.view else { return }
-            guard view.string == snapshot else {
+            // Another note with the same text in this reused editor is not
+            // the note the replacements were found in.
+            guard view.documentGeneration == generation, view.string == snapshot else {
                 view.showMessage?("The note changed while its matches were being replaced, so it was left as it is.")
                 return
             }
@@ -308,7 +329,8 @@ final class FindController {
                 NSSound.beep()
                 self.error = error.message
                 self.panel?.update()
-            case .success(let edits):
+            case .success(let found):
+                let edits = found.filter { !Self.inChip($0.range, view.chipRanges) }
                 guard !edits.isEmpty else {
                     NSSound.beep()
                     return
@@ -325,6 +347,7 @@ final class FindController {
     /// selection is left alone unless the change was a Replace.
     func textDidChange() {
         guard isShown else { return }
+        stale = true
         search(then: pendingAfterEdit ?? .keep)
         pendingAfterEdit = nil
     }
@@ -354,7 +377,7 @@ final class FindController {
     /// Fills the matches on screen, under the text. The current match is
     /// the selection, which the view draws over this.
     func drawHighlights(in rect: NSRect) {
-        guard isShown, !matches.isEmpty, let view, let layout = view.textLayoutManager, let content = layout.textContentManager,
+        guard isShown, !stale, !matches.isEmpty, let view, let layout = view.textLayoutManager, let content = layout.textContentManager,
               let visible = SyntaxPainter.visibleRange(of: view, in: content)
         else { return }
         let origin = view.textContainerOrigin
@@ -406,22 +429,34 @@ final class FindController {
     private func apply(_ result: Result<[NSRange], FindError>) {
         switch result {
         case .success(let found):
-            matches = found
+            // Text under an attachment chip is not on screen and a
+            // selection there snaps to the whole chip, so it is no match.
+            let chips = view?.chipRanges ?? []
+            matches = chips.isEmpty ? found : found.filter { !Self.inChip($0, chips) }
             error = nil
         case .failure(let failure):
             matches = []
             error = failure.message
         }
+        stale = false
         if let view {
             switch pending {
             case .keep: break
             case .first(let from): if let index = TextFind.first(from: from, in: matches) { select(index) }
             case .next(let after): if let index = TextFind.next(after: after, in: matches) { select(index) }
+            case .previous(let before): if let index = TextFind.previous(before: before, in: matches) { select(index) }
             }
             view.needsDisplay = true
         }
         pending = .keep
         panel?.update()
+    }
+
+    /// Whether a match touches an attachment reference's text.
+    static func inChip(_ match: NSRange, _ chips: [NSRange]) -> Bool {
+        chips.contains { chip in
+            NSIntersectionRange(chip, match).length > 0 || (chip.location < match.location && match.location < NSMaxRange(chip))
+        }
     }
 }
 
@@ -670,6 +705,24 @@ final class FindPanel: NSBox, NSTextFieldDelegate {
     @objc private func replaceOne() { controller.replaceCurrent() }
     @objc private func replaceAll() { controller.replaceAll() }
 
+    /// Keyboard focus moving into or out of a field counts as the
+    /// editor's (AppModel): the menus that depend on it stay in step.
+    func controlTextDidBeginEditing(_ notification: Notification) {
+        controller.view?.onFocusChange?(true)
+    }
+
+    func controlTextDidEndEditing(_ notification: Notification) {
+        controller.view?.onFocusChange?(false)
+    }
+
+    /// Menu commands sent to the first responder while a field has the
+    /// keyboard (Format Document, Fold, Paste as Markdown) go to the editor
+    /// the widget belongs to; the field editor is not on its way otherwise.
+    override func supplementalTarget(forAction action: Selector, sender: Any?) -> Any? {
+        if let view = controller.view, view.responds(to: action) { return view }
+        return super.supplementalTarget(forAction: action, sender: sender)
+    }
+
     func controlTextDidChange(_ notification: Notification) {
         guard let field = notification.object as? NSTextField else { return }
         if field === queryField {
@@ -738,7 +791,9 @@ enum FindKeys {
     /// True when the event was a find key for the focused editor or
     /// widget, and was performed.
     static func handles(_ event: NSEvent) -> Bool {
-        guard event.modifierFlags.contains(.command), let window = event.window, let chord = KeyChord(event: event) else { return false }
+        // No modifier precondition: Emacs binds ⌃S, and keybindings.json
+        // may bind anything; the keymap decides.
+        guard let window = event.window, let chord = KeyChord(event: event) else { return false }
         let responder = window.firstResponder
         guard let view = responder as? BoopTextView ?? FindPanel.focused(by: responder)?.controller.view,
               let command = view.keymap.command(for: chord), commands.contains(command)

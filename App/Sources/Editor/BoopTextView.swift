@@ -301,9 +301,19 @@ final class BoopTextView: NSTextView {
     private func validatesFindItem(tag: Int) -> Bool {
         switch NSTextFinder.Action(rawValue: tag) {
         case .setSearchString: selectedRange().length > 0
-        case .replace, .replaceAll, .replaceAndFind, .replaceAllInSelection: isEditable
+        case .replace, .replaceAll, .replaceAndFind: isEditable
+        // The widget has no "in selection" scope: these would act on the
+        // whole note under a narrower name, so they are refused.
+        case .replaceAllInSelection, .selectAll, .selectAllInSelection: false
         default: true
         }
+    }
+
+    /// The editor a responder stands for: the view itself, or the one
+    /// whose find widget's field has the keyboard (the field editor is the
+    /// first responder then, and the widget is part of using the editor).
+    static func editor(for responder: NSResponder?) -> BoopTextView? {
+        responder as? BoopTextView ?? FindPanel.focused(by: responder)?.controller.view
     }
 
     /// Edit ▸ Find ▸ Find…, Find and Replace…, Find Next, Find Previous,
@@ -317,7 +327,7 @@ final class BoopTextView: NSTextView {
         case .previousMatch: find.previous()
         case .setSearchString: find.useSelection()
         case .replace, .replaceAndFind: find.replaceCurrent()
-        case .replaceAll, .replaceAllInSelection: find.replaceAll()
+        case .replaceAll: find.replaceAll()
         case .hideFindInterface, .hideReplaceInterface: find.hide()
         default: break
         }
@@ -537,7 +547,7 @@ final class BoopTextView: NSTextView {
     private var formatting: Task<Void, Never>?
     /// Counts loaded documents, so work started for one is not applied to
     /// the next.
-    private var documentGeneration = 0
+    private(set) var documentGeneration = 0
 
     private func apply(_ result: Result<Formatted, FormatError>, range: NSRange, whole: Bool) {
         switch result {

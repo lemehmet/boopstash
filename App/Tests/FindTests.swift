@@ -179,6 +179,7 @@ struct FindTests {
         let host = Host("menu menu")
         host.view.setSelectedRange(NSRange(location: 5, length: 4))
         let item = NSMenuItem()
+        item.action = #selector(NSResponder.performTextFinderAction(_:))
         item.tag = NSTextFinder.Action.showFindInterface.rawValue
         #expect(host.view.validateUserInterfaceItem(item))
         host.view.performTextFinderAction(item)
@@ -207,6 +208,98 @@ struct FindTests {
         #expect(try await matches(of: host, 1))
         #expect(try await eventually { host.view.selectedRange() == NSRange(location: 17, length: 6) })
         #expect(!host.view.folding.isHidden(1))
+        host.close()
+    }
+
+    // MARK: Round 1 of the review (#236)
+
+    @Test func replaceAllIsDroppedWhenAnotherNoteLoadsWithTheSameText() async throws {
+        let host = Host("same same")
+        host.view.find.show(replace: true)
+        host.view.find.setQueryText("same")
+        host.view.find.setReplacement("other")
+        #expect(try await matches(of: host, 2))
+        host.view.find.replaceAll()
+        // Another note, with the very same text, before the worker returns.
+        host.view.load("same same")
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(host.view.string == "same same")
+        host.close()
+    }
+
+    @Test func inSelectionActionsAreRefused() {
+        let host = Host("a a")
+        host.view.setSelectedRange(NSRange(location: 0, length: 1))
+        let item = NSMenuItem()
+        item.action = #selector(NSResponder.performTextFinderAction(_:))
+        item.tag = NSTextFinder.Action.replaceAllInSelection.rawValue
+        #expect(!host.view.validateUserInterfaceItem(item))
+        item.tag = NSTextFinder.Action.replaceAll.rawValue
+        #expect(host.view.validateUserInterfaceItem(item))
+        host.close()
+    }
+
+    @Test func findPreviousWithTheWidgetClosedStepsBack() async throws {
+        let host = Host("k k k")
+        host.view.setSelectedRange(NSRange(location: 4, length: 1))
+        host.view.perform(.findPrevious)
+        #expect(host.view.find.isShown)
+        #expect(try await eventually { host.view.selectedRange() == NSRange(location: 2, length: 1) })
+        host.close()
+    }
+
+    @Test func replaceAllAndTheTogglesNeedTheWidget() async throws {
+        let first = Host("a a")
+        first.view.find.show(replace: true)
+        first.view.find.setQueryText("a")
+        first.view.find.setReplacement("b")
+        first.close()
+        // The next editor inherits the query, out of sight.
+        let host = Host("a a")
+        #expect(host.view.find.query.text == "a")
+        host.view.perform(.replaceAll)
+        host.view.perform(.toggleMatchCase)
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(host.view.string == "a a")
+        #expect(!host.view.find.query.matchCase)
+        host.close()
+    }
+
+    @Test func matchesUnderAttachmentChipsAreSkipped() async throws {
+        let host = Host()
+        host.view.attachmentURL = { _ in nil }
+        host.view.load("x " + AttachmentReference.markdown(for: UUID(), alt: "x inside") + " x")
+        #expect(!host.view.chipRanges.isEmpty)
+        host.view.find.show(replace: false)
+        host.view.find.setQueryText("x")
+        #expect(try await matches(of: host, 2))
+        #expect(host.view.find.matches.allSatisfy { match in !host.view.chipRanges.contains { NSIntersectionRange($0, match).length > 0 } })
+        host.close()
+    }
+
+    @Test func steppingRightAfterAnEditWaitsForTheNewMatches() async throws {
+        let host = Host("ab ab ab")
+        host.view.find.show(replace: false)
+        host.view.find.setQueryText("ab")
+        #expect(try await matches(of: host, 3))
+        host.view.setSelectedRange(NSRange(location: 6, length: 2))
+        // The tail goes, with the old third match; Enter at once must not
+        // select a range past the end.
+        host.view.insertText("", replacementRange: NSRange(location: 5, length: 3))
+        host.view.perform(.findNext)
+        #expect(NSMaxRange(host.view.selectedRange()) <= (host.view.string as NSString).length)
+        #expect(try await matches(of: host, 2))
+        #expect(try await eventually { host.view.selectedRange() == NSRange(location: 0, length: 2) }, "wrapped to the first match of the new text")
+        host.close()
+    }
+
+    @Test func aFocusedWidgetFieldCountsAsTheEditor() {
+        let host = Host("focus")
+        host.view.perform(.find)
+        #expect(host.view.find.panel?.hasFocus == true)
+        #expect(BoopTextView.editor(for: host.window.firstResponder) === host.view)
+        host.view.find.hide()
+        #expect(BoopTextView.editor(for: host.window.firstResponder) === host.view)
         host.close()
     }
 
