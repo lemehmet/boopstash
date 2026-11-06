@@ -36,11 +36,28 @@ final class FindController {
     enum Pending {
         case keep
         case first(from: NSRange)
-        case next(after: NSRange)
-        case previous(before: NSRange)
+        /// `steps` presses, queued while the search was in flight.
+        case next(after: NSRange, steps: Int)
+        case previous(before: NSRange, steps: Int)
+
+        /// The selection the step is relative to.
+        var origin: NSRange? {
+            switch self {
+            case .keep: nil
+            case .first(let from): from
+            case .next(let after, _): after
+            case .previous(let before, _): before
+            }
+        }
     }
 
+    /// Applied when the search delivers; dropped if the selection moves
+    /// elsewhere meanwhile (a click), so a slow search never yanks a
+    /// caret the user has since placed.
     private var pending: Pending = .keep
+    /// Set while this controller moves the selection itself, so its own
+    /// moves do not drop what is pending.
+    private var selecting = false
     /// Set before an edit of the editor's own, for the search that edit
     /// triggers.
     private var pendingAfterEdit: Pending?
@@ -219,9 +236,14 @@ final class FindController {
     func next() {
         guard let view else { return }
         guard isShown, !stale else {
-            // Opened or edited: the step is applied when the search delivers.
+            // Opened or edited: the step is applied when the search
+            // delivers; presses meanwhile add up.
             if !isShown { show(replace: false, focus: false) }
-            pending = .next(after: view.selectedRange())
+            if case .next(let after, let steps) = pending {
+                pending = .next(after: after, steps: steps + 1)
+            } else {
+                pending = .next(after: view.selectedRange(), steps: 1)
+            }
             return
         }
         guard let index = TextFind.next(after: view.selectedRange(), in: matches) else {
@@ -235,7 +257,11 @@ final class FindController {
         guard let view else { return }
         guard isShown, !stale else {
             if !isShown { show(replace: false, focus: false) }
-            pending = .previous(before: view.selectedRange())
+            if case .previous(let before, let steps) = pending {
+                pending = .previous(before: before, steps: steps + 1)
+            } else {
+                pending = .previous(before: view.selectedRange(), steps: 1)
+            }
             return
         }
         guard let index = TextFind.previous(before: view.selectedRange(), in: matches) else {
@@ -248,7 +274,9 @@ final class FindController {
     private func select(_ index: Int) {
         guard let view, matches.indices.contains(index) else { return }
         let range = matches[index]
+        selecting = true
         view.setSelectedRange(range)
+        selecting = false
         reveal(range)
         panel?.update()
     }
@@ -277,7 +305,7 @@ final class FindController {
     /// selection is not on a match, the first press only finds one, as in
     /// VS Code, so nothing is replaced unseen.
     func replaceCurrent() {
-        guard isShown, let view, view.isEditable, !query.isEmpty else { return }
+        guard isShown, replaceShown, let view, view.isEditable, !query.isEmpty else { return }
         // Until the search for the edited text delivers, the matches may
         // not fit the text: step to the next one then, replace nothing.
         guard !stale else {
@@ -301,17 +329,21 @@ final class FindController {
         // the typing path `insertText` is for.
         // The next match after the replacement, never one at the
         // replacement's end: a zero-length match (`$`) is there again.
-        pendingAfterEdit = .next(after: NSRange(location: selection.location + (text as NSString).length, length: 0))
+        pendingAfterEdit = .next(after: NSRange(location: selection.location + (text as NSString).length, length: 0), steps: 1)
+        // The caret the edit leaves is the controller's own move, not the
+        // user's: it must not drop the queued step.
+        selecting = true
         view.apply([(selection, text)], actionName: "Replace", selectingReplacements: false)
+        selecting = false
     }
 
     /// Every match, as one undoable edit. Matches are found again on the
     /// text as it is now, off the main thread like a format (#97), and
     /// applied only if the note is the same one and its text has not
-    /// changed meanwhile. Only with the widget shown: the query is then
-    /// in view, not one left by another note.
+    /// changed meanwhile. Only with the replace row shown: the query and
+    /// the replacement are then in view, not ones left by another note.
     func replaceAll() {
-        guard isShown, let view, view.isEditable, !query.isEmpty else { return }
+        guard isShown, replaceShown, let view, view.isEditable, !query.isEmpty else { return }
         let snapshot = view.string
         let query = query
         let template = replacement
@@ -375,7 +407,8 @@ final class FindController {
     }
 
     func selectionDidChange() {
-        guard isShown else { return }
+        guard isShown, let view else { return }
+        if !selecting, let origin = pending.origin, view.selectedRange() != origin { pending = .keep }
         panel?.update()
     }
 
@@ -420,6 +453,10 @@ final class FindController {
     private func search(then pending: Pending) {
         self.pending = pending
         guard let view, isShown else { return }
+        // Until it delivers, the matches on hand are not the answer:
+        // steps queue, nothing is drawn (so a first Enter right after
+        // opening is a step, not a beep at an empty list).
+        stale = true
         generation += 1
         let generation = generation
         searching?.cancel()
@@ -456,8 +493,10 @@ final class FindController {
             switch pending {
             case .keep: break
             case .first(let from): if let index = TextFind.first(from: from, in: matches) { select(index) }
-            case .next(let after): if let index = TextFind.next(after: after, in: matches) { select(index) }
-            case .previous(let before): if let index = TextFind.previous(before: before, in: matches) { select(index) }
+            case .next(let after, let steps):
+                if let index = TextFind.next(after: after, in: matches) { select((index + steps - 1) % matches.count) }
+            case .previous(let before, let steps):
+                if let index = TextFind.previous(before: before, in: matches) { select((index - (steps - 1) % matches.count + matches.count) % matches.count) }
             }
             view.needsDisplay = true
         }

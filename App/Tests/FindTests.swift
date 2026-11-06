@@ -371,6 +371,78 @@ struct FindTests {
         host.close()
     }
 
+    // MARK: Round 3 of the review (#236)
+
+    @Test func replaceAllNeedsTheReplaceRow() async throws {
+        let first = Host("r r")
+        first.view.find.show(replace: true)
+        first.view.find.setQueryText("r")
+        first.view.find.setReplacement("s")
+        first.close()
+        let host = Host("r r")
+        host.view.find.show(replace: false)
+        #expect(try await matches(of: host, 2))
+        #expect(host.view.find.replacement == "s", "carried over, out of sight")
+        host.view.perform(.replaceAll)
+        host.view.find.replaceCurrent()
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(host.view.string == "r r")
+        host.close()
+    }
+
+    @Test func menuActionsReachTheEditorFromAWidgetField() {
+        let host = Host("chain")
+        host.view.perform(.find)
+        #expect(host.view.find.panel?.hasFocus == true)
+        #expect(!host.view.find.replaceShown)
+        // The window cannot become key under the test host, so the
+        // application's target lookup has no chain to walk; this walks it
+        // the same way, from the field editor up, asking each responder
+        // for its supplemental target before itself.
+        let action = #selector(BoopTextView.showFindAndReplace(_:))
+        var responder = host.window.firstResponder
+        var target: NSResponder?
+        while let current = responder, target == nil {
+            if let supplemental = current.supplementalTarget(forAction: action, sender: nil) as? NSResponder, supplemental.responds(to: action) {
+                target = supplemental
+            } else if current.responds(to: action) {
+                target = current
+            }
+            responder = current.nextResponder
+        }
+        #expect(target === host.view)
+        #expect(NSApp.sendAction(action, to: target, from: nil))
+        #expect(host.view.find.replaceShown)
+        host.close()
+    }
+
+    @Test func stepsPressedWhileSearchingAddUp() async throws {
+        let host = Host("m m m m")
+        host.view.setSelectedRange(NSRange(location: 0, length: 0))
+        host.view.find.show(replace: false)
+        host.view.find.setQueryText("m")
+        // Before the search delivers: three presses, three steps.
+        host.view.perform(.findNext)
+        host.view.perform(.findNext)
+        host.view.perform(.findNext)
+        #expect(try await matches(of: host, 4))
+        #expect(try await eventually { host.view.selectedRange() == NSRange(location: 4, length: 1) })
+        host.close()
+    }
+
+    @Test func aSearchDoesNotYankACaretMovedMeanwhile() async throws {
+        let host = Host("hit hit")
+        host.view.setSelectedRange(NSRange(location: 0, length: 0))
+        host.view.find.show(replace: false, focus: false)
+        host.view.find.setQueryText("hit")
+        // The user clicks elsewhere while the search is in flight.
+        host.view.setSelectedRange(NSRange(location: 5, length: 0))
+        #expect(try await matches(of: host, 2))
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(host.view.selectedRange() == NSRange(location: 5, length: 0))
+        host.close()
+    }
+
     @Test func theQueryCarriesOverToTheNextEditor() async throws {
         let first = Host("carry")
         first.view.find.show(replace: false)
