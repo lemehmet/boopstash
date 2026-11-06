@@ -303,6 +303,74 @@ struct FindTests {
         host.close()
     }
 
+    // MARK: Round 2 of the review (#236)
+
+    @Test func replaceAdvancesPastAZeroLengthMatch() async throws {
+        let host = Host("one\ntwo")
+        host.view.setSelectedRange(NSRange(location: 0, length: 0))
+        host.view.find.show(replace: true)
+        host.view.perform(.toggleRegex)
+        host.view.find.setQueryText("$")
+        host.view.find.setReplacement("-")
+        #expect(try await matches(of: host, 2))
+        #expect(try await eventually { host.view.selectedRange() == NSRange(location: 3, length: 0) })
+        host.view.find.replaceCurrent()
+        #expect(host.view.string == "one-\ntwo")
+        #expect(try await eventually { host.view.selectedRange() == NSRange(location: 8, length: 0) }, "the next line's end, not the same one again")
+        host.view.find.replaceCurrent()
+        #expect(host.view.string == "one-\ntwo-")
+        host.close()
+    }
+
+    @Test func openingReplaceKeepsAnActiveRegexQuery() async throws {
+        let host = Host("id 123 and 45")
+        host.view.find.show(replace: false)
+        host.view.perform(.toggleRegex)
+        host.view.find.setQueryText(#"\d+"#)
+        #expect(try await matches(of: host, 2))
+        #expect(try await eventually { host.view.selectedRange() == NSRange(location: 3, length: 3) })
+        host.view.perform(.findAndReplace)
+        #expect(host.view.find.query.text == #"\d+"#)
+        #expect(host.view.find.replaceShown)
+        // From the editor, on something other than the match, ⌘F seeds.
+        host.window.makeFirstResponder(host.view)
+        host.view.setSelectedRange(NSRange(location: 0, length: 2))
+        host.view.perform(.find)
+        #expect(host.view.find.query.text == "id")
+        host.close()
+    }
+
+    @Test func replaceAllCountsOnlyWhatChanged() async throws {
+        let host = Host("a a")
+        var messages: [String] = []
+        host.view.showMessage = { messages.append($0) }
+        host.view.find.show(replace: true)
+        host.view.find.setQueryText("a")
+        host.view.find.setReplacement("a")
+        #expect(try await matches(of: host, 2))
+        host.view.find.replaceAll()
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(host.view.string == "a a")
+        #expect(messages.isEmpty, "nothing was replaced, so nothing is announced")
+        #expect(host.view.undoManager?.canUndo == false)
+        host.close()
+    }
+
+    @Test func aLineBreakInTheQueryFieldStepsBack() async throws {
+        let host = Host("q q q")
+        host.view.setSelectedRange(NSRange(location: 2, length: 1))
+        host.view.find.show(replace: false)
+        host.view.find.setQueryText("q")
+        #expect(try await matches(of: host, 3))
+        #expect(try await eventually { host.view.selectedRange() == NSRange(location: 2, length: 1) })
+        let panel = try #require(host.view.find.panel)
+        let editor = try #require(host.window.firstResponder as? NSTextView)
+        #expect(panel.control(panel.queryField, textView: editor, doCommandBy: #selector(NSResponder.insertLineBreak(_:))))
+        #expect(host.view.selectedRange() == NSRange(location: 0, length: 1))
+        #expect(host.view.find.query.text == "q", "no line break entered the query")
+        host.close()
+    }
+
     @Test func theQueryCarriesOverToTheNextEditor() async throws {
         let first = Host("carry")
         first.view.find.show(replace: false)

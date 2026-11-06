@@ -138,6 +138,12 @@ import Testing
         #expect(replaced == "- one\n- two")
     }
 
+    @Test func replacementsCanRunPastTheCountingCap() throws {
+        let text = String(repeating: "a", count: TextFind.matchLimit + 5)
+        #expect(try TextFind.replacements(in: text, for: FindQuery("a"), template: "b").count == TextFind.matchLimit)
+        #expect(try TextFind.replacements(in: text, for: FindQuery("a"), template: "b", limit: .max).count == TextFind.matchLimit + 5)
+    }
+
     @Test func seedingEscapesForARegexQuery() {
         #expect(TextFind.seed("a.b", isRegex: false) == "a.b")
         #expect(TextFind.seed("a.b", isRegex: true) == "a\\.b")

@@ -116,7 +116,13 @@ final class FindController {
     func show(replace: Bool, focus: Bool = true) {
         guard let view, let panel = makePanel() else { return }
         if replace { replaceShown = true }
-        if let seed = seedText(wordAtCaret: focus) { query.text = TextFind.seed(seed, isRegex: query.isRegex) }
+        // Seeded when opening, or when the editor's selection is something
+        // other than the current match: with the widget in use, ⌘F and ⌥⌘F
+        // keep the query (a regex would otherwise become its own match).
+        let onMatch = isShown && TextFind.index(of: view.selectedRange(), in: matches) != nil
+        if !isShown || (!panel.hasFocus && !onMatch), let seed = seedText(wordAtCaret: focus) {
+            query.text = TextFind.seed(seed, isRegex: query.isRegex)
+        }
         isShown = true
         panel.isHidden = false
         panel.update()
@@ -293,7 +299,9 @@ final class FindController {
         // Through the storage, as scripts and Replace All go: the edit is
         // made while the widget's field has the keyboard, which is not
         // the typing path `insertText` is for.
-        pendingAfterEdit = .first(from: NSRange(location: selection.location + (text as NSString).length, length: 0))
+        // The next match after the replacement, never one at the
+        // replacement's end: a zero-length match (`$`) is there again.
+        pendingAfterEdit = .next(after: NSRange(location: selection.location + (text as NSString).length, length: 0))
         view.apply([(selection, text)], actionName: "Replace", selectingReplacements: false)
     }
 
@@ -311,7 +319,9 @@ final class FindController {
         Task { [weak self] in
             let worker = Task.detached(priority: .userInitiated) { () -> Result<[(range: NSRange, text: String)], FindError> in
                 do throws(FindError) {
-                    return .success(try TextFind.replacements(in: snapshot, for: query, template: template))
+                    // Every match, not the widget's counting cap: a replace
+                    // that stopped at 20,000 would leave the rest unsaid.
+                    return .success(try TextFind.replacements(in: snapshot, for: query, template: template, limit: .max))
                 } catch {
                     return .failure(error)
                 }
@@ -330,7 +340,10 @@ final class FindController {
                 self.error = error.message
                 self.panel?.update()
             case .success(let found):
-                let edits = found.filter { !Self.inChip($0.range, view.chipRanges) }
+                let ns = snapshot as NSString
+                // Only what changes counts: a replacement equal to its match
+                // is no edit (and `apply` makes none).
+                let edits = found.filter { !Self.inChip($0.range, view.chipRanges) && ns.substring(with: $0.range) != $0.text }
                 guard !edits.isEmpty else {
                     NSSound.beep()
                     return
@@ -733,10 +746,16 @@ final class FindPanel: NSBox, NSTextFieldDelegate {
     }
 
     /// Enter finds the next match (Shift-Enter the previous) or, in the
-    /// replacement, replaces; Escape closes.
+    /// replacement, replaces; Escape closes. A field editor delivers
+    /// Shift-Return as insertLineBreak and Option-Return as
+    /// insertNewlineIgnoringFieldEditor, so those are Enter too: nothing
+    /// may put a line break into the query.
     func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
         switch selector {
-        case #selector(NSResponder.insertNewline(_:)):
+        case #selector(NSResponder.insertLineBreak(_:)):
+            if control === replacementField { controller.replaceCurrent() } else { controller.previous() }
+            return true
+        case #selector(NSResponder.insertNewline(_:)), #selector(NSResponder.insertNewlineIgnoringFieldEditor(_:)):
             if control === replacementField {
                 controller.replaceCurrent()
             } else if NSApp.currentEvent?.modifierFlags.contains(.shift) == true {
