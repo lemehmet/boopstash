@@ -54,6 +54,7 @@ final class BoopTextView: NSTextView {
         // only the chip views wait for layout.
         chipRanges = attachmentURL == nil ? [] : AttachmentReference.matches(in: string).map(\.range)
         scheduleChipUpdate()
+        find.textDidChange()
     }
 
     override func setFrameSize(_ newSize: NSSize) {
@@ -65,7 +66,10 @@ final class BoopTextView: NSTextView {
     override func setSelectedRanges(_ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting: Bool) {
         let previous = selectedRange()
         super.setSelectedRanges(stillSelecting ? ranges : snapped(ranges, from: previous), affinity: affinity, stillSelecting: stillSelecting)
-        if !stillSelecting { selectedRanges.forEach { folding.reveal($0.rangeValue) } }
+        if !stillSelecting {
+            selectedRanges.forEach { folding.reveal($0.rangeValue) }
+            find.selectionDidChange()
+        }
     }
 
     /// A reference goes in one keystroke, as one undo step.
@@ -100,6 +104,8 @@ final class BoopTextView: NSTextView {
     /// Folded blocks (#155), the view's alone.
     let folding = Folding()
     private(set) var foldGutter: FoldGutter?
+    /// Find and replace, VS Code's way; in place of AppKit's find bar.
+    let find = FindController()
 
     /// Always `init(usingTextLayoutManager: true)`: the frame-based
     /// initializers can build a TextKit 1 view (ADR 0006).
@@ -119,12 +125,12 @@ final class BoopTextView: NSTextView {
         view.font = .monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
         view.drawsBackground = false
         view.allowsUndo = true
-        view.usesFindBar = true
-        view.isIncrementalSearchingEnabled = true
         view.disableSubstitutions()
         scroll.documentView = view
         view.syntax.attach(to: view)
         view.attachFolding(to: scroll)
+        view.find.attach(to: scroll, view: view)
+        FindKeys.install()
         assert(view.textLayoutManager != nil, "the editor fell back to TextKit 1")
         return (scroll, view)
     }
@@ -216,6 +222,7 @@ final class BoopTextView: NSTextView {
         syntax.replacingDocument { string = text }
         // Folds are offsets into one note (ADR 0006).
         folding.load(text)
+        find.documentReplaced()
         // The previous note's chips and ranges go now, not after the
         // deferred rebuild: a keystroke in between would act on them (#94).
         chipViews.forEach { $0.removeFromSuperview() }
@@ -281,7 +288,109 @@ final class BoopTextView: NSTextView {
         if item.action == #selector(pasteAsMarkdown(_:)) {
             return isEditable && NSPasteboard.general.availableType(from: [.html, .rtf, .string]) != nil
         }
+        // The standard find actions drive the find widget; AppKit would
+        // refuse them with its find bar off.
+        if item.action == #selector(performTextFinderAction(_:)) {
+            return validatesFindItem(NSTextFinder.Action(rawValue: item.tag))
+        }
+        if item.action == #selector(performFindPanelAction(_:)) {
+            return validatesFindItem(Self.textFinderAction(for: NSFindPanelAction(rawValue: UInt(item.tag))))
+        }
         return super.validateUserInterfaceItem(item)
+    }
+
+    // MARK: - Find and replace
+
+    private func validatesFindItem(_ action: NSTextFinder.Action?) -> Bool {
+        switch action {
+        case .setSearchString: selectedRange().length > 0
+        case .replace, .replaceAll, .replaceAndFind: isEditable
+        // The widget has no "in selection" scope: these would act on the
+        // whole note under a narrower name, so they are refused.
+        case .replaceAllInSelection, .selectAll, .selectAllInSelection: false
+        default: true
+        }
+    }
+
+    /// The editor a responder stands for: the view itself, or the one
+    /// whose find widget's field has the keyboard (the field editor is the
+    /// first responder then, and the widget is part of using the editor).
+    static func editor(for responder: NSResponder?) -> BoopTextView? {
+        responder as? BoopTextView ?? FindPanel.focused(by: responder)?.controller.view
+    }
+
+    /// Edit ▸ Find ▸ Find…, Find and Replace…, Find Next, Find Previous,
+    /// Use Selection for Find: the menu's items, with the standard tags.
+    override func performTextFinderAction(_ sender: Any?) {
+        guard let tag = (sender as? (any NSValidatedUserInterfaceItem))?.tag else { return }
+        perform(NSTextFinder.Action(rawValue: tag))
+    }
+
+    func perform(_ action: NSTextFinder.Action?) {
+        switch action {
+        case .showFindInterface: find.show(replace: false)
+        case .showReplaceInterface: find.show(replace: true)
+        case .nextMatch: find.next()
+        case .previousMatch: find.previous()
+        case .setSearchString: find.useSelection()
+        case .replace, .replaceAndFind: find.replaceCurrent()
+        case .replaceAll: find.replaceAll()
+        case .hideFindInterface, .hideReplaceInterface: find.hide()
+        default: break
+        }
+    }
+
+    /// The older find-panel selector, translated case by case rather than
+    /// by tag, so nothing rests on the two enums' numbering.
+    override func performFindPanelAction(_ sender: Any?) {
+        guard let tag = (sender as? (any NSValidatedUserInterfaceItem))?.tag else { return }
+        perform(Self.textFinderAction(for: NSFindPanelAction(rawValue: UInt(tag))))
+    }
+
+    static func textFinderAction(for action: NSFindPanelAction?) -> NSTextFinder.Action? {
+        switch action {
+        case .showFindPanel: .showFindInterface
+        case .next: .nextMatch
+        case .previous: .previousMatch
+        case .replaceAll: .replaceAll
+        case .replace: .replace
+        case .replaceAndFind: .replaceAndFind
+        case .setFindString: .setSearchString
+        case .replaceAllInSelection: .replaceAllInSelection
+        case .selectAll: .selectAll
+        case .selectAllInSelection: .selectAllInSelection
+        default: nil
+        }
+    }
+
+    /// Edit ▸ Find's items, which SwiftUI's menu sends to the first
+    /// responder; the keys go through `FindKeys` instead.
+    @objc func showFind(_ sender: Any?) { find.show(replace: false) }
+    @objc func showFindAndReplace(_ sender: Any?) { find.show(replace: true) }
+    @objc func findNextMatch(_ sender: Any?) { find.next() }
+    @objc func findPreviousMatch(_ sender: Any?) { find.previous() }
+    @objc func useSelectionForFind(_ sender: Any?) { find.useSelection() }
+
+    /// Escape in the editor closes the widget, as in VS Code.
+    override func cancelOperation(_ sender: Any?) {
+        if find.isShown {
+            find.hide()
+        } else {
+            nextResponder?.tryToPerform(#selector(NSResponder.cancelOperation(_:)), with: sender)
+        }
+    }
+
+    /// Match highlights go under the text. With a background of the
+    /// view's own they follow its fill; without one nothing draws a
+    /// background, so they go first in `draw`.
+    override func drawBackground(in rect: NSRect) {
+        super.drawBackground(in: rect)
+        if drawsBackground { find.drawHighlights(in: rect) }
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        if !drawsBackground { find.drawHighlights(in: dirtyRect) }
+        super.draw(dirtyRect)
     }
 
     // MARK: - Scripts
@@ -325,8 +434,10 @@ final class BoopTextView: NSTextView {
     }
 
     /// Replaces each range with its text as one undoable edit, then selects
-    /// the replacements (or keeps the caret, for a whole-note edit).
-    func apply(_ edits: [(NSRange, String)], actionName: String) {
+    /// the replacements (or keeps the caret, for a whole-note edit, or when
+    /// asked: Replace All leaves the caret where it was, moved by the
+    /// replacements before it).
+    func apply(_ edits: [(NSRange, String)], actionName: String, selectingReplacements: Bool = true) {
         let ns = string as NSString
         let edits = edits.sorted { $0.0.location < $1.0.location }
         let changed = edits.filter { ns.substring(with: $0.0) != $0.1 }
@@ -341,6 +452,19 @@ final class BoopTextView: NSTextView {
         let wholeNote = changed.count == 1 && changed[0].0 == NSRange(location: 0, length: ns.length)
         if wholeNote {
             setSelectedRange(NSRange(location: min(caret, (string as NSString).length), length: 0))
+        } else if !selectingReplacements {
+            var moved = caret
+            for (range, text) in changed where range.location < caret {
+                let length = (text as NSString).length
+                if NSMaxRange(range) <= caret {
+                    moved += length - range.length
+                } else {
+                    // Inside a replacement: after it, where it now is.
+                    moved = range.location + (moved - caret) + length
+                    break
+                }
+            }
+            setSelectedRange(NSRange(location: min(moved, (string as NSString).length), length: 0))
         } else {
             // Every range stays selected, changed or not, shifted by the
             // changes before it.
@@ -447,7 +571,7 @@ final class BoopTextView: NSTextView {
     private var formatting: Task<Void, Never>?
     /// Counts loaded documents, so work started for one is not applied to
     /// the next.
-    private var documentGeneration = 0
+    private(set) var documentGeneration = 0
 
     private func apply(_ result: Result<Formatted, FormatError>, range: NSRange, whole: Bool) {
         switch result {
@@ -685,6 +809,16 @@ final class BoopTextView: NSTextView {
         case .unfold: unfold(nil)
         case .foldAll: foldAll(nil)
         case .unfoldAll: unfoldAll(nil)
+        case .find: find.show(replace: false)
+        case .findAndReplace: find.show(replace: true)
+        case .findNext: find.next()
+        case .findPrevious: find.previous()
+        case .useSelectionForFind: find.useSelection()
+        case .toggleMatchCase: find.toggleMatchCase()
+        case .toggleWholeWord: find.toggleWholeWord()
+        case .toggleRegex: find.toggleRegex()
+        case .replaceOne: find.replaceCurrent()
+        case .replaceAll: find.replaceAll()
         case .toggleComment:
             // Comments need the note's language. Unbound until then, so the
             // key does what AppKit does.

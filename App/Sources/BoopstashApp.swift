@@ -66,6 +66,18 @@ struct BoopstashApp: App {
                 // A SwiftUI command is not validated through the responder
                 // chain, so it follows the editor's focus explicitly (#25).
                 .disabled(!(delegate.model?.editorHasFocus ?? false))
+                // Find and replace in the note (ADR 0003). The keys (⌘F,
+                // ⌥⌘F, ⌘G, ⇧⌘G, ⌘E) come from the key-binding preset and
+                // reach the editor before the menu, so the menu shows none.
+                Menu("Find") {
+                    Button("Find…") { NSApp.sendAction(#selector(BoopTextView.showFind(_:)), to: nil, from: nil) }
+                    Button("Find and Replace…") { NSApp.sendAction(#selector(BoopTextView.showFindAndReplace(_:)), to: nil, from: nil) }
+                    Divider()
+                    Button("Find Next") { NSApp.sendAction(#selector(BoopTextView.findNextMatch(_:)), to: nil, from: nil) }
+                    Button("Find Previous") { NSApp.sendAction(#selector(BoopTextView.findPreviousMatch(_:)), to: nil, from: nil) }
+                    Button("Use Selection for Find") { NSApp.sendAction(#selector(BoopTextView.useSelectionForFind(_:)), to: nil, from: nil) }
+                }
+                .disabled(!(delegate.model?.editorHasFocus ?? false))
             }
             ScriptCommands(model: delegate.model)
             NoteCommands()

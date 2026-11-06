@@ -6,6 +6,17 @@ breaking changes may land in a minor release.
 
 ## Unreleased
 
+### New
+
+- **Mac: find and replace in a note, as in VS Code (#235).** While editing, ⌘F
+  opens a widget at the editor's top right with Match Case, Whole Word
+  and Regular Expression toggles and the match count; ⌥⌘F unfolds the
+  replace row. Enter and ⇧Enter step through the matches, Escape closes.
+  Regular expression replacements take `$1`. The query is seeded from
+  the selection or the word at the caret, and ⌘G steps to the next match
+  without taking the keyboard from the note. With the note list focused,
+  ⌘F still goes to the sidebar's Filter.
+
 ### Fixed
 
 - **With iCloud sync on, a note could be emptied into a "(conflict)" copy.**

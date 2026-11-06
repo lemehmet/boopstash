@@ -159,7 +159,7 @@ final class AppModel {
     /// Each picker keeps its own (#85): the model holds no shared target,
     /// so two windows' pickers cannot run in each other's notes.
     func keyEditor() -> BoopTextView? {
-        guard let editor = keyResponder() as? BoopTextView else {
+        guard let editor = BoopTextView.editor(for: keyResponder()) else {
             NSSound.beep()
             return nil
         }
@@ -185,7 +185,10 @@ final class AppModel {
     var canSortJSONKeys: Bool { editorHasFocus && DocumentFormatter.canFormat(editorLanguage, style: .sortedKeys) }
 
     func refreshEditorFocus() {
-        let editor = keyResponder() as? BoopTextView
+        // The find widget's fields count as the editor: its menu items
+        // stay usable while the query is typed, and the editor-only
+        // commands reach the editor through the widget (supplementalTarget).
+        let editor = BoopTextView.editor(for: keyResponder())
         editorHasFocus = editor != nil
         editorLanguage = editor?.syntax.currentLanguage
     }

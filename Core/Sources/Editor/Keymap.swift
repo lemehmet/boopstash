@@ -14,6 +14,8 @@ public enum EditorCommand: String, CaseIterable, Codable, Sendable {
     case toggleComment
     case pasteAsMarkdown
     case formatDocument, formatJSONSortingKeys
+    case find, findAndReplace, findNext, findPrevious, useSelectionForFind
+    case toggleMatchCase, toggleWholeWord, toggleRegex, replaceOne, replaceAll
 }
 
 /// A key combination, independent of AppKit so presets are plain data that
@@ -115,6 +117,17 @@ public enum KeymapPreset: String, CaseIterable, Codable, Sendable {
         KeyChord("delete", .option): .deleteWordForward,
         KeyChord("/", .command): .toggleComment,
         KeyChord("v", [.command, .option, .shift]): .pasteAsMarkdown,
+        // Find and replace: the macOS keys, which VS Code also uses, and
+        // VS Code's toggles for the widget's options.
+        KeyChord("f", .command): .find,
+        KeyChord("f", [.command, .option]): .findAndReplace,
+        KeyChord("g", .command): .findNext,
+        KeyChord("g", [.command, .shift]): .findPrevious,
+        KeyChord("e", .command): .useSelectionForFind,
+        KeyChord("c", [.command, .option]): .toggleMatchCase,
+        KeyChord("w", [.command, .option]): .toggleWholeWord,
+        KeyChord("r", [.command, .option]): .toggleRegex,
+        KeyChord("enter", [.command, .option]): .replaceAll,
     ]
 
     static let vsCodeOnly: [KeyChord: EditorCommand] = [
@@ -140,6 +153,7 @@ public enum KeymapPreset: String, CaseIterable, Codable, Sendable {
         KeyChord("-", [.command, .shift]): .foldAll,
         KeyChord("=", [.command, .shift]): .unfoldAll,
         KeyChord("l", [.command, .option]): .formatDocument,
+        KeyChord("r", .command): .findAndReplace,
     ]
 
     static let emacsOnly: [KeyChord: EditorCommand] = [
@@ -156,6 +170,7 @@ public enum KeymapPreset: String, CaseIterable, Codable, Sendable {
         KeyChord("k", .control): .deleteToLineEnd,
         KeyChord("<", [.option, .shift]): .moveToDocumentStart,
         KeyChord(">", [.option, .shift]): .moveToDocumentEnd,
+        KeyChord("s", .control): .find,
     ]
 
     /// Layered over any preset for people whose fingers learned on Linux.
