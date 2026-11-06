@@ -8,3 +8,6 @@
 • The preview is for Markdown notes; XML formatting keeps text exactly; long notes with many images scroll smoothly.
 • The preview beside the editor keeps the size you drag it to, across notes and relaunches.
 • BoopStash ▸ Install Command Line Tool… puts the boopstash command on your PATH, for copies not installed with Homebrew.
+• Find and replace in a note, as in VS Code: ⌘F opens a widget with Match Case, Whole Word and Regular Expression toggles and the match count; ⌥⌘F unfolds the replace row; Enter and ⇧Enter step through the matches; $1 works in regular expression replacements.
+• With iCloud sync on, a note edited soon after its first sync is no longer emptied into a "(conflict)" copy.
+• The note list no longer stays on an old filter when the filter changes twice in quick succession.

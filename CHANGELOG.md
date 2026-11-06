@@ -6,6 +6,8 @@ breaking changes may land in a minor release.
 
 ## Unreleased
 
+## v0.4.5 — 2026-11-06
+
 ### New
 
 - **Mac: find and replace in a note, as in VS Code (#235).** While editing, ⌘F
