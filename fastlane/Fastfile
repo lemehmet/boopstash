@@ -69,6 +69,16 @@ def require_review_attachment!(platform)
   UI.user_error!("#{name} #{version.version_string} has no screen recording: attach it in App Store Connect ▸ App Review Information ▸ Attachment, then run release again")
 end
 
+# App Store Connect refuses review notes over 4000 characters, and only after
+# deliver has renamed the version and uploaded the rest of the metadata.
+def require_review_notes!(metadata)
+  file = File.join(metadata, "review_information", "notes.txt")
+  return unless File.exist?(file)
+
+  length = File.read(file).strip.length
+  UI.user_error!("#{metadata}/review_information/notes.txt is #{length} characters; App Store Connect allows 4000") if length > 4000
+end
+
 SHARE_ID = "#{APP_ID}.share"
 
 # The app's profile name; on iOS the share extension (#66) has its own, read
@@ -209,6 +219,7 @@ platform :mac do
   desc "Submit the newest TestFlight build with the metadata for review"
   lane :release do
     require_environment!
+    require_review_notes!("metadata")
     require_review_attachment!(Spaceship::ConnectAPI::Platform::MAC_OS)
     deliver(api_key: api_key, platform: "osx", app_version: version, submit_for_review: true,
             metadata_path: "./fastlane/metadata",
@@ -257,6 +268,7 @@ platform :ios do
   desc "Submit the newest TestFlight build with the metadata for review"
   lane :release do
     require_environment!
+    require_review_notes!("metadata-ios")
     require_review_attachment!(Spaceship::ConnectAPI::Platform::IOS)
     deliver(api_key: api_key, platform: "ios", app_version: version, submit_for_review: true,
             metadata_path: "./fastlane/metadata-ios",

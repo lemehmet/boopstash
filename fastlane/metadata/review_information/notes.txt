@@ -4,8 +4,8 @@ Attached to this submission (App Review Information ▸ Attachment), recorded on
 PURPOSE AND AUDIENCE
 BoopStash is a private scratch pad for developers and other people who work with text: code snippets, terminal and AI-agent output, logs, JSON, screenshots. Plain editors make you name and file every scrap, and clipboard histories forget them. BoopStash keeps each note, titles it for you, and lets you find it again by its words, its meaning, when you saved it or the app it came from. It includes a plain-text editor with syntax highlighting, code formatting and text transforms (encode, decode, hash, sort).
 
-CHANGES SINCE THE LAST REVIEW (GUIDELINE 4, SUBMISSION 197001f2-0148-4897-9ac2-5231d3756884)
-The main window can now be reopened from the menus after it is closed: choose Window ▸ BoopStash (⌘0). File ▸ New Note (⌘N) also reopens it. The app keeps running with its window closed on purpose, so that Services ▸ Save to BoopStash and the ⌃⌥⌘V shortcut keep saving from other apps.
+GUIDELINE 4 FIX
+Window ▸ BoopStash (⌘0) reopens the main window after it is closed; so does File ▸ New Note (⌘N).
 
 SETTING UP AND USING THE APP
 No login, account or sample files are needed. On first launch a window opens with an empty note list.
