@@ -24,16 +24,19 @@ struct BoopstashApp: App {
 
     var body: some Scene {
         WindowGroup(id: MainWindowReopen.sceneID) {
-            if let model = delegate.model {
-                MainWindow(model: model, keymap: keymap, appearance: appearance)
-                    .frame(minWidth: 720, minHeight: 420)
+            Group {
+                if let model = delegate.model {
+                    MainWindow(model: model, keymap: keymap, appearance: appearance)
+                        .frame(minWidth: 720, minHeight: 420)
                     #if DEBUG
-                    .modifier(DemoSettingsOpener(enabled: model.demoSync && UserDefaults.standard.bool(forKey: "BoopStashDemoSettings")))
+                        .modifier(DemoSettingsOpener(enabled: model.demoSync && UserDefaults.standard.bool(forKey: "BoopStashDemoSettings")))
                     #endif
-            } else {
-                ContentUnavailableView("BoopStash could not open its notes", systemImage: "exclamationmark.triangle",
-                                       description: Text(delegate.openError ?? ""))
+                } else {
+                    ContentUnavailableView("BoopStash could not open its notes", systemImage: "exclamationmark.triangle",
+                                           description: Text(delegate.openError ?? ""))
+                }
             }
+            .background(MainWindowMarker())
         }
         .commands {
             CommandGroup(after: .appSettings) {
@@ -149,7 +152,7 @@ struct MainWindowCommands: Commands {
     private func showMainWindow() {
         let windows = NSApp.orderedWindows
         let candidates = windows.map {
-            MainWindowReopen.Candidate(identifier: $0.identifier?.rawValue, isVisible: $0.isVisible,
+            MainWindowReopen.Candidate(isMain: MainWindowRegistry.contains($0), isVisible: $0.isVisible,
                                        isMiniaturized: $0.isMiniaturized)
         }
         switch MainWindowReopen.action(for: candidates) {
@@ -161,6 +164,29 @@ struct MainWindowCommands: Commands {
             openWindow(id: MainWindowReopen.sceneID)
         }
     }
+}
+
+/// The windows showing the main scene, noted as each appears, so that
+/// Window ▸ BoopStash does not depend on how SwiftUI names its windows.
+@MainActor
+enum MainWindowRegistry {
+    private static let windows = NSHashTable<NSWindow>.weakObjects()
+
+    static func add(_ window: NSWindow) { windows.add(window) }
+    static func contains(_ window: NSWindow) -> Bool { windows.contains(window) }
+}
+
+/// Sits behind the main scene's content and reports the window it lands in.
+struct MainWindowMarker: NSViewRepresentable {
+    final class Marker: NSView {
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let window { MainWindowRegistry.add(window) }
+        }
+    }
+
+    func makeNSView(context: Context) -> Marker { Marker() }
+    func updateNSView(_ view: Marker, context: Context) {}
 }
 
 @MainActor
