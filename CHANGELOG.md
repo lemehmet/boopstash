@@ -6,6 +6,16 @@ breaking changes may land in a minor release.
 
 ## Unreleased
 
+## v0.4.6 — 2026-11-10
+
+### Fixed
+
+- **Mac: a closed window can be brought back from the menus.** Window ▸
+  BoopStash (⌘0) shows the main window, opening one when the last was
+  closed. File ▸ New Note and New Note from Clipboard open it too, so the
+  new note is in view. Until now only the Dock icon brought it back, which
+  App Review turned 0.4.4 down for.
+
 ## v0.4.5 — 2026-11-06
 
 ### New

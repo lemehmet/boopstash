@@ -23,7 +23,7 @@ struct BoopstashApp: App {
     }
 
     var body: some Scene {
-        WindowGroup {
+        WindowGroup(id: MainWindowReopen.sceneID) {
             if let model = delegate.model {
                 MainWindow(model: model, keymap: keymap, appearance: appearance)
                     .frame(minWidth: 720, minHeight: 420)
@@ -39,12 +39,7 @@ struct BoopstashApp: App {
             CommandGroup(after: .appSettings) {
                 Button("Install Command Line Tool…") { CommandLineInstaller.run() }
             }
-            CommandGroup(replacing: .newItem) {
-                Button("New Note") { delegate.model?.newNote() }
-                    .keyboardShortcut("n")
-                Button("New Note from Clipboard") { delegate.model?.captureClipboard() }
-                    .keyboardShortcut("n", modifiers: [.command, .option])
-            }
+            MainWindowCommands(model: delegate.model)
             CommandGroup(before: .sidebar) {
                 // ⇧⌘V belongs to Paste as Markdown, so the preview is ⌥⌘P.
                 Toggle("Show Preview", isOn: $previewShown)
@@ -117,6 +112,53 @@ struct BoopstashApp: App {
 
         Settings {
             SettingsView(model: delegate.model, preset: $preset, linuxHabits: $linuxHabits)
+        }
+    }
+}
+
+/// File ▸ New Note and New Note from Clipboard, and Window ▸ BoopStash (⌘0).
+/// The File items replace SwiftUI's New Window, so without the Window item
+/// a closed main window could not be brought back from the menus. No
+/// key-binding preset uses ⌘0.
+struct MainWindowCommands: Commands {
+    let model: AppModel?
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some Commands {
+        CommandGroup(replacing: .newItem) {
+            // With the window closed the new note would not be seen.
+            Button("New Note") {
+                showMainWindow()
+                model?.newNote()
+            }
+            .keyboardShortcut("n")
+            Button("New Note from Clipboard") {
+                showMainWindow()
+                model?.captureClipboard()
+            }
+            .keyboardShortcut("n", modifiers: [.command, .option])
+        }
+        // Above the window list, which is empty once the window is closed.
+        CommandGroup(after: .windowSize) {
+            Divider()
+            Button("BoopStash") { showMainWindow() }
+                .keyboardShortcut("0")
+        }
+    }
+
+    private func showMainWindow() {
+        let windows = NSApp.orderedWindows
+        let candidates = windows.map {
+            MainWindowReopen.Candidate(identifier: $0.identifier?.rawValue, isVisible: $0.isVisible,
+                                       isMiniaturized: $0.isMiniaturized)
+        }
+        switch MainWindowReopen.action(for: candidates) {
+        case .front(let index):
+            let window = windows[index]
+            if window.isMiniaturized { window.deminiaturize(nil) }
+            window.makeKeyAndOrderFront(nil)
+        case .open:
+            openWindow(id: MainWindowReopen.sceneID)
         }
     }
 }
