@@ -23,28 +23,26 @@ struct BoopstashApp: App {
     }
 
     var body: some Scene {
-        WindowGroup {
-            if let model = delegate.model {
-                MainWindow(model: model, keymap: keymap, appearance: appearance)
-                    .frame(minWidth: 720, minHeight: 420)
+        WindowGroup(id: MainWindowReopen.sceneID) {
+            Group {
+                if let model = delegate.model {
+                    MainWindow(model: model, keymap: keymap, appearance: appearance)
+                        .frame(minWidth: 720, minHeight: 420)
                     #if DEBUG
-                    .modifier(DemoSettingsOpener(enabled: model.demoSync && UserDefaults.standard.bool(forKey: "BoopStashDemoSettings")))
+                        .modifier(DemoSettingsOpener(enabled: model.demoSync && UserDefaults.standard.bool(forKey: "BoopStashDemoSettings")))
                     #endif
-            } else {
-                ContentUnavailableView("BoopStash could not open its notes", systemImage: "exclamationmark.triangle",
-                                       description: Text(delegate.openError ?? ""))
+                } else {
+                    ContentUnavailableView("BoopStash could not open its notes", systemImage: "exclamationmark.triangle",
+                                           description: Text(delegate.openError ?? ""))
+                }
             }
+            .background(MainWindowMarker())
         }
         .commands {
             CommandGroup(after: .appSettings) {
                 Button("Install Command Line Tool…") { CommandLineInstaller.run() }
             }
-            CommandGroup(replacing: .newItem) {
-                Button("New Note") { delegate.model?.newNote() }
-                    .keyboardShortcut("n")
-                Button("New Note from Clipboard") { delegate.model?.captureClipboard() }
-                    .keyboardShortcut("n", modifiers: [.command, .option])
-            }
+            MainWindowCommands(model: delegate.model)
             CommandGroup(before: .sidebar) {
                 // ⇧⌘V belongs to Paste as Markdown, so the preview is ⌥⌘P.
                 Toggle("Show Preview", isOn: $previewShown)
@@ -119,6 +117,76 @@ struct BoopstashApp: App {
             SettingsView(model: delegate.model, preset: $preset, linuxHabits: $linuxHabits)
         }
     }
+}
+
+/// File ▸ New Note and New Note from Clipboard, and Window ▸ BoopStash (⌘0).
+/// The File items replace SwiftUI's New Window, so without the Window item
+/// a closed main window could not be brought back from the menus. No
+/// key-binding preset uses ⌘0.
+struct MainWindowCommands: Commands {
+    let model: AppModel?
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some Commands {
+        CommandGroup(replacing: .newItem) {
+            // With the window closed the new note would not be seen.
+            Button("New Note") {
+                showMainWindow()
+                model?.newNote()
+            }
+            .keyboardShortcut("n")
+            Button("New Note from Clipboard") {
+                showMainWindow()
+                model?.captureClipboard()
+            }
+            .keyboardShortcut("n", modifiers: [.command, .option])
+        }
+        // Above the window list, which is empty once the window is closed.
+        CommandGroup(after: .windowSize) {
+            Divider()
+            Button("BoopStash") { showMainWindow() }
+                .keyboardShortcut("0")
+        }
+    }
+
+    private func showMainWindow() {
+        let windows = NSApp.orderedWindows
+        let candidates = windows.map {
+            MainWindowReopen.Candidate(isMain: MainWindowRegistry.contains($0), isVisible: $0.isVisible,
+                                       isMiniaturized: $0.isMiniaturized)
+        }
+        switch MainWindowReopen.action(for: candidates) {
+        case .front(let index):
+            let window = windows[index]
+            if window.isMiniaturized { window.deminiaturize(nil) }
+            window.makeKeyAndOrderFront(nil)
+        case .open:
+            openWindow(id: MainWindowReopen.sceneID)
+        }
+    }
+}
+
+/// The windows showing the main scene, noted as each appears, so that
+/// Window ▸ BoopStash does not depend on how SwiftUI names its windows.
+@MainActor
+enum MainWindowRegistry {
+    private static let windows = NSHashTable<NSWindow>.weakObjects()
+
+    static func add(_ window: NSWindow) { windows.add(window) }
+    static func contains(_ window: NSWindow) -> Bool { windows.contains(window) }
+}
+
+/// Sits behind the main scene's content and reports the window it lands in.
+struct MainWindowMarker: NSViewRepresentable {
+    final class Marker: NSView {
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let window { MainWindowRegistry.add(window) }
+        }
+    }
+
+    func makeNSView(context: Context) -> Marker { Marker() }
+    func updateNSView(_ view: Marker, context: Context) {}
 }
 
 @MainActor
