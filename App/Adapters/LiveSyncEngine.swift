@@ -419,8 +419,8 @@ final class LiveSyncEngine: CKSyncEngineDelegate, Sendable {
     private func rank(_ change: CKSyncEngine.PendingRecordZoneChange) -> Int {
         switch change {
         case .saveRecord(let id):
-            if (try? store.pendingSave(kind: .label, name: id.recordName)) != nil { 0 }
-            else if (try? store.pendingSave(kind: .note, name: id.recordName)) != nil { 1 }
+            if (try? store.hasPendingSave(kind: .label, name: id.recordName)) == true { 0 }
+            else if (try? store.hasPendingSave(kind: .note, name: id.recordName)) == true { 1 }
             else { 2 }
         case .deleteRecord: 3
         @unknown default: 4
