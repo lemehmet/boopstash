@@ -1,9 +1,21 @@
-BoopStash for iPhone and iPad keeps the notes from BoopStash on your Mac close at hand: the snippets, outputs and scratch text you saved, searchable and editable wherever you are.
+BoopStash is a scratch pad for people who work with text: code snippets, terminal and AI-agent output, logs, JSON and screenshots. Save it in a second, and find it again next week by what it was about, even if you don't remember the words.
 
-• Every note, titled and listed newest first.
-• Search titles and text, and narrow by age: today, this week, the last 30 days.
-• Search by meaning too, with a small language model on your device: "invoice" finds "bill for March".
-• Read and make quick edits, with syntax highlighting for the common languages.
-• Plain text editing that stays out of the way: no smart quotes, no autocorrect.
+FIND IT BY MEANING
+• Search by meaning with a small language model that runs on your device: "invoice" finds "bill for March".
+• Show Similar Notes lists the notes closest to the one you're holding.
+• Text inside your screenshots is recognised on the device and found by search.
+• Narrow by age (today, the last 7 days, the last 30 days) or by label.
 
-Private by design: no account, no BoopStash server, no analytics. Your notes stay on your device.
+SAVE FROM ANYWHERE
+• Share ▸ BoopStash saves text or an image from any app.
+• From Clipboard saves what you just copied, only when you tap it.
+• Every note is titled for you and listed newest first.
+
+AN EDITOR THAT DOESN'T BREAK YOUR CODE
+• No smart quotes, no smart dashes, no autocorrect: JSON and commands stay exactly as you pasted them.
+• Syntax highlighting for the common languages, and a Markdown preview.
+
+PRIVATE BY DESIGN
+• No account, no BoopStash server, no analytics.
+• Search by meaning and text recognition run on your device.
+• Optional sync with BoopStash for Mac through your own iCloud, off until you turn it on.

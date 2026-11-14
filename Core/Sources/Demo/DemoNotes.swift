@@ -127,6 +127,11 @@ public enum DemoNotes {
                 DATABASE_URL: postgres://orders@db.staging.example.com/orders
             """, age: 4 * day, source: "Terminal"),
         Demo(title: nil, body: "https://docs.example.com/guides/rate-limits#burst", age: 6 * day, source: "Safari"),
+        // Found by meaning when searching "invoice" (the iOS search shot).
+        Demo(title: "Hosting bill for March", body: """
+            Hosting bill for March: 412.80 USD, due 5 April.
+            Paid from the ops card; receipt forwarded to accounts@example.com.
+            """, age: 9 * day, source: "Mail"),
         Demo(title: "Meeting notes", body: """
             Design review
 

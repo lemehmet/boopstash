@@ -57,8 +57,9 @@ shoot_ios() { # device name, file, extra launch arguments
   xcrun simctl io "$udid" screenshot --type=png "$ios/$file" >/dev/null
 }
 shoot_ios "iPhone 17 Pro Max" 1-iphone-list.png
-shoot_ios "iPhone 17 Pro Max" 2-iphone-note.png -BoopStashDemoNote 0
-shoot_ios "iPhone 17 Pro Max" 3-iphone-settings.png -BoopStashDemoSettings YES
+# Search by meaning: "invoice" finds the hosting bill (App Review, 4.3).
+shoot_ios "iPhone 17 Pro Max" 2-iphone-search.png -BoopStashDemoSearch invoice
+shoot_ios "iPhone 17 Pro Max" 3-iphone-note.png -BoopStashDemoNote 0
 shoot_ios "iPad Pro 13-inch (M5)" 4-ipad.png -BoopStashDemoNote 4
 
 swift "$here/flatten.swift" "$mac"/*.png "$ios"/*.png
