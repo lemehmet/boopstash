@@ -1,1 +1,1 @@
-scratchpad,notes,clipboard,json,formatter,markdown,boop,snippets,developer,text
+scratchpad,snippets,code,developer,semantic search,screenshot,ocr,clipboard,logs,plain text,syntax
