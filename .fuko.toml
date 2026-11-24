@@ -73,7 +73,8 @@ being limited here; verbosity is."""
 # glm-5.3 pinned, never the `glm-latest` alias, and 950000 is a conservative
 # guess at z.ai's input ceiling, not a measurement. `auth = "api-key"` so the
 # seat can never resolve to a Claude subscription. tool_timeout matches
-# basil's 2100 s rather than mepro's 2700 s to keep the job inside 80 min.
+# basil's 2100 s rather than mepro's 2700 s to keep the job inside its
+# budget (job_budget_minutes above).
 [[review.models]]
 provider = "zai-anthropic"
 name = "glm-5.3"
