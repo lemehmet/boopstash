@@ -1,7 +1,8 @@
-# fuko-pr review: basil (Kimi K3.1 Pro on Kimi Code), sybil (GLM-5.3 on the
-# z.ai Coding Plan) and ivy (Claude on a Claude subscription) review every
-# non-draft PR from this repository. Mirrors zapollo's workflow, trimmed to
-# three seats.
+# fuko-pr review: basil (Kimi K3.1 Pro on Kimi Code) and ivy (Claude on a
+# Claude subscription) review every non-draft PR from this repository. sybil
+# (GLM-5.3 on the z.ai Coding Plan) is paused in .fuko.toml; its mint step
+# and key stay wired here so uncommenting the entry is all it takes to
+# restore it. Mirrors zapollo's workflow.
 #
 # Runner: GitHub-hosted. This repository is public, and a self-hosted runner
 # on a public repository is one fork PR away from running a stranger's code on
@@ -38,9 +39,9 @@ jobs:
     # otherwise start.
     if: ${{ github.event.pull_request.draft == false && !startsWith(github.event.pull_request.head.ref, 'skip-review/') && !contains(github.event.pull_request.labels.*.name, 'review-capped') && github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-latest
-    # Lockstep with job_budget_minutes in .fuko.toml (2100 s + 2100 s + 800 s
-    # + setup, the sequential worst case).
-    timeout-minutes: 95
+    # Lockstep with job_budget_minutes in .fuko.toml (2100 s + 800 s + setup,
+    # the sequential worst case).
+    timeout-minutes: 60
     permissions:
       contents: read # reads PR data + posts comments only; no commits/pushes
       pull-requests: write
@@ -105,15 +106,11 @@ jobs:
         run: |
           missing=0
           if [ -z "$FUKO_IVY_CLAUDE_OAUTH_TOKEN" ]; then
-            # A warning, not an error: basil and sybil can still review.
+            # A warning, not an error: basil can still review.
             echo "::warning title=FUKO_IVY_CLAUDE_OAUTH_TOKEN secret is not set::ivy (Claude, auth = subscription) fails its auth check every round without it. Mint one with 'claude setup-token' and add it as the repo secret FUKO_IVY_CLAUDE_OAUTH_TOKEN"
           fi
           if [ -z "$KIMI_CODE_KEY" ]; then
             echo "::error title=PRIVATE_KIMI_KEY secret is not set::basil (kimi-code) cannot review without it. Mint a key in the Kimi Code Console and add it as the repo secret PRIVATE_KIMI_KEY"
-            missing=1
-          fi
-          if [ -z "$ZAI_KEY" ]; then
-            echo "::error title=ZAI_KEY secret is not set::sybil (zai-anthropic) cannot review without it. Add the z.ai Coding Plan key as the repo secret ZAI_KEY"
             missing=1
           fi
           exit "$missing"
