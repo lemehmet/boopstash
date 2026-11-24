@@ -1,15 +1,13 @@
 # fuko-pr config for boopstash. Used by `fuko review` in
 # .github/workflows/fuko-pr-review.yml.
 #
-# Three seats, all `active`: basil (Kimi K3.1 Pro on Kimi Code, since
-# 2026-10-28), sybil (GLM-5.3 on the z.ai Coding Plan, since 2026-10-31,
-# added for a second opinion after more bugs than usual reached releases)
-# and ivy (Claude on a Claude subscription, since 2026-11-24, added so a
-# review still happens while the Kimi quota is spent). gray (codex-proxy) is
-# not carried over: it needs the proxy on a self-hosted runner, and this
-# repository is public, so its reviews run on GitHub-hosted runners only
-# (see the workflow). Adding a seat = an entry here + a mint step in the
-# workflow.
+# Two seats, both `active`: basil (Kimi K3.1 Pro on Kimi Code, since
+# 2026-10-28) and ivy (Claude on a Claude subscription, since 2026-11-24).
+# sybil (GLM-5.3 on the z.ai Coding Plan, 2026-10-31 to 2026-11-24) is paused
+# below. gray (codex-proxy) is not carried over: it needs the proxy on a
+# self-hosted runner, and this repository is public, so its reviews run on
+# GitHub-hosted runners only (see the workflow). Adding a seat = an entry
+# here + a mint step in the workflow.
 #
 # Knowledge: no FUKO_URL, so reviews run without a knowledge sidecar.
 
@@ -19,10 +17,9 @@ tools = ["review"]
 optional_tools = []
 # Must stay in lockstep with the workflow's timeout-minutes.
 # Budget, sequential worst case (a failed App mint runs the seats one after
-# the other): 2100 s + 2100 s + 800 s (ivy, the default tool_timeout) = 84 min
-# + setup (~5 min) < 95. Concurrent, the usual case, is the slowest seat:
-# ~40 min.
-job_budget_minutes = 95
+# the other): 2100 s (basil) + 800 s (ivy, the default tool_timeout) = 49 min
+# + setup (~5 min) < 60. Concurrent, the usual case, is the slower seat.
+job_budget_minutes = 60
 tool_timeout = 800
 image = "ghcr.io/lemehmet/pr-agent:0.41.0@sha256:7341dc6214be964534ce3e68fc73143f3d642240829fe66894b87864db417223"
 
@@ -68,50 +65,59 @@ macOS 26 / iOS 26. Swift 6 strict concurrency is on.
 Report everything you find at its true severity. Coverage is not what is
 being limited here; verbosity is."""
 
-# sybil: GLM-5.3 on z.ai's Anthropic-compatible Coding Plan endpoint (ZAI_KEY).
-# The model and window are mepro's sybil seat as of its 2026-10-19 pause:
-# glm-5.3 pinned, never the `glm-latest` alias, and 950000 is a conservative
-# guess at z.ai's input ceiling, not a measurement. `auth = "api-key"` so the
-# seat can never resolve to a Claude subscription. tool_timeout matches
-# basil's 2100 s rather than mepro's 2700 s to keep the job inside its
-# budget (job_budget_minutes above).
-[[review.models]]
-provider = "zai-anthropic"
-name = "glm-5.3"
-max_context = 950000
-auth = "api-key"
-backend = "agentic"
-token_env = "FUKO_GITHUB_TOKEN_SYBIL"
-tool_timeout = 2100
-role = "active"
-extra_instructions = """
-Your reader is another AI that will act on your finding directly. Be terse.
-No preamble, no restating what the diff does, no diplomatic softening, no
-summarizing your own reasoning at the end. Never pad to look thorough.
-Per finding: one sentence naming the defect, then the mechanism, then the
-concrete evidence (file:line, or the exact input that breaks it), then the
-fix in one sentence. Stop there.
-Target under 120 words; go longer only when the mechanism genuinely needs it.
-Severity means CONSEQUENCE IF YOU ARE RIGHT. Do not lower it because you are
-unsure — state uncertainty in one clause instead, tagged confirmed / likely /
-speculative so a reader can discount the level without discarding the finding.
-Rank by what happens when it is NOT fixed:
-  high   - lost or corrupted notes, note content leaving the device other than
-           through the user's own iCloud, a network call, a background
-           pasteboard read, a new entitlement without an ADR, secrets or
-           personal data committed to this public repository, or a silent
-           failure of something load-bearing
-  medium - a real defect whose blast radius is bounded, or a test that
-           passes against the broken code it exists to pin
-  low    - an inaccurate comment or doc that would mislead a maintainer
-  info   - preference, style, naming
-Project rules worth checking on every diff (CLAUDE.md, docs/adr/): pure logic
-belongs in BoopstashCore with Swift Testing tests; only thin Live* adapters
-in App/ import AppKit, CloudKit, Vision or JavaScriptCore; the app is
-sandboxed in every build; AI is on-device only; the deployment floor is
-macOS 26 / iOS 26. Swift 6 strict concurrency is on.
-Report everything you find at its true severity. Coverage is not what is
-being limited here; verbosity is."""
+# PAUSED 2026-11-24 (maintainer's decision): sybil is commented out, header
+# included. The z.ai Coding Plan subscription has ended and what is left of
+# the allowance gives reviews with reduced coverage. To restore it, three
+# things move together: uncomment this entry; put back the workflow's sybil
+# mint step, its place in the GITHUB_TOKEN chain, FUKO_GITHUB_TOKEN_SYBIL,
+# ZAI_KEY and the missing-key check (removed in #252); and raise
+# job_budget_minutes and the workflow's timeout-minutes back to 95, the
+# three-seat sequential worst case.
+#
+# # sybil: GLM-5.3 on z.ai's Anthropic-compatible Coding Plan endpoint (ZAI_KEY).
+# # The model and window are mepro's sybil seat as of its 2026-10-19 pause:
+# # glm-5.3 pinned, never the `glm-latest` alias, and 950000 is a conservative
+# # guess at z.ai's input ceiling, not a measurement. `auth = "api-key"` so the
+# # seat can never resolve to a Claude subscription. tool_timeout matches
+# # basil's 2100 s rather than mepro's 2700 s to keep the job inside its
+# # budget (job_budget_minutes above).
+# [[review.models]]
+# provider = "zai-anthropic"
+# name = "glm-5.3"
+# max_context = 950000
+# auth = "api-key"
+# backend = "agentic"
+# token_env = "FUKO_GITHUB_TOKEN_SYBIL"
+# tool_timeout = 2100
+# role = "active"
+# extra_instructions = """
+# Your reader is another AI that will act on your finding directly. Be terse.
+# No preamble, no restating what the diff does, no diplomatic softening, no
+# summarizing your own reasoning at the end. Never pad to look thorough.
+# Per finding: one sentence naming the defect, then the mechanism, then the
+# concrete evidence (file:line, or the exact input that breaks it), then the
+# fix in one sentence. Stop there.
+# Target under 120 words; go longer only when the mechanism genuinely needs it.
+# Severity means CONSEQUENCE IF YOU ARE RIGHT. Do not lower it because you are
+# unsure — state uncertainty in one clause instead, tagged confirmed / likely /
+# speculative so a reader can discount the level without discarding the finding.
+# Rank by what happens when it is NOT fixed:
+#   high   - lost or corrupted notes, note content leaving the device other than
+#            through the user's own iCloud, a network call, a background
+#            pasteboard read, a new entitlement without an ADR, secrets or
+#            personal data committed to this public repository, or a silent
+#            failure of something load-bearing
+#   medium - a real defect whose blast radius is bounded, or a test that
+#            passes against the broken code it exists to pin
+#   low    - an inaccurate comment or doc that would mislead a maintainer
+#   info   - preference, style, naming
+# Project rules worth checking on every diff (CLAUDE.md, docs/adr/): pure logic
+# belongs in BoopstashCore with Swift Testing tests; only thin Live* adapters
+# in App/ import AppKit, CloudKit, Vision or JavaScriptCore; the app is
+# sandboxed in every build; AI is on-device only; the deployment floor is
+# macOS 26 / iOS 26. Swift 6 strict concurrency is on.
+# Report everything you find at its true severity. Coverage is not what is
+# being limited here; verbosity is."""
 
 # ivy: Claude on a Claude subscription, the same seat as fuko-pr's and
 # mepro's. Headless Claude Code reviewing with a Claude model: no gateway, no
