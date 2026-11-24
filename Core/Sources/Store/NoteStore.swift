@@ -502,7 +502,7 @@ public final class NoteStore: Sendable {
     /// now, which is then stored like the worker's. Text already stored is
     /// never read again, and "" stays "no text". Run it off the main actor:
     /// files are up to 20 MB.
-    public func imageText(of attachmentID: UUID, recognizing recognize: @Sendable (Data) async -> String?) async -> ImageTextRead {
+    public func recognizedText(of attachmentID: UUID, recognizing recognize: @Sendable (Data) async -> String?) async -> ImageTextRead {
         guard let attachment = try? attachment(id: attachmentID), hasFile(for: attachment) else { return .missing }
         if let stored = attachment.recognizedText { return ImageTextRead(stored) }
         guard let data = try? data(for: attachment) else { return .missing }

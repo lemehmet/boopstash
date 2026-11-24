@@ -115,7 +115,7 @@ import Testing
     @Test func storedTextIsReturnedWithoutReadingAgain() async throws {
         let image = try store.addAttachment(Data([1]), contentType: "public.png", noteID: nil)
         try store.setRecognizedText("Name\tQty\nBolt\t12", for: image.id)
-        let read = await store.imageText(of: image.id) { [calls] _ in await calls.add(); return "read again" }
+        let read = await store.recognizedText(of: image.id) { [calls] _ in await calls.add(); return "read again" }
         #expect(read == .text("Name\tQty\nBolt\t12"))
         #expect(await calls.count == 0)
     }
@@ -123,10 +123,10 @@ import Testing
     @Test func anImageNotReadYetIsReadOnceAndStored() async throws {
         let image = try store.addAttachment(Data([7]), contentType: "public.png", noteID: nil)
         let recognize: @Sendable (Data) async -> String? = { [calls] data in await calls.add(); return data == Data([7]) ? "Invoice 4217" : nil }
-        let first = await store.imageText(of: image.id, recognizing: recognize)
+        let first = await store.recognizedText(of: image.id, recognizing: recognize)
         #expect(first == .text("Invoice 4217"))
         #expect(try store.attachment(id: image.id)?.recognizedText == "Invoice 4217")
-        let second = await store.imageText(of: image.id, recognizing: recognize)
+        let second = await store.recognizedText(of: image.id, recognizing: recognize)
         #expect(second == .text("Invoice 4217"))
         #expect(await calls.count == 1, "the second command uses what the first stored")
     }
@@ -134,15 +134,15 @@ import Testing
     @Test func anImageWithNoTextSaysSo() async throws {
         let read = try store.addAttachment(Data([1]), contentType: "public.png", noteID: nil)
         try store.setRecognizedText("", for: read.id)
-        let stored = await store.imageText(of: read.id) { [calls] _ in await calls.add(); return "text" }
+        let stored = await store.recognizedText(of: read.id) { [calls] _ in await calls.add(); return "text" }
         #expect(stored == .noText)
         #expect(await calls.count == 0, "read before and found empty: not read again")
 
         let blank = try store.addAttachment(Data([2]), contentType: "public.png", noteID: nil)
-        let blankRead = await store.imageText(of: blank.id) { _ in " \n" }
+        let blankRead = await store.recognizedText(of: blank.id) { _ in " \n" }
         #expect(blankRead == .noText)
         let unreadable = try store.addAttachment(Data([3]), contentType: "public.png", noteID: nil)
-        let unreadableRead = await store.imageText(of: unreadable.id) { _ in nil }
+        let unreadableRead = await store.recognizedText(of: unreadable.id) { _ in nil }
         #expect(unreadableRead == .noText)
         #expect(try store.attachment(id: unreadable.id)?.recognizedText == "", "recorded, so the worker does not try again")
         #expect(ImageTextRead.noText.message != nil && ImageTextRead.text("a").message == nil)
@@ -153,9 +153,9 @@ import Testing
         try store.setRecognizedText("stored", for: image.id)
         try FileManager.default.removeItem(at: store.fileURL(for: image))
         #expect(!store.hasFile(for: image))
-        let noFile = await store.imageText(of: image.id) { [calls] _ in await calls.add(); return "text" }
+        let noFile = await store.recognizedText(of: image.id) { [calls] _ in await calls.add(); return "text" }
         #expect(noFile == .missing)
-        let noImage = await store.imageText(of: UUID()) { [calls] _ in await calls.add(); return "text" }
+        let noImage = await store.recognizedText(of: UUID()) { [calls] _ in await calls.add(); return "text" }
         #expect(noImage == .missing)
         #expect(await calls.count == 0)
         #expect(ImageTextRead.missing.message != nil)
@@ -165,7 +165,7 @@ import Testing
     /// under way: the stored text stands and is not written twice.
     @Test func textStoredMeanwhileStands() async throws {
         let image = try store.addAttachment(Data([1]), contentType: "public.png", noteID: nil)
-        let read = await store.imageText(of: image.id) { [store] _ in
+        let read = await store.recognizedText(of: image.id) { [store] _ in
             try? store.setRecognizedText("the worker's", for: image.id)
             return "the command's"
         }
@@ -175,7 +175,7 @@ import Testing
 
     @Test func anImageDeletedWhileItIsReadIsMissing() async throws {
         let image = try store.addAttachment(Data([1]), contentType: "public.png", noteID: nil)
-        let read = await store.imageText(of: image.id) { [store] _ in
+        let read = await store.recognizedText(of: image.id) { [store] _ in
             try? store.deleteAttachment(id: image.id)
             return "text"
         }

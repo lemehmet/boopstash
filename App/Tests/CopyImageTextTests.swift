@@ -124,11 +124,16 @@ struct CopyImageTextTests {
         #expect(menu?.items.allSatisfy { $0.target === view } == true)
         #expect(view.selectedRange() == reference(image.id, in: view))
         #expect(view.validateUserInterfaceItem(copy) && view.validateUserInterfaceItem(insert))
+        // As AppKit validates the menu before showing it.
+        menu?.update()
+        #expect(menu?.items.allSatisfy(\.isEnabled) == true)
         model.refreshEditorFocus()
         #expect(model.canCopyImageText)
 
         try FileManager.default.removeItem(at: model.store.fileURL(for: image))
         #expect(!view.validateUserInterfaceItem(copy) && !view.validateUserInterfaceItem(insert), "the file is missing")
+        menu?.update()
+        #expect(menu?.items.contains(where: \.isEnabled) == false, "shown, and disabled")
         model.refreshEditorFocus()
         #expect(!model.canCopyImageText)
         window.close()

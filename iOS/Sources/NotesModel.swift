@@ -281,14 +281,14 @@ final class NotesModel {
     /// as plain text, read first if it has not been. Only on the user's
     /// command; nothing is read from the pasteboard. An image without text
     /// leaves the pasteboard alone and says so. The decision is Core's
-    /// (`NoteStore.imageText`), tested there.
+    /// (`NoteStore.recognizedText`), tested there.
     @discardableResult
     func copyImageText(of id: UUID, to pasteboard: UIPasteboard = .general) -> Task<Void, Never> {
         let store = self.store
         let recognize = recognizeText
         return Task { [weak self] in
             let read = await Task.detached(priority: .userInitiated) {
-                await store.imageText(of: id, recognizing: recognize)
+                await store.recognizedText(of: id, recognizing: recognize)
             }.value
             if case .text(let text) = read {
                 pasteboard.string = text

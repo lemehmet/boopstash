@@ -70,7 +70,7 @@ struct BoopstashApp: App {
                     NSApp.sendAction(#selector(BoopTextView.copyTextFromImage(_:)), to: nil, from: nil)
                 }
                 .disabled(!(delegate.model?.canCopyImageText ?? false))
-                Button("Insert Text from Image Below") {
+                Button("Insert Text Below") {
                     NSApp.sendAction(#selector(BoopTextView.insertImageTextBelow(_:)), to: nil, from: nil)
                 }
                 .disabled(!(delegate.model?.canCopyImageText ?? false))

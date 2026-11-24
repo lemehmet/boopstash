@@ -543,7 +543,7 @@ final class AppModel {
         let store = self.store
         let recognize = recognizeText
         return await Task.detached(priority: .userInitiated) {
-            await store.imageText(of: id, recognizing: recognize)
+            await store.recognizedText(of: id, recognizing: recognize)
         }.value
     }
 
