@@ -181,6 +181,22 @@ struct CopyImageTextTests {
         window.close()
     }
 
+    /// The image is in the note twice and the command was chosen on the
+    /// second reference: the text goes below that one, also when the caret
+    /// has moved by the time the image is read.
+    @Test func insertGoesBelowTheReferenceItWasChosenOn() async throws {
+        let image = try image()
+        let markdown = AttachmentReference.markdown(for: image.id)
+        let (window, view) = host(markdown + "\nbetween\n" + markdown + "\nafter")
+        let second = try #require(AttachmentReference.matches(in: view.string).last?.range)
+        view.setSelectedRange(second)
+        let task = view.insertImageText(of: image.id)
+        view.setSelectedRange(NSRange(location: 0, length: 0))
+        await task.value
+        #expect(view.string == markdown + "\nbetween\n" + markdown + "\nName\tQty\nBolt\t12\nafter")
+        window.close()
+    }
+
     /// The text arrives after a moment; a note loaded meanwhile is not the
     /// one the command was for.
     @Test func insertIsDroppedWhenAnotherNoteWasLoaded() async throws {

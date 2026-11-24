@@ -173,6 +173,40 @@ import Testing
         #expect(try store.attachment(id: image.id)?.recognizedText == "the worker's")
     }
 
+    /// The reverse: a command stores its reading while the worker's is
+    /// under way.
+    @Test func theWorkerKeepsTextACommandStoredMeanwhile() async throws {
+        let image = try store.addAttachment(Data([1]), contentType: "public.png", noteID: nil)
+        await store.recognizePendingImages { [store] _ in
+            try? store.setRecognizedText("the command's", for: image.id)
+            return "the worker's"
+        }
+        #expect(try store.attachment(id: image.id)?.recognizedText == "the command's")
+    }
+
+    /// The first reading stored is kept, and the attachment is marked to
+    /// send once.
+    @Test func textIsStoredOnlyWhenNoneIs() throws {
+        let image = try store.addAttachment(Data([1]), contentType: "public.png", noteID: nil)
+        // The version of the save to send grows with every change.
+        func version() throws -> Int? {
+            guard case .save(_, _, let version)? = try store.pendingSave(kind: .attachment, name: image.id.uuidString) else { return nil }
+            return version
+        }
+        let added = try #require(try version())
+        #expect(try store.storeRecognizedText("first", ifNoneFor: image.id) == "first")
+        #expect(try version() == added + 1)
+        #expect(try store.storeRecognizedText("second", ifNoneFor: image.id) == "first")
+        #expect(try store.attachment(id: image.id)?.recognizedText == "first")
+        #expect(try version() == added + 1, "nothing more to send")
+        #expect(try store.storeRecognizedText("", ifNoneFor: image.id) == "first")
+        #expect(try store.storeRecognizedText("text", ifNoneFor: UUID()) == nil, "no such attachment")
+
+        let empty = try store.addAttachment(Data([2]), contentType: "public.png", noteID: nil)
+        #expect(try store.storeRecognizedText("", ifNoneFor: empty.id) == "")
+        #expect(try store.storeRecognizedText("later", ifNoneFor: empty.id) == "", "read and found empty: that stands")
+    }
+
     @Test func anImageDeletedWhileItIsReadIsMissing() async throws {
         let image = try store.addAttachment(Data([1]), contentType: "public.png", noteID: nil)
         let read = await store.recognizedText(of: image.id) { [store] _ in

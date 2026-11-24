@@ -276,12 +276,16 @@ extension BoopTextView {
     @discardableResult
     func insertImageText(of id: UUID) -> Task<Void, Never> {
         let generation = documentGeneration
+        // Which of the image's references the command was chosen on, when
+        // the image is in the note twice: noted now, as the selection may
+        // move while the image is read.
+        let selection = selectedRange()
+        let occurrence = AttachmentReference.matches(in: string).filter { $0.id == id }.firstIndex { $0.range == selection } ?? 0
         return Task { [weak self] in
             guard let read = await self?.imageText?(id), let self else { return }
             guard case .text(let text) = read else { return self.refuse(read) }
             let references = AttachmentReference.matches(in: self.string).filter { $0.id == id }
-            // The one that is selected, when the image is in the note twice.
-            let reference = references.first { $0.range == self.selectedRange() } ?? references.first
+            let reference = references.indices.contains(occurrence) ? references[occurrence] : references.first
             guard self.documentGeneration == generation, self.window != nil, self.isEditable, let reference else {
                 self.showMessage?("The image is no longer in this note, so its text was not inserted.")
                 return

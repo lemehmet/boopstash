@@ -67,16 +67,19 @@ struct AttachmentImage: View {
     var body: some View {
         Group {
             if let picture {
-                Image(platformImage: picture).resizable().aspectRatio(contentMode: .fit)
+                let image = Image(platformImage: picture).resizable().aspectRatio(contentMode: .fit)
                     .frame(maxWidth: min(picture.size.width, 900))
                     .accessibilityLabel(alt)
-                    // Only on a picture that is here: a missing image has
-                    // no command.
-                    .contextMenu {
-                        if let copyText {
-                            Button("Copy Text", systemImage: "text.viewfinder") { copyText(id) }
-                        }
+                // Only on a picture that is here: a missing image has no
+                // command. Without the command (the Mac's preview) there is
+                // no menu at all, rather than an empty one.
+                if let copyText {
+                    image.contextMenu {
+                        Button("Copy Text", systemImage: "text.viewfinder") { copyText(id) }
                     }
+                } else {
+                    image
+                }
             } else if missing {
                 Label(alt.isEmpty ? "Missing image" : "\(alt) (missing)", systemImage: "photo").foregroundStyle(muted)
             } else {
