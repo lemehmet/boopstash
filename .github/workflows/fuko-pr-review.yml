@@ -1,6 +1,7 @@
-# fuko-pr review: basil (Kimi K3.1 Pro on Kimi Code) and sybil (GLM-5.3 on
-# the z.ai Coding Plan) review every non-draft PR from this repository.
-# Mirrors zapollo's workflow, trimmed to two seats.
+# fuko-pr review: basil (Kimi K3.1 Pro on Kimi Code), sybil (GLM-5.3 on the
+# z.ai Coding Plan) and ivy (Claude on a Claude subscription) review every
+# non-draft PR from this repository. Mirrors zapollo's workflow, trimmed to
+# three seats.
 #
 # Runner: GitHub-hosted. This repository is public, and a self-hosted runner
 # on a public repository is one fork PR away from running a stranger's code on
@@ -9,9 +10,10 @@
 # has no `claude` CLI, so the workflow installs a pinned one.
 #
 # Identity: each seat posts as its own GitHub App when vars.FUKO_<SEAT>_APP_ID
-# and secrets.FUKO_<SEAT>_APP_PRIVATE_KEY are set, and the two seats then
-# review concurrently. If either mint fails, fuko runs them one after the other
-# under a single identity (basil's, else sybil's, else github-actions[bot]).
+# and secrets.FUKO_<SEAT>_APP_PRIVATE_KEY are set, and the seats then review
+# concurrently. If any mint fails or is skipped, fuko runs them one after the
+# other under a single identity (basil's, else sybil's, else ivy's, else
+# github-actions[bot]).
 name: fuko-pr review
 
 on:
@@ -36,9 +38,9 @@ jobs:
     # otherwise start.
     if: ${{ github.event.pull_request.draft == false && !startsWith(github.event.pull_request.head.ref, 'skip-review/') && !contains(github.event.pull_request.labels.*.name, 'review-capped') && github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-latest
-    # Lockstep with job_budget_minutes in .fuko.toml (2 seats * 2100 s + setup,
-    # the sequential worst case).
-    timeout-minutes: 80
+    # Lockstep with job_budget_minutes in .fuko.toml (2100 s + 2100 s + 800 s
+    # + setup, the sequential worst case).
+    timeout-minutes: 95
     permissions:
       contents: read # reads PR data + posts comments only; no commits/pushes
       pull-requests: write
@@ -77,12 +79,35 @@ jobs:
         if: ${{ steps.app-token-sybil.outcome == 'failure' }}
         run: echo "::warning title=fuko-sybil App token mint failed::check vars.FUKO_SYBIL_APP_ID / secrets.FUKO_SYBIL_APP_PRIVATE_KEY and the App installation; the seats review one after the other under a single identity"
 
+      # ivy: the App is the seat's GitHub identity only. Its model credential
+      # is CLAUDE_CODE_OAUTH_TOKEN in the Review step, a different secret.
+      - name: Mint fuko-ivy app token
+        id: app-token-ivy
+        if: ${{ vars.FUKO_IVY_APP_ID != '' }}
+        continue-on-error: true # as for basil
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          app-id: ${{ vars.FUKO_IVY_APP_ID }}
+          private-key: ${{ secrets.FUKO_IVY_APP_PRIVATE_KEY }}
+          permission-contents: read
+          permission-pull-requests: write
+          permission-issues: write
+
+      - name: Surface ivy App token mint failure
+        if: ${{ steps.app-token-ivy.outcome == 'failure' }}
+        run: echo "::warning title=fuko-ivy App token mint failed::check vars.FUKO_IVY_APP_ID / secrets.FUKO_IVY_APP_PRIVATE_KEY and the App installation; the seats review one after the other under a single identity"
+
       - name: Surface missing secrets
         env:
           KIMI_CODE_KEY: ${{ secrets.PRIVATE_KIMI_KEY }}
           ZAI_KEY: ${{ secrets.ZAI_KEY }}
+          FUKO_IVY_CLAUDE_OAUTH_TOKEN: ${{ secrets.FUKO_IVY_CLAUDE_OAUTH_TOKEN }}
         run: |
           missing=0
+          if [ -z "$FUKO_IVY_CLAUDE_OAUTH_TOKEN" ]; then
+            # A warning, not an error: basil and sybil can still review.
+            echo "::warning title=FUKO_IVY_CLAUDE_OAUTH_TOKEN secret is not set::ivy (Claude, auth = subscription) fails its auth check every round without it. Mint one with 'claude setup-token' and add it as the repo secret FUKO_IVY_CLAUDE_OAUTH_TOKEN"
+          fi
           if [ -z "$KIMI_CODE_KEY" ]; then
             echo "::error title=PRIVATE_KIMI_KEY secret is not set::basil (kimi-code) cannot review without it. Mint a key in the Kimi Code Console and add it as the repo secret PRIVATE_KIMI_KEY"
             missing=1
@@ -142,9 +167,14 @@ jobs:
         if: ${{ steps.base-config.outputs.path != '' }}
         env:
           FUKO_CONFIG: ${{ steps.base-config.outputs.path }}
-          GITHUB_TOKEN: ${{ steps.app-token-basil.outputs.token || steps.app-token-sybil.outputs.token || github.token }}
+          GITHUB_TOKEN: ${{ steps.app-token-basil.outputs.token || steps.app-token-sybil.outputs.token || steps.app-token-ivy.outputs.token || github.token }}
           FUKO_GITHUB_TOKEN_BASIL: ${{ steps.app-token-basil.outputs.token }}
           FUKO_GITHUB_TOKEN_SYBIL: ${{ steps.app-token-sybil.outputs.token }}
+          FUKO_GITHUB_TOKEN_IVY: ${{ steps.app-token-ivy.outputs.token }}
+          # ivy's model credential: a `claude setup-token` (one-year OAuth
+          # token, model requests only). fuko strips it from the environment
+          # of every api-key seat and gives it to the subscription seat only.
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.FUKO_IVY_CLAUDE_OAUTH_TOKEN }}
           # basil's Kimi Code membership key; the kimi-code preset reads
           # KIMI_CODE_KEY.
           KIMI_CODE_KEY: ${{ secrets.PRIVATE_KIMI_KEY }}
