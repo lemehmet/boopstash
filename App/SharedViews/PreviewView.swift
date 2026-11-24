@@ -10,6 +10,9 @@ struct PreviewView: View {
     /// An attachment's image, for `![](attachment:<id>)`. Called off the
     /// main thread; results are cached, since attachments never change.
     var image: @Sendable (UUID) async -> PlatformImage? = { _ in nil }
+    /// Copies an image's text (#243); with it, each picture has a Copy
+    /// Text command.
+    var copyImageText: ((UUID) -> Void)?
     @Environment(\.colorScheme) private var colorScheme
     @State private var blocks: [PreviewBlock] = []
     @State private var renders = PreviewRenders()
@@ -21,7 +24,7 @@ struct PreviewView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
-                    BlockView(block: block, palette: palette, appearance: appearance, image: image)
+                    BlockView(block: block, palette: palette, appearance: appearance, image: image, copyImageText: copyImageText)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -55,6 +58,7 @@ struct AttachmentImage: View {
     let alt: String
     let muted: Color
     let load: @Sendable (UUID) async -> PlatformImage?
+    var copyText: ((UUID) -> Void)?
     @State private var picture: PlatformImage?
     @State private var missing = false
 
@@ -66,6 +70,13 @@ struct AttachmentImage: View {
                 Image(platformImage: picture).resizable().aspectRatio(contentMode: .fit)
                     .frame(maxWidth: min(picture.size.width, 900))
                     .accessibilityLabel(alt)
+                    // Only on a picture that is here: a missing image has
+                    // no command.
+                    .contextMenu {
+                        if let copyText {
+                            Button("Copy Text", systemImage: "text.viewfinder") { copyText(id) }
+                        }
+                    }
             } else if missing {
                 Label(alt.isEmpty ? "Missing image" : "\(alt) (missing)", systemImage: "photo").foregroundStyle(muted)
             } else {
@@ -104,6 +115,7 @@ struct BlockView: View {
     let palette: PreviewPalette
     let appearance: EditorAppearance
     let image: @Sendable (UUID) async -> PlatformImage?
+    var copyImageText: ((UUID) -> Void)?
 
     private var bodySize: CGFloat { CGFloat(appearance.fontSize) + 1 }
     private var mono: Font { PreviewPlatform.monospaced(appearance) }
@@ -126,7 +138,7 @@ struct BlockView: View {
                 Rectangle().fill(palette.muted).frame(width: 3)
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(Array(blocks.enumerated()), id: \.offset) { _, inner in
-                        BlockView(block: inner, palette: palette, appearance: appearance, image: image)
+                        BlockView(block: inner, palette: palette, appearance: appearance, image: image, copyImageText: copyImageText)
                     }
                 }
                 .foregroundStyle(palette.muted)
@@ -146,7 +158,7 @@ struct BlockView: View {
                         .frame(minWidth: 18, alignment: .trailing)
                         VStack(alignment: .leading, spacing: 6) {
                             ForEach(Array(item.blocks.enumerated()), id: \.offset) { _, inner in
-                                BlockView(block: inner, palette: palette, appearance: appearance, image: image)
+                                BlockView(block: inner, palette: palette, appearance: appearance, image: image, copyImageText: copyImageText)
                             }
                         }
                     }
@@ -170,7 +182,7 @@ struct BlockView: View {
         case .rule:
             Divider()
         case .image(.attachment(let id, let alt)):
-            AttachmentImage(id: id, alt: alt, muted: palette.muted, load: image)
+            AttachmentImage(id: id, alt: alt, muted: palette.muted, load: image, copyText: copyImageText)
         case .image(.blocked(_, let alt)):
             Label("\(alt.isEmpty ? "Image" : alt) (remote image not loaded)", systemImage: "network.slash")
                 .foregroundStyle(palette.muted)

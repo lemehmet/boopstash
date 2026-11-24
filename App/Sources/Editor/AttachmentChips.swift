@@ -12,6 +12,8 @@ final class ChipView: NSView {
     let reference: NSRange
     var onClick: () -> Void = {}
     var onDoubleClick: () -> Void = {}
+    /// The chip's context menu; asked for on a right click.
+    var onMenu: () -> NSMenu? = { nil }
 
     init(frame: NSRect, reference: NSRange, label: String?, image: NSImage?, missing: Bool, background: NSColor, fill: NSColor, text: NSColor) {
         self.reference = reference
@@ -61,6 +63,8 @@ final class ChipView: NSView {
     override func mouseDown(with event: NSEvent) {
         event.clickCount >= 2 ? onDoubleClick() : onClick()
     }
+
+    override func menu(for event: NSEvent) -> NSMenu? { onMenu() }
 }
 
 extension BoopTextView {
@@ -118,6 +122,7 @@ extension BoopTextView {
                     self?.setSelectedRange(match.range)
                     self?.quickLook(url)
                 }
+                chip.onMenu = { [weak self] in self?.chipMenu(for: match.range) }
                 addSubview(chip)
                 chipViews.append(chip)
             }
@@ -203,6 +208,97 @@ extension BoopTextView {
             }
             return NSValue(range: range)
         }
+    }
+
+    // MARK: Image text (#243)
+
+    /// The image the selection is: exactly one reference, whose file is
+    /// here. Nil for a caret, other text, or an image that is missing.
+    var selectedImage: UUID? {
+        let selection = selectedRange()
+        guard selectedRanges.count == 1, chipRanges.contains(selection), NSMaxRange(selection) <= (string as NSString).length,
+              let id = AttachmentReference.matches(in: (string as NSString).substring(with: selection)).first?.id,
+              let url = attachmentURL?(id), FileManager.default.fileExists(atPath: url.path)
+        else { return nil }
+        return id
+    }
+
+    func imageSelectionMayHaveChanged() {
+        let has = selectedImage != nil
+        guard has != hadSelectedImage else { return }
+        hadSelectedImage = has
+        onImageSelectionChange?()
+    }
+
+    /// A chip's context menu. The chip is selected first, as a click does,
+    /// so the items act on it and are validated like the Edit menu's.
+    func chipMenu(for reference: NSRange) -> NSMenu {
+        window?.makeFirstResponder(self)
+        setSelectedRange(reference)
+        let menu = NSMenu()
+        for (title, action) in [("Copy Text from Image", #selector(copyTextFromImage(_:))), ("Insert Text Below", #selector(insertImageTextBelow(_:)))] {
+            let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+            item.target = self
+            menu.addItem(item)
+        }
+        return menu
+    }
+
+    @objc func copyTextFromImage(_ sender: Any?) {
+        guard let id = selectedImage else { return NSSound.beep() }
+        copyImageText(of: id)
+    }
+
+    @objc func insertImageTextBelow(_ sender: Any?) {
+        guard isEditable, let id = selectedImage else { return NSSound.beep() }
+        insertImageText(of: id)
+    }
+
+    /// Puts the image's text on the pasteboard as plain text, reading the
+    /// image first if it has not been. Only ever on the user's command, and
+    /// nothing is read from the pasteboard (ADR 0001). An image without
+    /// text leaves the pasteboard alone and says so. Tests pass a private
+    /// pasteboard.
+    @discardableResult
+    func copyImageText(of id: UUID, to pasteboard: NSPasteboard = .general) -> Task<Void, Never> {
+        Task { [weak self] in
+            guard let read = await self?.imageText?(id), let self else { return }
+            guard case .text(let text) = read else { return self.refuse(read) }
+            pasteboard.clearContents()
+            pasteboard.setString(text, forType: .string)
+        }
+    }
+
+    /// Inserts the image's text on a line of its own below the reference's
+    /// line, as one undo step, and selects it. The reference is looked up
+    /// again once the text is here: reading an image takes a moment, and
+    /// the note may have been edited, or another one loaded, meanwhile.
+    @discardableResult
+    func insertImageText(of id: UUID) -> Task<Void, Never> {
+        let generation = documentGeneration
+        return Task { [weak self] in
+            guard let read = await self?.imageText?(id), let self else { return }
+            guard case .text(let text) = read else { return self.refuse(read) }
+            let references = AttachmentReference.matches(in: self.string).filter { $0.id == id }
+            // The one that is selected, when the image is in the note twice.
+            let reference = references.first { $0.range == self.selectedRange() } ?? references.first
+            guard self.documentGeneration == generation, self.window != nil, self.isEditable, let reference else {
+                self.showMessage?("The image is no longer in this note, so its text was not inserted.")
+                return
+            }
+            var lineEnd = 0
+            (self.string as NSString).getLineStart(nil, end: nil, contentsEnd: &lineEnd, for: NSRange(location: NSMaxRange(reference.range), length: 0))
+            // One insertText, the path typing takes: one undo step.
+            self.insertText("\n" + text, replacementRange: NSRange(location: lineEnd, length: 0))
+            self.undoManager?.setActionName("Insert Text from Image")
+            self.setSelectedRange(NSRange(location: lineEnd + 1, length: (text as NSString).length))
+            self.scrollRangeToVisible(self.selectedRange())
+        }
+    }
+
+    private func refuse(_ read: ImageTextRead) {
+        NSSound.beep()
+        if let message = read.message { showMessage?(message) }
     }
 
     // MARK: Quick Look

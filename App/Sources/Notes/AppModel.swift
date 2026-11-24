@@ -184,6 +184,11 @@ final class AppModel {
     var canFormatDocument: Bool { editorHasFocus && DocumentFormatter.canFormat(editorLanguage) }
     var canSortJSONKeys: Bool { editorHasFocus && DocumentFormatter.canFormat(editorLanguage, style: .sortedKeys) }
 
+    /// Whether the focused editor's selection is an image whose text can be
+    /// copied (#243).
+    private(set) var editorHasSelectedImage = false
+    var canCopyImageText: Bool { editorHasFocus && editorHasSelectedImage }
+
     func refreshEditorFocus() {
         // The find widget's fields count as the editor: its menu items
         // stay usable while the query is typed, and the editor-only
@@ -191,6 +196,7 @@ final class AppModel {
         let editor = BoopTextView.editor(for: keyResponder())
         editorHasFocus = editor != nil
         editorLanguage = editor?.syntax.currentLanguage
+        editorHasSelectedImage = editor?.selectedImage != nil
     }
 
     /// An editor gained or lost focus, or went away. The window's first
@@ -529,6 +535,16 @@ final class AppModel {
             // wait for the next change or launch.
             if self.recognitionRequested { self.recognizePendingImages() }
         }
+    }
+
+    /// An image's text for Copy Text from Image (#243): what is stored, or
+    /// read now, off the main actor, when the worker has not got to it.
+    func imageText(of id: UUID) async -> ImageTextRead {
+        let store = self.store
+        let recognize = recognizeText
+        return await Task.detached(priority: .userInitiated) {
+            await store.imageText(of: id, recognizing: recognize)
+        }.value
     }
 
     /// The current version of a note: the unsaved draft if there is one,

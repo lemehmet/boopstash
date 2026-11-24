@@ -26,6 +26,13 @@ final class BoopTextView: NSTextView {
     var chipRanges: [NSRange] = []
     var chipUpdate: Task<Void, Never>?
     var quickLookSource: QuickLookSource?
+    /// An image's text for Copy Text from Image and Insert Text Below
+    /// (#243), read on demand when it has not been yet; set by the host.
+    var imageText: (@MainActor (UUID) async -> ImageTextRead)?
+    /// Told when the selection becomes, or stops being, an image whose text
+    /// can be copied: the Edit menu's items follow it.
+    var onImageSelectionChange: (() -> Void)?
+    var hadSelectedImage = false
     /// Chips are rebuilt as the view scrolls: only visible references get
     /// one (#95).
     var chipScrollObserver: NSObjectProtocol?
@@ -55,6 +62,8 @@ final class BoopTextView: NSTextView {
         chipRanges = attachmentURL == nil ? [] : AttachmentReference.matches(in: string).map(\.range)
         scheduleChipUpdate()
         find.textDidChange()
+        // An undo can bring back a reference already selected.
+        imageSelectionMayHaveChanged()
     }
 
     override func setFrameSize(_ newSize: NSSize) {
@@ -69,6 +78,7 @@ final class BoopTextView: NSTextView {
         if !stillSelecting {
             selectedRanges.forEach { folding.reveal($0.rangeValue) }
             find.selectionDidChange()
+            imageSelectionMayHaveChanged()
         }
     }
 
@@ -230,6 +240,7 @@ final class BoopTextView: NSTextView {
         chipRanges = attachmentURL == nil ? [] : AttachmentReference.matches(in: text).map(\.range)
         // A replaced document sends no didChangeText.
         scheduleChipUpdate()
+        imageSelectionMayHaveChanged()
         // The new text arrives in the default font and colour.
         applyAppearance()
         syntax.load(text, choice: choice)
@@ -284,6 +295,12 @@ final class BoopTextView: NSTextView {
         }
         if item.action == #selector(formatJSONSortingKeys(_:)) {
             return isEditable && DocumentFormatter.canFormat(syntax.currentLanguage, style: .sortedKeys)
+        }
+        if item.action == #selector(copyTextFromImage(_:)) {
+            return imageText != nil && selectedImage != nil
+        }
+        if item.action == #selector(insertImageTextBelow(_:)) {
+            return isEditable && imageText != nil && selectedImage != nil
         }
         if item.action == #selector(pasteAsMarkdown(_:)) {
             return isEditable && NSPasteboard.general.availableType(from: [.html, .rtf, .string]) != nil

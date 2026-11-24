@@ -277,6 +277,27 @@ final class NotesModel {
         }
     }
 
+    /// Copy Text on an image in a note (#243): its text on the pasteboard
+    /// as plain text, read first if it has not been. Only on the user's
+    /// command; nothing is read from the pasteboard. An image without text
+    /// leaves the pasteboard alone and says so. The decision is Core's
+    /// (`NoteStore.imageText`), tested there.
+    @discardableResult
+    func copyImageText(of id: UUID, to pasteboard: UIPasteboard = .general) -> Task<Void, Never> {
+        let store = self.store
+        let recognize = recognizeText
+        return Task { [weak self] in
+            let read = await Task.detached(priority: .userInitiated) {
+                await store.imageText(of: id, recognizing: recognize)
+            }.value
+            if case .text(let text) = read {
+                pasteboard.string = text
+            } else {
+                self?.banner = read.message
+            }
+        }
+    }
+
     private func observe() {
         observation?.cancel()
         let values = store.results(query)

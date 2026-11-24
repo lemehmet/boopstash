@@ -497,6 +497,34 @@ public final class NoteStore: Sendable {
         }
     }
 
+    /// An image's text for a command that copies or inserts it (#243): the
+    /// stored text, or, for an image not read yet, what `recognize` reads
+    /// now, which is then stored like the worker's. Text already stored is
+    /// never read again, and "" stays "no text". Run it off the main actor:
+    /// files are up to 20 MB.
+    public func imageText(of attachmentID: UUID, recognizing recognize: @Sendable (Data) async -> String?) async -> ImageTextRead {
+        guard let attachment = try? attachment(id: attachmentID), hasFile(for: attachment) else { return .missing }
+        if let stored = attachment.recognizedText { return ImageTextRead(stored) }
+        guard let data = try? data(for: attachment) else { return .missing }
+        // As for the worker: an image that cannot be read has no text.
+        let text = await recognize(data) ?? ""
+        // Deleted while it was read.
+        guard let current = try? self.attachment(id: attachmentID) else { return .missing }
+        // The worker read it meanwhile: its text stands, and nothing is
+        // written (or sent) a second time.
+        if let stored = current.recognizedText { return ImageTextRead(stored) }
+        // A failed write loses only the stored copy; the text is still the
+        // answer to this command.
+        try? setRecognizedText(text, for: attachmentID)
+        return ImageTextRead(text)
+    }
+
+    /// Whether the attachment's file is here: a row can arrive from iCloud
+    /// before its file, or outlive it.
+    public func hasFile(for attachment: NoteAttachment) -> Bool {
+        FileManager.default.fileExists(atPath: fileURL(for: attachment).path)
+    }
+
     /// Attachments not yet through text recognition, oldest first.
     public func attachmentsAwaitingRecognition(limit: Int = 50) throws -> [NoteAttachment] {
         try writer.read { db in
