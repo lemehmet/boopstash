@@ -64,6 +64,16 @@ struct BoopstashApp: App {
                 // A SwiftUI command is not validated through the responder
                 // chain, so it follows the editor's focus explicitly (#25).
                 .disabled(!(delegate.model?.editorHasFocus ?? false))
+                // The text Vision read in the selected image (#243); also
+                // on the image's context menu.
+                Button("Copy Text from Image") {
+                    NSApp.sendAction(#selector(BoopTextView.copyTextFromImage(_:)), to: nil, from: nil)
+                }
+                .disabled(!(delegate.model?.canCopyImageText ?? false))
+                Button("Insert Text Below") {
+                    NSApp.sendAction(#selector(BoopTextView.insertImageTextBelow(_:)), to: nil, from: nil)
+                }
+                .disabled(!(delegate.model?.canCopyImageText ?? false))
                 // Find and replace in the note (ADR 0003). The keys (⌘F,
                 // ⌥⌘F, ⌘G, ⇧⌘G, ⌘E) come from the key-binding preset and
                 // reach the editor before the menu, so the menu shows none.

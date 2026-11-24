@@ -458,14 +458,33 @@ public final class NoteStore: Sendable {
     /// is not recognised again) and updates every note showing it.
     public func setRecognizedText(_ text: String, for attachmentID: UUID) throws {
         try writer.write { db in
-            guard var attachment = try NoteAttachment.fetchOne(db, key: attachmentID) else { return }
-            attachment.recognizedText = text
-            try attachment.update(db)
-            // The text travels with the attachment, so it is a change to send
-            // (#108).
-            try db.execute(sql: "UPDATE attachment SET syncPending = syncPending + 1 WHERE id = ?", arguments: [attachmentID])
-            try Self.refreshImageText(referencing: attachmentID, db)
+            guard let attachment = try NoteAttachment.fetchOne(db, key: attachmentID) else { return }
+            try Self.setRecognizedText(text, for: attachment, db)
         }
+    }
+
+    /// Stores what a reading of the image found unless text is stored
+    /// already, and returns the text that stands; nil when the attachment
+    /// is gone. The check and the write are one transaction, so of two
+    /// readings that finish together (the worker's and a command's) the
+    /// first is kept and the attachment is sent once.
+    public func storeRecognizedText(_ text: String, ifNoneFor attachmentID: UUID) throws -> String? {
+        try writer.write { db in
+            guard let attachment = try NoteAttachment.fetchOne(db, key: attachmentID) else { return nil }
+            if let stored = attachment.recognizedText { return stored }
+            try Self.setRecognizedText(text, for: attachment, db)
+            return text
+        }
+    }
+
+    static func setRecognizedText(_ text: String, for attachment: NoteAttachment, _ db: Database) throws {
+        var attachment = attachment
+        attachment.recognizedText = text
+        try attachment.update(db)
+        // The text travels with the attachment, so it is a change to send
+        // (#108).
+        try db.execute(sql: "UPDATE attachment SET syncPending = syncPending + 1 WHERE id = ?", arguments: [attachment.id])
+        try Self.refreshImageText(referencing: attachment.id, db)
     }
 
     /// Updates the `imageText` of every note whose body mentions the
@@ -487,14 +506,44 @@ public final class NoteStore: Sendable {
         while let next = try? attachmentsAwaitingRecognition(limit: 1).first {
             let data = try? self.data(for: next)
             let text = if let data { await recognize(data) ?? "" } else { "" }
-            // Deleted while it was read.
-            guard (try? attachment(id: next.id)) != nil else { continue }
+            // Nothing is stored for an image deleted while it was read, or
+            // one a command read meanwhile (#243): that text stands.
             do {
-                try setRecognizedText(text, for: next.id)
+                _ = try storeRecognizedText(text, ifNoneFor: next.id)
             } catch {
                 return
             }
         }
+    }
+
+    /// An image's text for a command that copies or inserts it (#243): the
+    /// stored text, or, for an image not read yet, what `recognize` reads
+    /// now, which is then stored like the worker's. Text already stored is
+    /// never read again, and "" stays "no text". Run it off the main actor:
+    /// files are up to 20 MB.
+    public func recognizedText(of attachmentID: UUID, recognizing recognize: @Sendable (Data) async -> String?) async -> ImageTextRead {
+        guard let attachment = try? attachment(id: attachmentID), hasFile(for: attachment) else { return .missing }
+        if let stored = attachment.recognizedText { return ImageTextRead(stored) }
+        guard let data = try? data(for: attachment) else { return .missing }
+        // As for the worker: an image that cannot be read has no text.
+        let text = await recognize(data) ?? ""
+        do {
+            // If the worker read it meanwhile, its text stands, and nothing
+            // is written (or sent) a second time. Nil: deleted while it
+            // was read.
+            guard let standing = try storeRecognizedText(text, ifNoneFor: attachmentID) else { return .missing }
+            return ImageTextRead(standing)
+        } catch {
+            // A failed write loses only the stored copy; the text is still
+            // the answer to this command.
+            return ImageTextRead(text)
+        }
+    }
+
+    /// Whether the attachment's file is here: a row can arrive from iCloud
+    /// before its file, or outlive it.
+    public func hasFile(for attachment: NoteAttachment) -> Bool {
+        FileManager.default.fileExists(atPath: fileURL(for: attachment).path)
     }
 
     /// Attachments not yet through text recognition, oldest first.
