@@ -1,22 +1,23 @@
 import AppKit
 import BoopstashCore
 
-/// The scripts the picker offers: Boop's bundled set (ADR 0005) and the
-/// user's own from the Scripts folder in the container (#59).
+/// What the picker offers: the built-in commands (#244), Boop's bundled
+/// scripts (ADR 0005) and the user's own from the Scripts folder in the
+/// container (#59).
 struct ScriptLibrary {
     var scripts: [BoopScript]
     var problems: [ScriptProblem]
 
-    /// Bundled and user scripts together; a user script with a bundled
-    /// script's name replaces it.
+    /// Built-in commands, bundled and user scripts together; a user script
+    /// with the name of one of the others replaces it.
     static func all(in bundle: Bundle = .main, userFolder: URL? = UserScriptsFolder.url) -> ScriptLibrary {
         let bundled = Self.bundled(in: bundle)
-        guard let userFolder else { return bundled }
-        let user = load(from: userFolder, prefix: "user", bundled: false)
-        return ScriptLibrary(scripts: ScriptCatalog.merge(bundled: bundled.scripts, user: user.scripts),
+        let user = userFolder.map { load(from: $0, prefix: "user", bundled: false) } ?? ScriptLibrary(scripts: [], problems: [])
+        return ScriptLibrary(scripts: ScriptCatalog.all(bundled: bundled.scripts, user: user.scripts),
                              problems: bundled.problems + user.problems)
     }
 
+    /// Boop's JavaScript scripts alone.
     static func bundled(in bundle: Bundle = .main) -> ScriptLibrary {
         guard let folder = bundle.url(forResource: "scripts", withExtension: nil) else {
             return ScriptLibrary(scripts: [], problems: [])

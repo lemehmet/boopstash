@@ -42,6 +42,15 @@ These are three different features, kept apart:
   folder they choose", which would need the app-scope security-scoped
   bookmark entitlement to keep across launches; the container folder needs
   none.*
+- **A few transforms are built in, not scripts.** *Amended 2026-11-24
+  (#244):* a transform that is ours, needs tests against many fixtures and
+  must work on every platform Core runs on is a pure Swift function in Core,
+  offered in the script picker next to the scripts (and in the Edit menu) and
+  run in the app without the script service. Clean Up Pasted Text is the
+  first. It applies the way a script's result does (the selection or the
+  whole note, one undo step), and a user script of the same name replaces it
+  in the picker as it would a bundled script. Boop's scripts and the user's
+  stay JavaScript in the service.
 - **Script contexts have no network and no file access.** JavaScriptCore
   exposes nothing but what we inject; no `fetch`, no timers beyond what a
   script needs, and a time limit per run.

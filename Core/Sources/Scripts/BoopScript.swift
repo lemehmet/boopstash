@@ -15,6 +15,9 @@ public struct BoopScript: Identifiable, Hashable, Sendable {
     public var bias: Double
     public var source: String
     public var isBundled: Bool
+    /// Set for a command built into the app, which runs natively rather
+    /// than as JavaScript in the script service; `source` is empty then.
+    public var builtIn: BuiltInCommand?
 
     /// Reads the header Boop's way: the first `/**` to the first `**/`,
     /// parsed as JSON. `name` is required; everything else is optional.
@@ -42,6 +45,30 @@ public struct BoopScript: Identifiable, Hashable, Sendable {
             source: source,
             isBundled: bundled
         ))
+    }
+}
+
+/// The picker's commands that are not scripts (ADR 0005, amended for
+/// #244): pure Swift in Core, run in the app without the script service.
+public enum BuiltInCommand: String, CaseIterable, Hashable, Sendable {
+    case cleanUpPastedText
+
+    /// The name in the picker, the Edit menu and the Undo menu.
+    public var name: String {
+        switch self {
+        case .cleanUpPastedText: "Clean Up Pasted Text"
+        }
+    }
+
+    /// How the picker lists it, next to the bundled scripts.
+    public var script: BoopScript {
+        switch self {
+        case .cleanUpPastedText:
+            BoopScript(id: "builtin/\(rawValue)", name: name,
+                       description: "Tables to Markdown; indent, trailing spaces and escape codes removed.",
+                       author: nil, icon: nil, tags: ["paste", "terminal", "table", "markdown", "ansi", "indent", "whitespace"],
+                       bias: 0, source: "", isBundled: true, builtIn: self)
+        }
     }
 }
 
@@ -111,5 +138,13 @@ public enum ScriptCatalog {
     public static func merge(bundled: [BoopScript], user: [BoopScript]) -> [BoopScript] {
         let mine = Set(user.map(\.name))
         return bundled.filter { !mine.contains($0.name) } + user
+    }
+
+    /// Everything the picker offers: the built-in commands, the bundled
+    /// scripts and the user's. A user script named as a built-in command
+    /// replaces it in the picker, as it would a bundled script; the Edit
+    /// menu's item is always the built-in one.
+    public static func all(bundled: [BoopScript], user: [BoopScript]) -> [BoopScript] {
+        merge(bundled: BuiltInCommand.allCases.map(\.script) + bundled, user: user)
     }
 }

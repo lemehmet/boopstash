@@ -8,6 +8,13 @@ breaking changes may land in a minor release.
 
 ### New
 
+- **Mac: Clean Up Pasted Text (#244).** Edit ▸ Clean Up Pasted Text, also
+  in the script picker (⌘B), tidies text copied from a terminal or an
+  agent's window: box-drawing and ASCII tables become Markdown tables, the
+  indent every line shares and trailing spaces go, and so do ANSI colour
+  and cursor codes. It works on the selection, or on the whole note when
+  nothing is selected, as one undo step. Code fences keep their contents,
+  and text with nothing to clean is left untouched.
 - **Copy the text in an image (#243).** On the Mac, right-click an image
   in the editor (or select it and use the Edit menu) for Copy Text from
   Image, or Insert Text Below to put the text into the note under the
