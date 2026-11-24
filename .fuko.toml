@@ -67,9 +67,12 @@ being limited here; verbosity is."""
 
 # PAUSED 2026-11-24 (maintainer's decision): sybil is commented out, header
 # included. The z.ai Coding Plan subscription has ended and what is left of
-# the allowance gives reviews with reduced coverage. Restore by uncommenting
-# once a plan is live again; the workflow still mints its App token and
-# passes ZAI_KEY, both harmless without the entry.
+# the allowance gives reviews with reduced coverage. To restore it, three
+# things move together: uncomment this entry; put back the workflow's sybil
+# mint step, its place in the GITHUB_TOKEN chain, FUKO_GITHUB_TOKEN_SYBIL,
+# ZAI_KEY and the missing-key check (removed in #252); and raise
+# job_budget_minutes and the workflow's timeout-minutes back to 95, the
+# three-seat sequential worst case.
 #
 # # sybil: GLM-5.3 on z.ai's Anthropic-compatible Coding Plan endpoint (ZAI_KEY).
 # # The model and window are mepro's sybil seat as of its 2026-10-19 pause:
