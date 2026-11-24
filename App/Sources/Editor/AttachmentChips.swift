@@ -270,26 +270,44 @@ extension BoopTextView {
     }
 
     /// Inserts the image's text on a line of its own below the reference's
-    /// line, as one undo step, and selects it. The reference is looked up
-    /// again once the text is here: reading an image takes a moment, and
-    /// the note may have been edited, or another one loaded, meanwhile.
+    /// line, as one undo step, and selects it. Reading an image takes a
+    /// moment and the note may be edited meanwhile, so the reference the
+    /// command was chosen on is followed through those edits; when it is
+    /// gone, or another note was loaded, nothing is inserted and a message
+    /// says so. The text never goes under another copy of the image.
     @discardableResult
     func insertImageText(of id: UUID) -> Task<Void, Never> {
         let generation = documentGeneration
-        // Which of the image's references the command was chosen on, when
-        // the image is in the note twice: noted now, as the selection may
-        // move while the image is read.
         let selection = selectedRange()
-        let occurrence = AttachmentReference.matches(in: string).filter { $0.id == id }.firstIndex { $0.range == selection } ?? 0
+        let references = AttachmentReference.matches(in: string).filter { $0.id == id }
+        let anchor = InsertAnchor(range: (references.first { $0.range == selection } ?? references.first)?.range)
+        if let storage = textStorage {
+            anchor.observer = NotificationCenter.default.addObserver(
+                forName: NSTextStorage.didProcessEditingNotification, object: storage, queue: nil
+            ) { [anchor] notification in
+                guard let storage = notification.object as? NSTextStorage,
+                      storage.editedMask.contains(.editedCharacters)
+                else { return }
+                let edited = storage.editedRange
+                let delta = storage.changeInLength
+                MainActor.assumeIsolated {
+                    anchor.range = anchor.range.flatMap { TrackedRange.adjusted($0, editedRange: edited, delta: delta) }
+                }
+            }
+        }
         return Task { [weak self] in
+            defer { anchor.stop() }
             guard let read = await self?.imageText?(id), let self else { return }
             guard case .text(let text) = read else { return self.refuse(read) }
-            let references = AttachmentReference.matches(in: self.string).filter { $0.id == id }
-            let reference = references.indices.contains(occurrence) ? references[occurrence] : references.first
+            // Still a reference to this image, where the chosen one now is.
+            let reference = anchor.range.flatMap { range in
+                AttachmentReference.matches(in: self.string).first { $0.id == id && $0.range == range }
+            }
             guard self.documentGeneration == generation, self.window != nil, self.isEditable, let reference else {
                 self.showMessage?("The image is no longer in this note, so its text was not inserted.")
                 return
             }
+            anchor.stop()
             var lineEnd = 0
             (self.string as NSString).getLineStart(nil, end: nil, contentsEnd: &lineEnd, for: NSRange(location: NSMaxRange(reference.range), length: 0))
             // One insertText, the path typing takes: one undo step.
@@ -332,4 +350,19 @@ final class QuickLookSource: NSObject, QLPreviewPanelDataSource, Sendable {
     init(url: URL) { self.url = url }
     func numberOfPreviewItems(in panel: QLPreviewPanel!) -> Int { 1 }
     func previewPanel(_ panel: QLPreviewPanel!, previewItemAt index: Int) -> (any QLPreviewItem)! { url as NSURL }
+}
+
+/// The reference Insert Text Below was chosen on, followed through edits
+/// made while the image is read.
+@MainActor
+private final class InsertAnchor {
+    var range: NSRange?
+    var observer: (any NSObjectProtocol)?
+
+    init(range: NSRange?) { self.range = range }
+
+    func stop() {
+        if let observer { NotificationCenter.default.removeObserver(observer) }
+        observer = nil
+    }
 }

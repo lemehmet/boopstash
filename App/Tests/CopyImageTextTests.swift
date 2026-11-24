@@ -197,6 +197,36 @@ struct CopyImageTextTests {
         window.close()
     }
 
+    /// The chosen reference is deleted while the image is read: the text is
+    /// not put under the other copy of the image.
+    @Test func insertIsDroppedWhenTheChosenReferenceWasDeleted() async throws {
+        let image = try image()
+        let markdown = AttachmentReference.markdown(for: image.id)
+        let (window, view) = host(markdown + "\nbetween\n" + markdown + "\nafter")
+        let first = try #require(AttachmentReference.matches(in: view.string).first?.range)
+        view.setSelectedRange(first)
+        let task = view.insertImageText(of: image.id)
+        view.insertText("", replacementRange: first)
+        await task.value
+        #expect(view.string == "\nbetween\n" + markdown + "\nafter")
+        #expect(messages.all.count == 1)
+        window.close()
+    }
+
+    /// The same image is added above the chosen reference while the image
+    /// is read: the text still goes below the one it was chosen on.
+    @Test func insertFollowsTheChosenReferenceThroughEdits() async throws {
+        let image = try image()
+        let markdown = AttachmentReference.markdown(for: image.id)
+        let (window, view) = host(markdown + "\nafter")
+        view.setSelectedRange(try #require(AttachmentReference.matches(in: view.string).first?.range))
+        let task = view.insertImageText(of: image.id)
+        view.insertText(markdown + "\nabove\n", replacementRange: NSRange(location: 0, length: 0))
+        await task.value
+        #expect(view.string == markdown + "\nabove\n" + markdown + "\nName\tQty\nBolt\t12\nafter")
+        window.close()
+    }
+
     /// The text arrives after a moment; a note loaded meanwhile is not the
     /// one the command was for.
     @Test func insertIsDroppedWhenAnotherNoteWasLoaded() async throws {
