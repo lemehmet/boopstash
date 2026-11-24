@@ -257,13 +257,23 @@ extension BoopTextView {
     /// Puts the image's text on the pasteboard as plain text, reading the
     /// image first if it has not been. Only ever on the user's command, and
     /// nothing is read from the pasteboard (ADR 0001). An image without
-    /// text leaves the pasteboard alone and says so. Tests pass a private
+    /// text leaves the pasteboard alone and says so. The copy does not
+    /// need the editor: it finishes when the note was closed, or the
+    /// preview shown, while the image was read. Tests pass a private
     /// pasteboard.
     @discardableResult
     func copyImageText(of id: UUID, to pasteboard: NSPasteboard = .general) -> Task<Void, Never> {
-        Task { [weak self] in
-            guard let read = await self?.imageText?(id), let self else { return }
-            guard case .text(let text) = read else { return self.refuse(read) }
+        Self.copyImageText(of: id, reading: imageText, to: pasteboard) { [weak self] in self?.refuse($0) }
+    }
+
+    /// The copy itself, which holds no editor: only `refused`, for the
+    /// message, reaches back to one, and weakly.
+    @discardableResult
+    static func copyImageText(of id: UUID, reading imageText: (@MainActor (UUID) async -> ImageTextRead)?,
+                              to pasteboard: NSPasteboard, refused: @escaping @MainActor (ImageTextRead) -> Void) -> Task<Void, Never> {
+        Task {
+            guard let read = await imageText?(id) else { return }
+            guard case .text(let text) = read else { return refused(read) }
             pasteboard.clearContents()
             pasteboard.setString(text, forType: .string)
         }

@@ -90,6 +90,16 @@ struct CopyImageTextTests {
         window.close()
     }
 
+    /// The copy does not need the editor, so closing the note while the
+    /// image is read still copies its text: the copy runs here with no
+    /// editor at all.
+    @Test func aCopyNeedsNoEditor() async throws {
+        let image = try image()
+        let pasteboard = NSPasteboard.withUniqueName()
+        await BoopTextView.copyImageText(of: image.id, reading: { [model] in await model.imageText(of: $0) }, to: pasteboard) { _ in }.value
+        #expect(pasteboard.string(forType: .string) == "Name\tQty\nBolt\t12")
+    }
+
     @Test func anImageWithNoTextCopiesNothingAndSaysSo() async throws {
         let image = try image()
         try model.store.setRecognizedText("", for: image.id)
