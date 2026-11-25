@@ -4,6 +4,9 @@ Attached to this submission (App Review Information ▸ Attachment), recorded on
 PURPOSE AND AUDIENCE
 BoopStash is a private scratch pad for developers and other people who work with text: code snippets, terminal and AI-agent output, logs, JSON, screenshots. On iPhone and iPad it keeps those notes at hand: listed newest first, titled automatically, searchable by words, by meaning and by date, and editable in a plain-text editor with syntax highlighting. It is the companion of BoopStash for Mac but works on its own.
 
+HOW IT DIFFERS FROM A GENERAL NOTES APP
+BoopStash is original work by a single developer, with no app template; its full source is public (Apache-2.0) at https://github.com/lemehmet/boopstash. It is built for saved text rather than written notes: search by meaning with an embedding model bundled in the app, text recognised inside screenshots, capture from the Share sheet, and an editor that never alters pasted code (no smart quotes, dashes or autocorrect). To see it quickly: save a note containing "bill for March", then search for "invoice".
+
 SETTING UP AND USING THE APP
 No login, account or sample files are needed. On first launch the note list is empty.
 1. Tap New Note and type, or tap From Clipboard to save copied text. The note is saved and titled automatically. (To save an image, use the Share sheet, step 2.)
