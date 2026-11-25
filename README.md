@@ -38,7 +38,7 @@ changes three things:
   punctuation, Tab indents, and key bindings follow VS Code (or JetBrains, or
   Emacs) instead of AppKit's defaults.
 - **Images are notes too.** Paste a screenshot; its text is recognised on-device
-  and becomes searchable.
+  and becomes searchable, and can be copied back out, a table still in rows.
 
 Boop's scripts keep working.
 

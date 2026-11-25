@@ -162,10 +162,10 @@ struct NoteEditorView: View {
             Divider()
             if previewShown {
                 // The draft, which may be newer than what was saved.
-                PreviewView(markdown: model.drafts.note(id: note.id)?.body ?? note.body, appearance: EditorAppearance()) { [store = model.store] id in
+                PreviewView(markdown: model.drafts.note(id: note.id)?.body ?? note.body, appearance: EditorAppearance(), image: { [store = model.store] id in
                     guard let attachment = try? store.attachment(id: id) else { return nil }
                     return UIImage(contentsOfFile: store.fileURL(for: attachment).path)
-                }
+                }, copyImageText: { model.copyImageText(of: $0) })
             } else {
                 PlainTextEditor(text: model.drafts.note(id: note.id)?.body ?? note.body, choice: note.syntaxChoice, showMessage: { model.banner = $0 }) {
                     model.drafts.edit(note.id, body: $0)

@@ -159,7 +159,7 @@ final class AppModel {
     /// Each picker keeps its own (#85): the model holds no shared target,
     /// so two windows' pickers cannot run in each other's notes.
     func keyEditor() -> BoopTextView? {
-        guard let editor = keyResponder() as? BoopTextView else {
+        guard let editor = BoopTextView.editor(for: keyResponder()) else {
             NSSound.beep()
             return nil
         }
@@ -184,10 +184,19 @@ final class AppModel {
     var canFormatDocument: Bool { editorHasFocus && DocumentFormatter.canFormat(editorLanguage) }
     var canSortJSONKeys: Bool { editorHasFocus && DocumentFormatter.canFormat(editorLanguage, style: .sortedKeys) }
 
+    /// Whether the focused editor's selection is an image whose text can be
+    /// copied (#243).
+    private(set) var editorHasSelectedImage = false
+    var canCopyImageText: Bool { editorHasFocus && editorHasSelectedImage }
+
     func refreshEditorFocus() {
-        let editor = keyResponder() as? BoopTextView
+        // The find widget's fields count as the editor: its menu items
+        // stay usable while the query is typed, and the editor-only
+        // commands reach the editor through the widget (supplementalTarget).
+        let editor = BoopTextView.editor(for: keyResponder())
         editorHasFocus = editor != nil
         editorLanguage = editor?.syntax.currentLanguage
+        editorHasSelectedImage = editor?.selectedImage != nil
     }
 
     /// An editor gained or lost focus, or went away. The window's first
@@ -526,6 +535,16 @@ final class AppModel {
             // wait for the next change or launch.
             if self.recognitionRequested { self.recognizePendingImages() }
         }
+    }
+
+    /// An image's text for Copy Text from Image (#243): what is stored, or
+    /// read now, off the main actor, when the worker has not got to it.
+    func imageText(of id: UUID) async -> ImageTextRead {
+        let store = self.store
+        let recognize = recognizeText
+        return await Task.detached(priority: .userInitiated) {
+            await store.recognizedText(of: id, recognizing: recognize)
+        }.value
     }
 
     /// The current version of a note: the unsaved draft if there is one,
