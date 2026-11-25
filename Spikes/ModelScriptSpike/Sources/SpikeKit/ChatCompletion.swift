@@ -35,10 +35,43 @@ public enum ChatCompletion {
         firstChoice(in: data)?["finish_reason"] as? String
     }
 
-    /// The reply stopped at the token limit with nothing in it: a model
-    /// that reasons first spent the whole allowance on its reasoning.
-    public static func wasCutOffEmpty(_ data: Data) -> Bool {
-        content(in: data)?.isEmpty == true && finishReason(in: data) == "length"
+    /// What a reply amounts to.
+    public enum Reply: Equatable {
+        /// Text to look for a script in.
+        case content(String)
+        /// The reply stopped at the token limit before any answer: a model
+        /// that reasons first spent the whole allowance on its reasoning.
+        case cutOff
+        /// No usable reply: not the shape of a completion, or no content
+        /// and no token limit to blame.
+        case none
+    }
+
+    /// The reply, with a cut-off told apart from an answer. At the token
+    /// limit a reply has no answer in three shapes, depending on the
+    /// server: empty content, no content at all (the reasoning went to a
+    /// field of its own), or content that is reasoning still open, a
+    /// `<think>` without its end. Whatever stands before that open tag is
+    /// an answer and is kept.
+    public static func reply(in data: Data) -> Reply {
+        guard let choice = firstChoice(in: data) else { return .none }
+        let limited = choice["finish_reason"] as? String == "length"
+        guard let raw = (choice["message"] as? [String: Any])?["content"] as? String else {
+            return limited ? .cutOff : .none
+        }
+        var text = withoutThinking(raw)
+        if limited, let open = text.range(of: "<think>") {
+            text = String(text[..<open.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if limited, text.isEmpty { return .cutOff }
+        return .content(text)
+    }
+
+    /// The fields of a request body that the report states, as they are
+    /// after the extra fields were merged over them.
+    public static func effective(_ body: [String: Any]) -> (temperature: String, topP: String, maxTokens: String) {
+        func text(_ key: String) -> String { body[key].map { "\($0)" } ?? "unset" }
+        return (text("temperature"), text("top_p"), text("max_tokens"))
     }
 
     /// Some servers put the reasoning in the content, between `<think>`

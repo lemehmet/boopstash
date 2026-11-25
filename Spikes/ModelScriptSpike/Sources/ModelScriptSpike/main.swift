@@ -192,6 +192,11 @@ let variationIDs = value(of: "--variations")?.split(separator: ",").map(String.i
 let fixtures = Fixture.all.filter { fixtureIDs?.contains($0.id) ?? true }
 // Guided generation is FoundationModels' own; an endpoint has no such mode here.
 let variations = Variation.all.filter { variationIDs?.contains($0.id) ?? true }.filter { endpoint == nil || !$0.guided }
+guard !fixtures.isEmpty, !variations.isEmpty else {
+    say("Nothing to measure: no fixture or no variation is left of what was asked for."
+        + (endpoint != nil ? " The guided variation is FoundationModels' own and is not run against an endpoint." : ""))
+    exit(2)
+}
 let dump = value(of: "--dump").map { URL(fileURLWithPath: $0) }
 if let dump { try? FileManager.default.createDirectory(at: dump, withIntermediateDirectories: true) }
 
@@ -293,13 +298,27 @@ func tally(_ outcomes: [Outcome]) -> String {
     return kinds.isEmpty ? "none" : kinds.joined(separator: ", ")
 }
 
+/// The endpoint's generation settings as they are sent: an extra request
+/// field may replace a standard one, and the report states what went out.
+func describe(_ endpoint: Endpoint) -> String {
+    let body = ChatCompletion.body(model: endpoint.model, messages: [], temperature: endpoint.temperature, topP: endpoint.topP,
+                                   maxTokens: endpoint.maxTokens, extra: endpoint.extraBody)
+    let sent = ChatCompletion.effective(body)
+    var text = "temperature \(sent.temperature), top-p \(sent.topP), replies capped at \(sent.maxTokens) tokens"
+    if !endpoint.extraBody.isEmpty {
+        let json = (try? JSONSerialization.data(withJSONObject: endpoint.extraBody, options: [.sortedKeys])).flatMap { String(data: $0, encoding: .utf8) } ?? ""
+        text += ", extra request fields \(json)"
+    }
+    return text
+}
+
 let system = ProcessInfo.processInfo.operatingSystemVersionString
 let minutes = Date().timeIntervalSince(started) / 60
 var report = """
 # Model-written scripts: spike results
 
 - \(endpoint.map { "Model `\($0.model)` behind an OpenAI-compatible endpoint (a self-hosted server; its address is not recorded), measured from macOS \(system)" } ?? "macOS \(system), on-device model `SystemLanguageModel.default` (\(ModelChat.availability))")
-- \(runsPerCell) runs per fixture and variation, a new conversation each run, \(endpoint.map { "temperature \($0.temperature), top-p \($0.topP), replies capped at \($0.maxTokens) tokens\($0.extraBody.isEmpty ? "" : ", extra request fields " + (String(data: (try? JSONSerialization.data(withJSONObject: $0.extraBody, options: [.sortedKeys])) ?? Data(), encoding: .utf8) ?? ""))" } ?? "default sampling, replies capped at 1500 tokens")
+- \(runsPerCell) runs per fixture and variation, a new conversation each run, \(endpoint.map(describe) ?? "default sampling, replies capped at 1500 tokens")
 - A run passes when the script's output on the whole input equals the expected text (trailing spaces aside)
 - Scripts run in a sandboxed child process killed after \(Int(ScriptRunner.timeLimit)) s
 - Seconds are the model's time from the request to the complete reply, without running the script

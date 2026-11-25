@@ -157,11 +157,47 @@ import Testing
         #expect(ChatCompletion.content(in: Data(#"{"error":{"message":"no"}}"#.utf8)) == nil)
     }
 
-    @Test func anEmptyReplyAtTheTokenLimitWasCutOff() {
-        #expect(ChatCompletion.wasCutOffEmpty(reply("", finish: "length")))
-        #expect(!ChatCompletion.wasCutOffEmpty(reply("", finish: "stop")), "empty, but the model chose to stop")
-        #expect(!ChatCompletion.wasCutOffEmpty(reply("half a script", finish: "length")), "cut off, but with something to judge")
-        #expect(ChatCompletion.wasCutOffEmpty(reply("<think>all of it reasoning</think>", finish: "length")))
+    @Test func aReplyWithAnAnswerIsItsContent() {
+        #expect(ChatCompletion.reply(in: reply("the answer")) == .content("the answer"))
+        #expect(ChatCompletion.reply(in: reply("<think>first</think>the answer")) == .content("the answer"))
+        #expect(ChatCompletion.reply(in: reply("", finish: "stop")) == .content(""), "empty, but the model chose to stop")
+        #expect(ChatCompletion.reply(in: reply("half a script", finish: "length")) == .content("half a script"),
+                "cut off, but with something to judge")
+    }
+
+    /// The three shapes a server gives a reply that ran out of tokens
+    /// while the model was still reasoning.
+    @Test func aReplyThatRanOutWhileReasoningWasCutOff() {
+        #expect(ChatCompletion.reply(in: reply("", finish: "length")) == .cutOff, "empty content")
+        #expect(ChatCompletion.reply(in: reply(nil, finish: "length")) == .cutOff, "no content: the reasoning has a field of its own")
+        #expect(ChatCompletion.reply(in: reply("<think>still reasoning when the tokens ran", finish: "length")) == .cutOff,
+                "reasoning in the content, never closed")
+        #expect(ChatCompletion.reply(in: reply("<think>a</think><think>and again, unfinished", finish: "length")) == .cutOff)
+    }
+
+    @Test func anAnswerBeforeUnfinishedReasoningIsKept() {
+        #expect(ChatCompletion.reply(in: reply("the answer\n<think>and then more", finish: "length")) == .content("the answer"))
+    }
+
+    @Test func unfinishedReasoningWithoutTheTokenLimitIsLeftAlone() {
+        #expect(ChatCompletion.reply(in: reply("<think>never closed", finish: "stop")) == .content("<think>never closed"))
+    }
+
+    @Test func aReplyThatIsNoCompletionIsNone() {
+        #expect(ChatCompletion.reply(in: reply(nil)) == .none)
+        #expect(ChatCompletion.reply(in: Data("not json".utf8)) == .none)
+        #expect(ChatCompletion.reply(in: Data(#"{"error":{"message":"no"}}"#.utf8)) == .none)
+    }
+
+    @Test func theReportStatesTheSettingsAsSent() {
+        let plain = ChatCompletion.body(model: "m", messages: [], temperature: 0.2, topP: 1, maxTokens: 2048)
+        #expect(ChatCompletion.effective(plain).maxTokens == "2048")
+        #expect(ChatCompletion.effective(plain).temperature == "0.2")
+        let replaced = ChatCompletion.body(model: "m", messages: [], temperature: 0.2, topP: 1, maxTokens: 2048,
+                                           extra: ["max_tokens": 64, "temperature": 0.9])
+        #expect(ChatCompletion.effective(replaced).maxTokens == "64", "what went out, not what was asked first")
+        #expect(ChatCompletion.effective(replaced).temperature == "0.9")
+        #expect(ChatCompletion.effective(replaced).topP == "1.0")
     }
 
     @Test func theCompletionsURLIsUnderV1Once() {

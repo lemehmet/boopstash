@@ -77,8 +77,12 @@ final class EndpointChat {
         guard status == 200 else {
             throw EndpointError.http(status, String(decoding: data, as: UTF8.self))
         }
-        guard let reply = ChatCompletion.content(in: data) else { throw EndpointError.noContent }
-        if ChatCompletion.wasCutOffEmpty(data) { throw EndpointError.cutOff }
+        let reply: String
+        switch ChatCompletion.reply(in: data) {
+        case .content(let text): reply = text
+        case .cutOff: throw EndpointError.cutOff
+        case .none: throw EndpointError.noContent
+        }
         messages.append(["role": "assistant", "content": reply])
         return reply
     }
