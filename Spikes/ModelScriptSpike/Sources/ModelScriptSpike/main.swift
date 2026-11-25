@@ -19,12 +19,20 @@ func value(of flag: String) -> String? {
 if CommandLine.arguments.contains("--help") {
     print("""
     ModelScriptSpike [--runs N] [--fixtures id,id] [--variations id,id] [--out report.md] [--dump directory] [--selfcheck]
+                     [--endpoint URL --model NAME [--temperature T] [--top-p P] [--max-tokens N] [--timeout S] [--extra-body JSON]]
       --runs        runs per fixture and variation (default 10)
       --fixtures    \(Fixture.all.map(\.id).joined(separator: ", ")) (default all)
       --variations  \(Variation.all.map(\.id).joined(separator: ", ")) (default all)
       --out         also write the report to this file
       --dump        write every prompt-reply-outcome to this directory
       --selfcheck   check the fixtures and the runner without the model, then stop
+      --endpoint    measure a model behind an OpenAI-compatible API at this base URL, not the on-device one;
+                    its key, if it needs one, is read from MODEL_SPIKE_API_KEY. The URL is not written to the report.
+      --model       the model's name at that endpoint (required with --endpoint)
+      --temperature, --top-p, --max-tokens, --timeout
+                    generation settings for the endpoint (defaults 0.2, 1.0, 2048, 120 s)
+      --extra-body  a JSON object merged into each request, for what the server at hand needs,
+                    such as '{"chat_template_kwargs":{"enable_thinking":false}}' to switch off a model's reasoning
     """)
     exit(0)
 }
@@ -150,16 +158,40 @@ if CommandLine.arguments.contains("--selfcheck") { exit(0) }
 
 // MARK: The measurement
 
-guard ModelChat.availability == "available" else {
-    say("The on-device model is \(ModelChat.availability). The spike needs a Mac with Apple Intelligence on.")
-    exit(1)
+let endpoint: Endpoint? = value(of: "--endpoint").map { text in
+    guard let base = URL(string: text), base.scheme != nil, let model = value(of: "--model"), !model.isEmpty else {
+        say("--endpoint needs a URL with a scheme, and --model a name")
+        exit(2)
+    }
+    var extra: [String: Any] = [:]
+    if let text = value(of: "--extra-body") {
+        guard let object = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any] else {
+            say("--extra-body needs a JSON object")
+            exit(2)
+        }
+        extra = object
+    }
+    return Endpoint(base: base, model: model, key: ProcessInfo.processInfo.environment["MODEL_SPIKE_API_KEY"],
+                    temperature: value(of: "--temperature").flatMap(Double.init) ?? 0.2,
+                    topP: value(of: "--top-p").flatMap(Double.init) ?? 1.0,
+                    maxTokens: value(of: "--max-tokens").flatMap(Int.init) ?? 2048,
+                    timeout: value(of: "--timeout").flatMap(Double.init) ?? 120,
+                    extraBody: extra)
+}
+
+if endpoint == nil {
+    guard ModelChat.availability == "available" else {
+        say("The on-device model is \(ModelChat.availability). The spike needs a Mac with Apple Intelligence on, or --endpoint.")
+        exit(1)
+    }
 }
 
 let runsPerCell = value(of: "--runs").flatMap(Int.init) ?? 10
 let fixtureIDs = value(of: "--fixtures")?.split(separator: ",").map(String.init)
 let variationIDs = value(of: "--variations")?.split(separator: ",").map(String.init)
 let fixtures = Fixture.all.filter { fixtureIDs?.contains($0.id) ?? true }
-let variations = Variation.all.filter { variationIDs?.contains($0.id) ?? true }
+// Guided generation is FoundationModels' own; an endpoint has no such mode here.
+let variations = Variation.all.filter { variationIDs?.contains($0.id) ?? true }.filter { endpoint == nil || !$0.guided }
 let dump = value(of: "--dump").map { URL(fileURLWithPath: $0) }
 if let dump { try? FileManager.default.createDirectory(at: dump, withIntermediateDirectories: true) }
 
@@ -173,13 +205,33 @@ func timed<T>(_ work: () async -> T) async -> (T, Double) {
 /// One question to the model and the verdict on its reply. The seconds are
 /// the model's alone, from the request to the complete reply: running and
 /// scoring the script is not counted.
-func attempt(_ chat: ModelChat, _ prompt: String, _ fixture: Fixture) async -> (outcome: Outcome, reply: String, seconds: Double) {
+func attempt(_ chat: Chat, _ prompt: String, _ fixture: Fixture) async -> (outcome: Outcome, reply: String, seconds: Double) {
     let (reply, seconds) = await timed { () -> Result<String, Error> in
         do { return .success(try await chat.ask(prompt)) } catch { return .failure(error) }
     }
     switch reply {
     case .success(let reply): return (judge(reply, fixture), reply, seconds)
-    case .failure(let error): return (.modelError(ModelChat.name(of: error)), "", seconds)
+    case .failure(let error): return (.modelError(chat.name(of: error)), "", seconds)
+    }
+}
+
+/// One conversation with whichever model is being measured.
+enum Chat {
+    case onDevice(ModelChat)
+    case endpoint(EndpointChat)
+
+    func ask(_ prompt: String) async throws -> String {
+        switch self {
+        case .onDevice(let chat): try await chat.ask(prompt)
+        case .endpoint(let chat): try await chat.ask(prompt)
+        }
+    }
+
+    func name(of error: Error) -> String {
+        switch self {
+        case .onDevice: ModelChat.name(of: error)
+        case .endpoint: EndpointChat.name(of: error)
+        }
     }
 }
 
@@ -200,7 +252,8 @@ for fixture in fixtures {
         let key = "\(fixture.id)|\(variation.id)"
         for index in 1...runsPerCell {
             // A new session per run: runs must not learn from each other.
-            let chat = ModelChat(variation: variation)
+            let chat: Chat = endpoint.map { .endpoint(EndpointChat(endpoint: $0, variation: variation)) }
+                ?? .onDevice(ModelChat(variation: variation))
             let prompt = Prompts.request(instruction: fixture.instruction,
                                          sample: variation.fullSample ? fixture.input : fixture.shortSample,
                                          isWholeText: variation.fullSample,
@@ -245,8 +298,8 @@ let minutes = Date().timeIntervalSince(started) / 60
 var report = """
 # Model-written scripts: spike results
 
-- macOS \(system), on-device model `SystemLanguageModel.default` (\(ModelChat.availability))
-- \(runsPerCell) runs per fixture and variation, a new session each run, default sampling, replies capped at 1500 tokens
+- \(endpoint.map { "Model `\($0.model)` behind an OpenAI-compatible endpoint (a self-hosted server; its address is not recorded), measured from macOS \(system)" } ?? "macOS \(system), on-device model `SystemLanguageModel.default` (\(ModelChat.availability))")
+- \(runsPerCell) runs per fixture and variation, a new conversation each run, \(endpoint.map { "temperature \($0.temperature), top-p \($0.topP), replies capped at \($0.maxTokens) tokens\($0.extraBody.isEmpty ? "" : ", extra request fields " + (String(data: (try? JSONSerialization.data(withJSONObject: $0.extraBody, options: [.sortedKeys])) ?? Data(), encoding: .utf8) ?? ""))" } ?? "default sampling, replies capped at 1500 tokens")
 - A run passes when the script's output on the whole input equals the expected text (trailing spaces aside)
 - Scripts run in a sandboxed child process killed after \(Int(ScriptRunner.timeLimit)) s
 - Seconds are the model's time from the request to the complete reply, without running the script

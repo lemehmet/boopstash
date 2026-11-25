@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import SpikeKit
 
@@ -117,5 +118,56 @@ import Testing
     @Test func promptsNameTheSampleHonestly() {
         #expect(Prompts.request(instruction: "do", sample: "a", isWholeText: false).contains("more lines"))
         #expect(!Prompts.request(instruction: "do", sample: "a", isWholeText: true).contains("more lines"))
+    }
+}
+
+@Suite struct ChatCompletionTests {
+    func reply(_ content: String?, finish: String = "stop") -> Data {
+        var message: [String: Any] = ["role": "assistant"]
+        if let content { message["content"] = content }
+        return try! JSONSerialization.data(withJSONObject: ["choices": [["message": message, "finish_reason": finish]]])
+    }
+
+    @Test func theBodyCarriesTheSettingsAndTheExtraFields() {
+        let body = ChatCompletion.body(model: "m", messages: [["role": "user", "content": "hi"]], temperature: 0.2, topP: 1,
+                                       maxTokens: 2048, extra: ["chat_template_kwargs": ["enable_thinking": false]])
+        #expect(body["model"] as? String == "m")
+        #expect(body["temperature"] as? Double == 0.2)
+        #expect(body["max_tokens"] as? Int == 2048)
+        #expect(body["stream"] as? Bool == false)
+        #expect((body["chat_template_kwargs"] as? [String: Bool]) == ["enable_thinking": false])
+        #expect(JSONSerialization.isValidJSONObject(body))
+    }
+
+    @Test func anExtraFieldCanReplaceAStandardOne() {
+        let body = ChatCompletion.body(model: "m", messages: [], temperature: 0.2, topP: 1, maxTokens: 2048, extra: ["max_tokens": 64])
+        #expect(body["max_tokens"] as? Int == 64)
+    }
+
+    @Test func theContentIsReadWithoutItsThinking() {
+        #expect(ChatCompletion.content(in: reply("```js\nfunction main(state) {}\n```")) == "```js\nfunction main(state) {}\n```")
+        #expect(ChatCompletion.content(in: reply("<think>first this\nthen that</think>\nthe answer")) == "the answer")
+        #expect(ChatCompletion.content(in: reply("<think>a</think>x<think>b</think>y")) == "xy")
+        #expect(ChatCompletion.content(in: reply("<think>never closed")) == "<think>never closed")
+    }
+
+    @Test func aReplyWithoutContentIsNil() {
+        #expect(ChatCompletion.content(in: reply(nil)) == nil)
+        #expect(ChatCompletion.content(in: Data("not json".utf8)) == nil)
+        #expect(ChatCompletion.content(in: Data(#"{"error":{"message":"no"}}"#.utf8)) == nil)
+    }
+
+    @Test func anEmptyReplyAtTheTokenLimitWasCutOff() {
+        #expect(ChatCompletion.wasCutOffEmpty(reply("", finish: "length")))
+        #expect(!ChatCompletion.wasCutOffEmpty(reply("", finish: "stop")), "empty, but the model chose to stop")
+        #expect(!ChatCompletion.wasCutOffEmpty(reply("half a script", finish: "length")), "cut off, but with something to judge")
+        #expect(ChatCompletion.wasCutOffEmpty(reply("<think>all of it reasoning</think>", finish: "length")))
+    }
+
+    @Test func theCompletionsURLIsUnderV1Once() {
+        #expect(ChatCompletion.url(base: URL(string: "http://host.example:4000")!).absoluteString == "http://host.example:4000/v1/chat/completions")
+        #expect(ChatCompletion.url(base: URL(string: "http://host.example:4000/v1")!).absoluteString == "http://host.example:4000/v1/chat/completions")
+        #expect(ChatCompletion.url(base: URL(string: "http://host.example:4000/v1/")!).absoluteString == "http://host.example:4000/v1/chat/completions")
+        #expect(ChatCompletion.url(base: URL(string: "https://host.example/api")!).absoluteString == "https://host.example/api/v1/chat/completions")
     }
 }
