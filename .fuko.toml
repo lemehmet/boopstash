@@ -49,7 +49,11 @@ unsure — state uncertainty in one clause instead, tagged confirmed / likely /
 speculative so a reader can discount the level without discarding the finding.
 Rank by what happens when it is NOT fixed:
   high   - lost or corrupted notes, note content leaving the device other than
-           through the user's own iCloud, a network call, a background
+           through the user's own iCloud or, under ADR 0014, the instruction
+           and shown sample sent to the model endpoint the user configured;
+           a network call anywhere but in the model helper process, or one
+           that carries more than ADR 0014 lists; a network entitlement on
+           the app itself; a background
            pasteboard read, a new entitlement without an ADR, secrets or
            personal data committed to this public repository, or a silent
            failure of something load-bearing
@@ -60,7 +64,8 @@ Rank by what happens when it is NOT fixed:
 Project rules worth checking on every diff (CLAUDE.md, docs/adr/): pure logic
 belongs in BoopstashCore with Swift Testing tests; only thin Live* adapters
 in App/ import AppKit, CloudKit, Vision or JavaScriptCore; the app is
-sandboxed in every build; AI is on-device only; the deployment floor is
+sandboxed in every build; AI is on-device only, except that a model endpoint
+the user configures may draft scripts (ADR 0014); the deployment floor is
 macOS 26 / iOS 26. Swift 6 strict concurrency is on.
 Report everything you find at its true severity. Coverage is not what is
 being limited here; verbosity is."""
@@ -103,7 +108,11 @@ being limited here; verbosity is."""
 # speculative so a reader can discount the level without discarding the finding.
 # Rank by what happens when it is NOT fixed:
 #   high   - lost or corrupted notes, note content leaving the device other than
-#            through the user's own iCloud, a network call, a background
+#            through the user's own iCloud or, under ADR 0014, the instruction
+#            and shown sample sent to the model endpoint the user configured;
+#            a network call anywhere but in the model helper process, or one
+#            that carries more than ADR 0014 lists; a network entitlement on
+#            the app itself; a background
 #            pasteboard read, a new entitlement without an ADR, secrets or
 #            personal data committed to this public repository, or a silent
 #            failure of something load-bearing
@@ -114,7 +123,8 @@ being limited here; verbosity is."""
 # Project rules worth checking on every diff (CLAUDE.md, docs/adr/): pure logic
 # belongs in BoopstashCore with Swift Testing tests; only thin Live* adapters
 # in App/ import AppKit, CloudKit, Vision or JavaScriptCore; the app is
-# sandboxed in every build; AI is on-device only; the deployment floor is
+# sandboxed in every build; AI is on-device only, except that a model endpoint
+# the user configures may draft scripts (ADR 0014); the deployment floor is
 # macOS 26 / iOS 26. Swift 6 strict concurrency is on.
 # Report everything you find at its true severity. Coverage is not what is
 # being limited here; verbosity is."""
@@ -150,7 +160,11 @@ unsure — state uncertainty in one clause instead, tagged confirmed / likely /
 speculative so a reader can discount the level without discarding the finding.
 Rank by what happens when it is NOT fixed:
   high   - lost or corrupted notes, note content leaving the device other than
-           through the user's own iCloud, a network call, a background
+           through the user's own iCloud or, under ADR 0014, the instruction
+           and shown sample sent to the model endpoint the user configured;
+           a network call anywhere but in the model helper process, or one
+           that carries more than ADR 0014 lists; a network entitlement on
+           the app itself; a background
            pasteboard read, a new entitlement without an ADR, secrets or
            personal data committed to this public repository, or a silent
            failure of something load-bearing
@@ -161,7 +175,8 @@ Rank by what happens when it is NOT fixed:
 Project rules worth checking on every diff (CLAUDE.md, docs/adr/): pure logic
 belongs in BoopstashCore with Swift Testing tests; only thin Live* adapters
 in App/ import AppKit, CloudKit, Vision or JavaScriptCore; the app is
-sandboxed in every build; AI is on-device only; the deployment floor is
+sandboxed in every build; AI is on-device only, except that a model endpoint
+the user configures may draft scripts (ADR 0014); the deployment floor is
 macOS 26 / iOS 26. Swift 6 strict concurrency is on.
 Report everything you find at its true severity. Coverage is not what is
 being limited here; verbosity is."""

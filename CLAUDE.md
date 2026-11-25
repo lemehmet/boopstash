@@ -1,5 +1,5 @@
 - Read `docs/adr/` before changing anything about privacy, storage, the editor, distribution or formatting. A change that contradicts an ADR needs a new ADR.
-- Privacy is a hard constraint: no network access beyond the user's iCloud, no background pasteboard reads, no new entitlement without an ADR, AI is on-device only.
+- Privacy is a hard constraint: no network access beyond the user's iCloud, no background pasteboard reads, no new entitlement without an ADR, AI is on-device only. The one exception is ADR 0014: a language model endpoint the user configures themselves may be asked to draft a script, off by default, with the request made only by the sandboxed model helper process (never by the app, which keeps no network entitlement) and carrying only the instruction and the sample the workbench shows.
 - Every new or changed piece of pure logic lands in `BoopstashCore` with Swift Testing tests. Only thin `Live*` adapters in `App/` import AppKit, CloudKit, Vision or JavaScriptCore.
 - The app is sandboxed in every build; never add code that only works unsandboxed.
 - Generated `.xcodeproj` / `.xcworkspace` are never committed. `mise exec -- tuist generate`. Swift packages go in `Project.swift`'s `packages:` (Xcode-native), never `Tuist/Package.swift` (ADR 0006).
