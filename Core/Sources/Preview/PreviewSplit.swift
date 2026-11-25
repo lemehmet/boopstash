@@ -29,6 +29,22 @@ public enum PreviewSplit {
         return min(max(leadingWidth, minimumPaneWidth), available - minimumPaneWidth) / available
     }
 
+    /// The fraction to keep while the divider is dragged by `translation`
+    /// from where the stored `startFraction` put it (`startWidth` of
+    /// `startTotal`). A drag that is back where it began, or that a pane's
+    /// minimum holds there, keeps the stored share, also one that renders
+    /// clamped: a 0.10 share showing as 240 of 1000 is not replaced by 0.24
+    /// (#226). Only while the split is still `startTotal` wide: after a
+    /// resize the stored share would render somewhere else. `nil` when the
+    /// split is too narrow for the divider to move.
+    public static func dragged(from startFraction: Double, startWidth: Double, startTotal: Double,
+                               by translation: Double, total: Double, divider: Double) -> Double? {
+        guard let next = fraction(leadingWidth: startWidth + translation, total: total, divider: divider) else { return nil }
+        let width = leadingWidth(total: total, fraction: next, divider: divider)
+        let unmoved = total == startTotal && abs(width - startWidth) < 0.000_001
+        return unmoved ? startFraction : next
+    }
+
     /// How far one VoiceOver increment or decrement moves the divider: this
     /// share of the space beside it.
     public static let adjustmentStep = 0.05
@@ -36,13 +52,14 @@ public enum PreviewSplit {
     /// The fraction after `steps` assistive-tech adjustments (positive widens
     /// the editor), clamped exactly as a drag is; unchanged where a drag
     /// could not move the divider either. No steps keep the share as it is,
-    /// also when it renders clamped at a pane's minimum (#210).
+    /// also when it renders clamped at a pane's minimum (#210), and so does
+    /// a step toward the minimum it is already held at (#226).
     public static func adjusted(fraction: Double, by steps: Int, total: Double, divider: Double) -> Double {
         guard steps != 0 else { return fraction }
         let available = max(total - divider, 0)
         let width = leadingWidth(total: total, fraction: fraction, divider: divider)
-        return self.fraction(leadingWidth: width + Double(steps) * adjustmentStep * available,
-                             total: total, divider: divider) ?? fraction
+        return dragged(from: fraction, startWidth: width, startTotal: total,
+                       by: Double(steps) * adjustmentStep * available, total: total, divider: divider) ?? fraction
     }
 
     /// The editor's share of the space beside the divider as a whole

@@ -6,7 +6,8 @@
     { "on": "mac", "text": "Clean Up Pasted Text in the Edit menu tidies text copied from a terminal: tables become Markdown tables, and shared indentation, trailing spaces and colour codes go." },
     { "on": "mac", "text": "Copy Text from Image: right-click an image in the editor to copy the text in it, or to insert that text below the image." },
     { "on": "ios", "text": "Touch and hold an image in a note's preview to copy the text in it." },
-    { "on": "both", "text": "Text read from images keeps its rows, so a screenshot of a table pastes into a spreadsheet as a table." }
+    { "on": "both", "text": "Text read from images keeps its rows, so a screenshot of a table pastes into a spreadsheet as a table." },
+    { "on": "mac", "text": "Letting go of the preview divider where you grabbed it no longer changes the split." }
   ],
   "releases": [
     {
