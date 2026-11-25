@@ -73,7 +73,12 @@ around that, and each point is enforceable rather than aspirational:
     has any other.
   - *The key.* The app keeps it in the Keychain, for the endpoint it was
     entered for, and passes it with each request. It is never written to a
-    note, a log, the settings file or a problem report.
+    note, a log, the settings file or a problem report. A problem report
+    holds nothing of the endpoint at all: not its address, the model, the
+    key or the extra request fields, and BoopStash logs no request and no
+    reply.
+  - *macOS only.* The iOS app has no model endpoint, no setting for one
+    and no code that could make the request.
   - *Where it goes is your decision.* Any host you type is allowed. A warning
     mark beside Generate and beside the address in Settings says what is sent
     and to which host; when the host is not your Mac or your local network,

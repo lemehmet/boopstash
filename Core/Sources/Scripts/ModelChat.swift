@@ -1,5 +1,10 @@
 import Foundation
 
+// macOS only (ADR 0014): the safeguard this rests on, an app without a
+// network entitlement and a separate sandboxed helper that makes the
+// request, does not exist on iOS, so none of this is compiled there.
+#if os(macOS)
+
 /// BoopStash's own fixed prompt and the request text around the user's
 /// instruction, examples and sample (ADR 0014). The wording is the
 /// baseline the spike measured (ADR 0013, `Spikes/ModelScriptSpike`).
@@ -100,10 +105,10 @@ public enum ModelChat {
     }
 
     /// The request body: the model, the messages, the generation settings
-    /// in range, `stream` off, and the extra request fields merged over
-    /// them, so a server-specific field can also replace a generation
-    /// setting. Extra fields that are not a JSON object, or that name a
-    /// reserved field, are refused: no body is made with them.
+    /// in range, `stream` off, and the extra request fields beside them.
+    /// Extra fields that are not a JSON object, or that name a field the
+    /// request sets itself, are refused: no body is made with them, so
+    /// what the interface shows as sent is what is sent.
     public static func body(model: String, messages: [Message], settings: ModelGenerationSettings)
         -> Result<Data, ModelExtraFields.Refusal> {
         let extra: [String: Any]
@@ -163,12 +168,20 @@ public enum ModelChat {
     }
 
     /// Some servers put the reasoning in the content, between `<think>`
-    /// tags. An opening tag that never closes is left as it is.
+    /// tags. Some return only the closing tag, `reasoning…</think>answer`,
+    /// because the chat template put the opening one in the prompt: then
+    /// everything up to that unmatched closing tag is reasoning too. An
+    /// opening tag that never closes is left as it is.
     public static func withoutThinking(_ text: String) -> String {
         var text = text
         while let open = text.range(of: "<think>"),
               let close = text.range(of: "</think>", range: open.upperBound..<text.endIndex) {
             text.removeSubrange(open.lowerBound..<close.upperBound)
+        }
+        // A closing tag left over has no opening tag before it.
+        while let close = text.range(of: "</think>") {
+            if let open = text.range(of: "<think>"), open.lowerBound < close.lowerBound { break }
+            text.removeSubrange(text.startIndex..<close.upperBound)
         }
         return text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
@@ -627,3 +640,4 @@ extension ModelEndpointGenerator {
         }
     }
 }
+#endif

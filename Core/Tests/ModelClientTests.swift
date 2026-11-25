@@ -18,6 +18,8 @@ struct ModelClientTests {
         case redirect(to: String)
         /// Never answers.
         case hang
+        /// Answers, then sends a little more every so often, for ever.
+        case trickle
     }
 
     /// Answers the client's requests from a table, and keeps what it saw.
@@ -90,10 +92,27 @@ struct ModelClientTests {
                 client?.urlProtocol(self, wasRedirectedTo: next, redirectResponse: response)
             case .hang:
                 break
+            case .trickle:
+                let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: nil)!
+                client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+                drip()
             }
         }
 
-        override func stopLoading() {}
+        private let stopped = NSLock()
+        private var isStopped = false
+
+        private func drip() {
+            DispatchQueue.global().asyncAfter(deadline: .now() + .milliseconds(200)) { [weak self] in
+                guard let self, !self.stopped.withLock({ self.isStopped }) else { return }
+                self.client?.urlProtocol(self, didLoad: Data("x".utf8))
+                self.drip()
+            }
+        }
+
+        override func stopLoading() {
+            stopped.withLock { isStopped = true }
+        }
     }
 
     /// One request through a client whose session only the stub answers.
@@ -166,6 +185,18 @@ struct ModelClientTests {
         #expect(response == ModelServiceResponse(failure: .timedOut))
         let took = ContinuousClock.now - started
         #expect(took >= .seconds(4) && took < .seconds(30), "\(took)")
+    }
+
+    @Test func aReplyThatKeepsTricklingStillEndsAtTheTimeLimit() async {
+        // Bytes keep arriving, so no idle timeout would ever fire: the
+        // limit is for the whole request.
+        let test = "trickling"
+        Stub.set(.trickle, for: test)
+        let started = ContinuousClock.now
+        let response = await perform(chat(test, timeLimit: 5))
+        #expect(response == ModelServiceResponse(failure: .timedOut))
+        let took = ContinuousClock.now - started
+        #expect(took >= .seconds(4) && took < .seconds(20), "\(took)")
     }
 
     @Test func cancellingStopsARequestInFlight() async {

@@ -104,8 +104,12 @@ struct ModelEndpointTests {
         for notAnObject in ["[1,2]", "\"text\"", "3", "true", "null"] {
             #expect(ModelExtraFields.problem(in: notAnObject)?.hasPrefix("This is JSON but not an object.") == true, "\(notAnObject)")
         }
-        #expect(ModelExtraFields.problem(in: #"{"messages":[]}"#) == "\"messages\" is set by BoopStash and cannot be replaced here.")
-        #expect(ModelExtraFields.problem(in: #"{"stream":true}"#) != nil && ModelExtraFields.problem(in: #"{"model":"x"}"#) != nil)
+        #expect(ModelExtraFields.problem(in: #"{"messages":[]}"#) == "\"messages\" is set by BoopStash, from the settings above, and cannot be replaced here.")
+        // What the interface shows as sent cannot be changed from here.
+        for taken in ["model", "messages", "stream", "temperature", "top_p", "max_tokens"] {
+            #expect(ModelExtraFields.problem(in: "{\"seed\":1,\"\(taken)\":1}")?.hasPrefix("\"\(taken)\" is set by BoopStash") == true, "\(taken)")
+        }
+        #expect(ModelExtraFields.problem(in: #"{"max_completion_tokens":1,"Model":"x"}"#) == nil, "other names are the server's business")
     }
 
     @Test func everyDialectExampleIsAValidJSONObjectAndIsInTheHelp() throws {
@@ -316,8 +320,11 @@ struct ModelEndpointTests {
         #expect(Set(body.keys) == ["model", "messages", "temperature", "top_p", "max_tokens", "stream", "chat_template_kwargs", "seed"])
 
         settings.extraFields = #"{"max_tokens":99,"temperature":0}"#
-        let replaced = try json(try ModelChat.body(model: "m", messages: [], settings: settings).get())
-        #expect(replaced["max_tokens"] as? Int == 99 && replaced["temperature"] as? Double == 0, "an extra field may replace a generation setting")
+        guard case .failure(let taken) = ModelChat.body(model: "m", messages: [], settings: settings) else {
+            Issue.record("a generation setting is not replaced from the extra fields")
+            return
+        }
+        #expect(taken.reason.hasPrefix("\"max_tokens\" is set by BoopStash"))
 
         settings.extraFields = "enable_thinking=false"
         #expect(ModelChat.body(model: "m", messages: [], settings: settings)
@@ -359,6 +366,15 @@ struct ModelEndpointTests {
         #expect(ModelChat.reply(in: Data("<html>".utf8)) == .none)
         #expect(ModelChat.withoutThinking("<think>a</think>x<think>b</think>y") == "xy")
         #expect(ModelChat.withoutThinking("<think>open") == "<think>open")
+        // Only the closing tag: the template put the opening one in the prompt.
+        #expect(ModelChat.withoutThinking("let me see…</think>\nanswer") == "answer")
+        #expect(ModelChat.withoutThinking("a</think>b</think>c") == "c")
+        #expect(ModelChat.withoutThinking("<think>a</think>x</think>y") == "y")
+        #expect(ModelChat.withoutThinking("</think>") == "")
+        #expect(ModelChat.reply(in: completion(content: "reasoning</think>```js\nfunction main(state) {}\n```"))
+            == .content("```js\nfunction main(state) {}\n```", limited: false))
+        #expect(ModelChat.reply(in: completion(content: "reasoning</think>", finish: "length")) == .cutOff)
+        #expect(ModelChat.reply(in: completion(content: "reasoning</think>answer <think>more", finish: "length")) == .content("answer", limited: true))
     }
 
     @Test func theScriptIsTakenOutOfTheReply() {

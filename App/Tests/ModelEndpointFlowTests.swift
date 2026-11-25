@@ -284,6 +284,23 @@ struct ModelEndpointFlowTests {
         #expect(store.testResult?.text == "studio.local:8080 answered with an error (HTTP 400): unknown field")
     }
 
+    @Test func aProblemReportHoldsNothingOfTheEndpoint() async throws {
+        defer { cleanUp() }
+        let store = configured(model: "secret-model-name")
+        store.setKey("sk-test-1")
+        #expect(store.setExtraFields(#"{"private_field":"private-value"}"#))
+        await store.test()?.value
+        let model = AppModel(store: try .inMemory())
+        model.modelEndpoint = store
+        let report = try #require(model.createProblemReport(
+            environment: model.problemReportEnvironment(), note: model.problemReportNote(editor: nil),
+            list: model.problemReportList(), logLines: try LiveDiagnostics.recentLog(since: Date().addingTimeInterval(-600)), screenshot: nil))
+        for hidden in ["sk-test-1", "studio.local", "secret-model-name", "private_field", "private-value", "trim every line"] {
+            #expect(!report.body.contains(hidden) && !report.title.contains(hidden), "\(hidden)")
+        }
+        #expect(report.body.contains("## Environment"))
+    }
+
     // MARK: The workbench
 
     @Test func withNoEndpointTheWorkbenchHasNoPromptAndTheHelperIsNeverAsked() async {

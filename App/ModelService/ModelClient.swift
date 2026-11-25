@@ -10,8 +10,10 @@ import Foundation
 /// what the app handed over, and nothing else: no cookies, no cache, no
 /// stored credentials, and no redirect is followed, so the text and the
 /// key go to the host the user typed and to no other. Certificates are
-/// judged by the system; nothing here overrides that. One client makes
-/// one request and keeps nothing afterwards.
+/// judged by the system; nothing here overrides that. The time limit is
+/// for the whole request, from its start to the end of the reply, however
+/// steadily bytes arrive. One client makes one request and keeps nothing
+/// afterwards.
 final class ModelClient: NSObject, URLSessionDataDelegate, @unchecked Sendable {
     private let lock = NSLock()
     private var session: URLSession?
@@ -20,6 +22,7 @@ final class ModelClient: NSObject, URLSessionDataDelegate, @unchecked Sendable {
     private var status: Int?
     private var failure: ModelServiceResponse.Failure?
     private var completion: (@Sendable (ModelServiceResponse) -> Void)?
+    private var deadline: DispatchWorkItem?
     private let maxReplyBytes: Int
     private let configure: @Sendable (URLSessionConfiguration) -> Void
 
@@ -62,10 +65,16 @@ final class ModelClient: NSObject, URLSessionDataDelegate, @unchecked Sendable {
             completion(ModelServiceResponse(failure: .refused("A model client makes one request.")))
             return
         }
+        // The limit is a deadline for the whole request: URLSession's
+        // request timeout alone only counts the time between two pieces
+        // of the reply, which a slow model could stretch for ever.
+        let deadline = DispatchWorkItem { [weak self] in self?.stop(with: .timedOut) }
         self.completion = completion
         self.session = session
         self.task = task
+        self.deadline = deadline
         lock.unlock()
+        DispatchQueue.global().asyncAfter(deadline: .now() + limit, execute: deadline)
         task.resume()
     }
 
@@ -131,7 +140,10 @@ final class ModelClient: NSObject, URLSessionDataDelegate, @unchecked Sendable {
         received = Data()
         self.task = nil
         self.session = nil
+        let deadline = deadline
+        self.deadline = nil
         lock.unlock()
+        deadline?.cancel()
         // Also lets go of this delegate, which the session holds.
         session.finishTasksAndInvalidate()
         completion?(response)

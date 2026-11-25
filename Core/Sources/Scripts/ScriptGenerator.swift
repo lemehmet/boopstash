@@ -1,5 +1,10 @@
 import Foundation
 
+// macOS only (ADR 0014): the safeguard this rests on, an app without a
+// network entitlement and a separate sandboxed helper that makes the
+// request, does not exist on iOS, so none of this is compiled there.
+#if os(macOS)
+
 /// Something that writes a first draft of a workbench script from a plain
 /// instruction (#247, ADR 0013). The one implementation is
 /// `ModelEndpointGenerator`, over a model the user runs themselves
@@ -307,3 +312,4 @@ public enum ScriptSampling {
         return ScriptSample(text: String(target[..<lines[taken - 1].endIndex]), isWholeText: false, totalLines: lines.count)
     }
 }
+#endif

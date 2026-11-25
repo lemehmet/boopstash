@@ -1,5 +1,10 @@
 import Foundation
 
+// macOS only (ADR 0014): the safeguard this rests on, an app without a
+// network entitlement and a separate sandboxed helper that makes the
+// request, does not exist on iOS, so none of this is compiled there.
+#if os(macOS)
+
 /// What the user set up in Settings ▸ Model (ADR 0014): where their own
 /// model is served, which model, and how a request is made. The API key is
 /// not here: it lives in the Keychain and nowhere else.
@@ -218,10 +223,13 @@ public struct ModelGenerationSettings: Sendable, Hashable, Codable {
 /// The extra request fields: a JSON object merged into each request, for
 /// what the server at hand needs (mostly: reasoning off).
 public enum ModelExtraFields {
-    /// Fields a request sets itself and the extra fields may not replace:
-    /// the conversation is the instruction and the sample the workbench
-    /// showed, the model is the one chosen, and the reply is not streamed.
-    public static let reserved: Set<String> = ["messages", "model", "stream"]
+    /// Fields a request sets itself and the extra fields may not replace,
+    /// so that what the interface shows as sent is what is sent: the
+    /// conversation is the instruction and the sample the workbench
+    /// showed, the model is the one chosen, the reply is not streamed,
+    /// and temperature, top-p and the reply limit are the settings above
+    /// them in the pane (the sample's size is worked out from that limit).
+    public static let reserved: Set<String> = ["messages", "model", "stream", "temperature", "top_p", "max_tokens"]
 
     /// Why `text` cannot be used, or nil when it can. Empty text is no
     /// extra fields.
@@ -248,7 +256,7 @@ public enum ModelExtraFields {
             return .failure(Refusal(reason: "This is JSON but not an object. It must be a JSON object, like {\"name\": value}."))
         }
         if let taken = object.keys.sorted().first(where: reserved.contains) {
-            return .failure(Refusal(reason: "\"\(taken)\" is set by BoopStash and cannot be replaced here."))
+            return .failure(Refusal(reason: "\"\(taken)\" is set by BoopStash, from the settings above, and cannot be replaced here."))
         }
         return .success(object)
     }
@@ -472,3 +480,4 @@ public struct ModelEndpointIndicator: Sendable, Hashable {
         self.init(host: address.host, locality: address.locality, place: place)
     }
 }
+#endif

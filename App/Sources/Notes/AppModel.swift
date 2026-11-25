@@ -178,7 +178,7 @@ final class AppModel {
 
     /// Settings ▸ Model (ADR 0014): the model endpoint the user set up,
     /// if they did. Empty by default.
-    @ObservationIgnored let modelEndpoint = ModelEndpointStore()
+    @ObservationIgnored var modelEndpoint = ModelEndpointStore()
     /// What writes a first draft in the script workbench (#247): the
     /// user's own model endpoint. With none configured it says so, and
     /// the workbench has no prompt field.
