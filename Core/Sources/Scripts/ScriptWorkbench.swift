@@ -287,3 +287,118 @@ public struct ScriptWorkbenchResult: Sendable {
         }
     }
 }
+
+/// Where the workbench's window (#285) opens and how it is divided: the
+/// frame and the split it remembers, read back safely. Rectangles are in
+/// screen coordinates with the origin at the bottom left, as AppKit has
+/// them, so a window's title bar is at its top edge, `maxY`.
+public enum ScriptWorkbenchLayout {
+    /// The smallest content the window takes.
+    public static let minimumSize = CGSize(width: 780, height: 440)
+    /// The size it opens at before it has been sized.
+    public static let defaultSize = CGSize(width: 1000, height: 620)
+    /// The script's share of the width before the divider has been dragged.
+    public static let defaultSplit = 0.46
+    /// Neither pane is dragged, or restored, narrower than this.
+    public static let minimumPaneWidth: Double = 320
+    /// How much of the title bar has to be on a screen for a remembered
+    /// frame to be used where it was: enough to take hold of.
+    static let reachable = CGSize(width: 120, height: 24)
+
+    /// The window's title: the workbench, and the note it is for.
+    public static func windowTitle(note: String) -> String {
+        let name = ScriptHeader.cleanName(note)
+        guard !name.isEmpty else { return "Script Workbench" }
+        let limit = 60
+        let shown = name.count > limit ? String(name.prefix(limit)).trimmingCharacters(in: .whitespaces) + "…" : name
+        return "Script Workbench — \(shown)"
+    }
+
+    /// A frame as it is stored: origin, then size.
+    public static func stored(_ frame: CGRect) -> [Double] {
+        [frame.origin.x, frame.origin.y, frame.size.width, frame.size.height].map(Double.init)
+    }
+
+    /// A stored frame read back, or nil when it is not one: four finite
+    /// numbers with a size that is not empty.
+    public static func frame(stored: [Double]?) -> CGRect? {
+        guard let stored, stored.count == 4, stored.allSatisfy(\.isFinite), stored[2] >= 1, stored[3] >= 1,
+              stored.allSatisfy({ abs($0) < 1_000_000 }) else { return nil }
+        return CGRect(x: stored[0], y: stored[1], width: stored[2], height: stored[3])
+    }
+
+    /// The frame the window opens with.
+    ///
+    /// A remembered frame is used as it was, on whatever display, however
+    /// large, as long as part of its title bar is on a screen: the user can
+    /// then move it. One that is not (a display was unplugged) is moved
+    /// onto the home screen and made to fit it. With nothing remembered the
+    /// window opens at the default size in the middle of the home screen.
+    ///
+    /// - Parameters:
+    ///   - remembered: the frame the window last had, if any.
+    ///   - screens: the visible frame of each screen.
+    ///   - home: the visible frame of the screen the note's window is on;
+    ///     without one, the first screen.
+    ///   - minimum: the smallest frame the window takes.
+    public static func frame(remembered: CGRect?, screens: [CGRect], home: CGRect?, minimum: CGSize = minimumSize,
+                             preferred: CGSize = defaultSize) -> CGRect {
+        let home = home ?? screens.first
+        guard let remembered else {
+            let size = CGSize(width: max(preferred.width, minimum.width), height: max(preferred.height, minimum.height))
+            guard let home else { return CGRect(origin: .zero, size: size) }
+            return fitted(CGRect(x: home.midX - size.width / 2, y: home.midY - size.height / 2, width: size.width, height: size.height),
+                          to: home, minimum: minimum)
+        }
+        var frame = remembered
+        // Grown from its top left corner, which is where the title bar is.
+        if frame.width < minimum.width { frame.size.width = minimum.width }
+        if frame.height < minimum.height {
+            frame.origin.y -= minimum.height - frame.height
+            frame.size.height = minimum.height
+        }
+        let titleBar = CGRect(x: frame.minX, y: frame.maxY - reachable.height, width: frame.width, height: reachable.height)
+        let within = screens.contains { screen in
+            let shown = screen.intersection(titleBar)
+            return !shown.isNull && shown.width >= reachable.width && shown.height >= reachable.height
+        }
+        guard !within, let home else { return frame }
+        return fitted(frame, to: home, minimum: minimum)
+    }
+
+    /// `frame` no larger than `screen` (but never under `minimum`), and
+    /// moved the least that puts it inside, its top left corner first.
+    static func fitted(_ frame: CGRect, to screen: CGRect, minimum: CGSize) -> CGRect {
+        var frame = frame
+        frame.size.width = max(min(frame.width, screen.width), minimum.width)
+        frame.size.height = max(min(frame.height, screen.height), minimum.height)
+        frame.origin.x = max(min(frame.minX, screen.maxX - frame.width), screen.minX)
+        // The top edge stays on the screen even when the window is taller.
+        frame.origin.y = min(max(frame.minY, screen.minY), screen.maxY - frame.height)
+        return frame
+    }
+
+    /// A stored share of the width read back: the default when there is
+    /// none or it is not a share.
+    public static func split(stored: Double?) -> Double {
+        guard let stored, stored.isFinite, stored > 0, stored < 1 else { return defaultSplit }
+        return stored
+    }
+
+    /// The script pane's width for its share of `total`, with both panes
+    /// at least the minimum wide when there is room for that, and half
+    /// each when there is not.
+    public static func scriptWidth(split: Double, total: Double, minimum: Double = minimumPaneWidth) -> Double {
+        guard total.isFinite, total > 0 else { return 0 }
+        guard total >= minimum * 2 else { return (total / 2).rounded() }
+        return min(max((total * Self.split(stored: split)).rounded(), minimum), total - minimum)
+    }
+
+    /// The script's share after the divider was dragged to make its pane
+    /// `width` wide: the width is held to what leaves both panes their
+    /// minimum. Nil when there is no room to choose in.
+    public static func split(draggedTo width: Double, total: Double, minimum: Double = minimumPaneWidth) -> Double? {
+        guard total.isFinite, width.isFinite, total >= minimum * 2, total > 0 else { return nil }
+        return min(max(width, minimum), total - minimum) / total
+    }
+}

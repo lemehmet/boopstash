@@ -236,6 +236,12 @@ final class BoopTextView: NSTextView {
         // A format still running belongs to the previous note.
         formatting?.cancel()
         documentGeneration += 1
+        // A workbench is one note's (#285). Another version of the same
+        // note leaves it open, and its Keep refuses until it has run again.
+        if !sameNote, let workbench {
+            workbench.close(refocus: false)
+            showMessage?("The script workbench closed with its note. Its script is there the next time it opens.")
+        }
         // Pending inserts, and those whose reference is still in the text:
         // replacing the text loses every one of them. One that lost its
         // reference to an edit stays lost, so a reload does not put the
@@ -511,8 +517,10 @@ final class BoopTextView: NSTextView {
             showMessage?("\(name) finished after the note changed, so its result was not shown.")
             return Task {}
         }
-        // One review at a time, and none over the script workbench.
-        guard pendingReview == nil, !reviewStarting, workbench == nil else {
+        // One review at a time. The script workbench is a window of its
+        // own (#285) and does not stand in the way: whichever of the two
+        // is kept second is refused by `applyReviewed`.
+        guard pendingReview == nil, !reviewStarting else {
             NSSound.beep()
             showMessage?("\(name) could not show its changes while another sheet is open.")
             return Task {}
@@ -596,7 +604,8 @@ final class BoopTextView: NSTextView {
     }
 
     /// An editor leaving its window takes its review with it: the sheet
-    /// would otherwise stay on a window whose note it no longer belongs to.
+    /// would otherwise stay on a window whose note it no longer belongs
+    /// to. Its workbench closes too.
     override func viewWillMove(toWindow newWindow: NSWindow?) {
         if newWindow !== window {
             endPendingReview(refocus: false)
@@ -800,9 +809,13 @@ final class BoopTextView: NSTextView {
     private(set) var pendingReview: PendingReview?
     /// A review is on its way to its sheet.
     private var reviewStarting = false
-    /// The script workbench open on this editor, or on its way to its
-    /// sheet (#247).
+    /// The script workbench open for this editor's note (#247), in a
+    /// window of its own (#285). One at a time.
     var workbench: ScriptWorkbenchSession?
+    /// The note's title, for the workbench's window to name.
+    var noteTitle = "" {
+        didSet { if noteTitle != oldValue { workbench?.noteTitleChanged() } }
+    }
     /// How long a review waits for a sheet that is closing before it
     /// gives up: the picker's own sheet animates out. Tests shorten it.
     var reviewSheetWait: Duration = .seconds(2)

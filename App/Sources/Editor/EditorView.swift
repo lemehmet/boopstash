@@ -12,6 +12,8 @@ struct EditorView: NSViewRepresentable {
     /// reloads `initialText`, which is then the merged text.
     var revision = 0
     let initialText: String
+    /// The note's title, which the script workbench's window names (#285).
+    var noteTitle = ""
     let keymap: Keymap
     var syntax: SyntaxChoice = .automatic
     var appearance = EditorAppearance()
@@ -78,6 +80,8 @@ struct EditorView: NSViewRepresentable {
                 }
             }
         }
+        // After a load: another note's workbench is closed by then.
+        view.noteTitle = noteTitle
     }
 
     /// An editor removed while focused never resigns first responder, so

@@ -194,6 +194,11 @@ These hold now, and for any later Generate:
   sheet, and its Keep does not go through `review`. Both sheets apply
   through `BoopTextView.applyReviewed`, which is the one place that
   refuses over a note that changed; that is the function to audit.*
+  *Amended 2026-11-25 (#285): the workbench is a window of its own, not a
+  sheet, and the note can be edited, or a review sheet kept, while it is
+  open. Nothing else changed: its Keep still goes through
+  `applyReviewed`, which is now what stands between a stale diff and the
+  note in ordinary use, not only after a sync.*
 - **`SystemLanguageModel.default` only,** named explicitly, as
   `LiveModelTitler` does. Never `PrivateCloudComputeLanguageModel`, which
   sends the prompt to Apple's servers. The instruction and the sample stay

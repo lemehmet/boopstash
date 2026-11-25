@@ -423,9 +423,9 @@ struct ModelEndpointFlowTests {
         session.markExample(line: 2)
         let shown = try #require(session.sampleToSend)
         #expect(shown.text == "REG_A 1\nREG_B 2")
-        // The note changes under the open sheet, as a sync can change it.
-        view.load("PRIVATE 9\nNEVER SHOWN 8\nMORE 7", syntax: .plain)
-        #expect(session.sampleToSend == shown, "the sheet still shows what it showed")
+        // The note changes under the open workbench, as a sync can change it.
+        view.load("PRIVATE 9\nNEVER SHOWN 8\nMORE 7", syntax: .plain, sameNote: true)
+        #expect(session.sampleToSend == shown, "the workbench still shows what it showed")
         session.generate()
         await session.generatingTask?.value
         let request = try #require(await helper.requests.first)
@@ -454,7 +454,7 @@ struct ModelEndpointFlowTests {
         let (window, view) = flows.host(ScriptWorkbenchFlowTests.numbers)
         let session = await flows.workbench(on: view, generator: store.generator)
         #expect(session.destination?.host == "studio.local:8080")
-        // Settings now name another host; the sheet still shows the first.
+        // Settings now name another host; the workbench still shows the first.
         store.setBaseURL("https://models.example")
         session.instruction = "links"
         session.generate()
@@ -483,7 +483,7 @@ struct ModelEndpointFlowTests {
         session.instruction = "links"
         session.generate()
         #expect(session.generatingTask == nil)
-        // Fixed in Settings; the sheet asks again without sending anything.
+        // Fixed in Settings; the workbench asks again without sending anything.
         store.setModel("coder")
         session.checkAgain()
         await session.availabilityCheck?.value

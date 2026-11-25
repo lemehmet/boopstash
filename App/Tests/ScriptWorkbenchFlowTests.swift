@@ -5,8 +5,9 @@ import Testing
 
 /// The script workbench (#247) on a real editor, with the real script
 /// service: run, edit and run again, keep, discard, save, the time limit,
-/// a note that changed, and the sheet with and without a generator. What a
-/// header, a name clash and a sample are is tested in Core.
+/// a note that changed, its own window (#285) and the workbench with and
+/// without a generator. What a header, a name clash, a sample and a
+/// remembered frame are is tested in Core.
 @MainActor
 @Suite(.serialized, .timeLimit(.minutes(3)))
 struct ScriptWorkbenchFlowTests {
@@ -25,6 +26,10 @@ struct ScriptWorkbenchFlowTests {
     let seen = Seen()
     let runner = LiveScriptRunner()
     let folder = FileManager.default.temporaryDirectory.appendingPathComponent("workbench-\(UUID().uuidString)", isDirectory: true)
+    /// Where these tests' workbenches remember their frame and split: not
+    /// the defaults of whoever runs them.
+    let suite = "workbench-layout-\(UUID().uuidString)"
+    var layout: ScriptWorkbenchLayoutStore { ScriptWorkbenchLayoutStore(defaults: UserDefaults(suiteName: suite)!) }
 
     func host(_ text: String) -> (NSWindow, BoopTextView) {
         let (scroll, view) = BoopTextView.makeScrollable()
@@ -45,10 +50,11 @@ struct ScriptWorkbenchFlowTests {
             editor: view, script: script, scripts: scripts, folder: folder,
             runner: { [runner] request in await runner.run(request) },
             generator: generator,
+            layout: layout,
             onSaved: { [seen] in seen.saves += 1 },
             onClose: { [seen] script in seen.closedWith.append(script) })
-        await ScriptWorkbenchSession.open(session).value
-        // The sheet does not wait for the generator's answer; most tests do.
+        ScriptWorkbenchSession.open(session)
+        // The window does not wait for the generator's answer; most tests do.
         if awaitingGenerator { await session.availabilityCheck?.value }
         return session
     }
@@ -58,6 +64,7 @@ struct ScriptWorkbenchFlowTests {
         view.discardPendingReview()
         window.close()
         try? FileManager.default.removeItem(at: folder)
+        UserDefaults.standard.removePersistentDomain(forName: suite)
     }
 
     func setScript(_ session: ScriptWorkbenchSession, _ text: String) {
@@ -76,7 +83,7 @@ struct ScriptWorkbenchFlowTests {
         let (window, view) = host(Self.numbers)
         let session = await workbench(on: view)
         #expect(view.workbench === session)
-        #expect(session.sheet != nil && window.attachedSheet === session.sheet, "the sheet is up")
+        #expect(session.window?.isVisible == true && window.attachedSheet == nil, "its window is up, and it is not a sheet")
         #expect(session.target == "The whole note")
         #expect(session.result == nil && ScriptWorkbenchStyle.status(running: false, result: nil, edited: false) == "Not run yet.")
 
@@ -91,7 +98,7 @@ struct ScriptWorkbenchFlowTests {
         session.keep()
         #expect(view.string == Self.links)
         #expect(view.undoManager?.undoActionName == ScriptWorkbenchSession.unnamed)
-        #expect(session.isClosed && view.workbench == nil && window.attachedSheet == nil)
+        #expect(session.isClosed && view.workbench == nil && session.window == nil)
         #expect(window.firstResponder === view, "the editor has the keyboard again")
         view.undoManager?.undo()
         #expect(view.string == Self.numbers)
@@ -158,7 +165,7 @@ struct ScriptWorkbenchFlowTests {
         let result = try #require(session.result)
         #expect(!result.canKeep)
         #expect(result.notes.map(\.text) == ["Workbench Script took longer than 1 seconds and was stopped."])
-        #expect(!session.isClosed && !session.isRunning && window.attachedSheet === session.sheet)
+        #expect(!session.isClosed && !session.isRunning && session.window?.isVisible == true)
         #expect(view.string == Self.numbers)
 
         setScript(session, Self.prefixing)
@@ -189,7 +196,7 @@ struct ScriptWorkbenchFlowTests {
         session.discard()
         #expect(view.string == Self.numbers)
         #expect(view.undoManager?.canUndo == false)
-        #expect(session.isClosed && view.workbench == nil && window.attachedSheet == nil)
+        #expect(session.isClosed && view.workbench == nil && session.window == nil)
         #expect(seen.closedWith == [Self.prefixing])
         session.keep()
         #expect(view.string == Self.numbers, "a closed workbench keeps nothing")
@@ -197,11 +204,14 @@ struct ScriptWorkbenchFlowTests {
         close(window, view)
     }
 
-    @Test func escapeInTheScriptDiscards() async {
+    /// It is a window (#285): Escape does not take it, and a script half
+    /// written, off the screen.
+    @Test func escapeInTheScriptDoesNotCloseTheWindow() async {
         let (window, view) = host(Self.numbers)
         let session = await workbench(on: view)
         session.scriptView.cancelOperation(nil)
-        #expect(session.isClosed && view.string == Self.numbers)
+        #expect(!session.isClosed && session.window?.isVisible == true)
+        #expect(session.script == Self.prefixing && view.string == Self.numbers)
         close(window, view)
     }
 
@@ -214,7 +224,7 @@ struct ScriptWorkbenchFlowTests {
         view.insertText("9\n", replacementRange: NSRange(location: 0, length: 0))
         session.keep()
         #expect(view.string == "9\n" + Self.numbers, "the newer text is not written over")
-        #expect(!session.isClosed, "the sheet and its script stay")
+        #expect(!session.isClosed, "the workbench and its script stay")
         #expect(session.result == nil, "the diff was for another text")
         #expect(session.notice?.isError == true)
         #expect(session.notice?.text.hasPrefix("The note changed since the last run, so nothing was applied.") == true)
@@ -227,49 +237,336 @@ struct ScriptWorkbenchFlowTests {
         close(window, view)
     }
 
-    @Test func keepRefusesAfterAnotherNoteWasLoaded() async {
+    @Test func keepRefusesAfterAnotherVersionOfTheNoteWasLoaded() async {
         let (window, view) = host(Self.numbers)
         let session = await workbench(on: view)
         await session.run()
-        // The same text again is still another load.
-        view.load(Self.numbers, syntax: .plain)
+        // The same text again, as an iCloud merge loads it, is still another load.
+        view.load(Self.numbers, syntax: .plain, sameNote: true)
         session.keep()
         #expect(view.string == Self.numbers)
         #expect(!session.isClosed && session.result == nil && session.notice?.isError == true)
         close(window, view)
     }
 
-    // MARK: One sheet at a time
+    // MARK: A window of its own (#285)
 
-    @Test func aSecondWorkbenchOrAReviewDoesNotOpenOverTheFirst() async {
+    @Test func itOpensAsAWindowOfItsOwnThatCanBeResizedPastTheNotesAndMadeFullScreen() async throws {
+        let (window, view) = host(Self.numbers)
+        view.noteTitle = "Ticket numbers"
+        let session = await workbench(on: view)
+        let own = try #require(session.window)
+        #expect(own !== window && own.isVisible)
+        #expect(window.attachedSheet == nil && own.sheetParent == nil && !own.isSheet, "not a sheet on the note's window")
+        #expect(own.parent == nil && window.childWindows?.isEmpty != false, "nor a child that moves with it")
+        #expect(own.styleMask.isSuperset(of: [.titled, .closable, .miniaturizable, .resizable]))
+        #expect(own.collectionBehavior.contains(.fullScreenPrimary), "the green button takes it full screen")
+        #expect(!own.isRestorable && own.tabbingMode == .disallowed)
+        #expect(own.title == "Script Workbench — Ticket numbers")
+        #expect(own.frame.width > window.frame.width && own.frame.height > window.frame.height, "larger than the note's window")
+        #expect(own.contentMinSize.width >= ScriptWorkbenchLayout.minimumSize.width)
+
+        // Renamed, the note is still the one the window names.
+        view.noteTitle = "Tickets"
+        #expect(own.title == "Script Workbench — Tickets")
+
+        // The note stays usable meanwhile.
+        #expect(view.isEditable)
+        view.insertText("0\n", replacementRange: NSRange(location: 0, length: 0))
+        #expect(view.string == "0\n" + Self.numbers && !session.isClosed)
+        close(window, view)
+        #expect(!own.isVisible)
+    }
+
+    @Test func askedForAgainTheOpenWorkbenchComesForwardAndNoSecondOneOpens() async throws {
         let (window, view) = host(Self.numbers)
         let first = await workbench(on: view)
+        let own = try #require(first.window)
         let second = await workbench(on: view)
-        #expect(view.workbench === first && second.sheet == nil)
-        #expect(seen.messages == ["The script workbench could not open while another sheet is open."])
-        let whole = NSRange(location: 0, length: (Self.numbers as NSString).length)
-        await view.review([(whole, "x")], of: Self.numbers, named: "Sort Lines").value
-        #expect(view.pendingReview == nil)
-        #expect(seen.messages.last == "Sort Lines could not show its changes while another sheet is open.")
-        #expect(window.attachedSheet === first.sheet)
+        #expect(view.workbench === first && second.window == nil, "one per note window")
+        #expect(first.window === own && own.isVisible && !first.isClosed)
+        #expect(seen.messages.isEmpty && seen.closedWith.isEmpty)
+
+        // Another note window has a workbench of its own.
+        let (other, editor) = host("a\nb")
+        let third = await workbench(on: editor)
+        #expect(editor.workbench === third && third.window != nil && third.window !== own)
+        third.discard()
+        #expect(!first.isClosed && view.workbench === first, "closing one leaves the other")
+        other.close()
         close(window, view)
     }
 
-    @Test func aWorkbenchDoesNotOpenOverAReview() async {
+    @Test func theFrameIsRememberedForTheNextWorkbench() async throws {
         let (window, view) = host(Self.numbers)
-        let whole = NSRange(location: 0, length: (Self.numbers as NSString).length)
-        await view.review([(whole, "x")], of: Self.numbers, named: "Sort Lines").value
-        let session = await workbench(on: view)
-        #expect(view.workbench == nil && session.sheet == nil)
-        #expect(view.pendingReview != nil)
+        #expect(layout.frame == nil)
+        let first = await workbench(on: view)
+        let own = try #require(first.window)
+        let opened = own.frame
+        // Moved and resized, on whatever screen the tests run on.
+        let screen = own.screen?.visibleFrame ?? opened
+        own.setFrame(NSRect(x: screen.minX + 30, y: screen.minY + 30, width: 840, height: 520), display: false)
+        let set = own.frame
+        #expect(set != opened)
+        #expect(layout.frame == set, "remembered as it is set, not only on closing")
+        first.discard()
+        #expect(layout.frame == set)
+
+        let second = await workbench(on: view)
+        #expect(try #require(second.window).frame == set, "the next one opens where the last one was")
         close(window, view)
     }
 
-    @Test func anEditorLeavingItsWindowTakesTheWorkbenchWithIt() async {
+    @Test func aFrameOnTheWayThroughFullScreenIsNotRemembered() async throws {
         let (window, view) = host(Self.numbers)
         let session = await workbench(on: view)
+        let own = try #require(session.window)
+        let delegate = try #require(own.delegate as? ScriptWorkbenchWindow)
+        let screen = own.screen?.visibleFrame ?? own.frame
+        own.setFrame(NSRect(x: screen.minX + 20, y: screen.minY + 20, width: 820, height: 500), display: false)
+        let before = try #require(layout.frame)
+        // The transition itself is the system's; what the window does around it is told here.
+        delegate.windowWillEnterFullScreen(Notification(name: NSWindow.willEnterFullScreenNotification, object: own))
+        own.setFrame(NSRect(x: screen.minX, y: screen.minY, width: 900, height: 560), display: false)
+        #expect(layout.frame == before, "the full-screen frame is not the one to come back to")
+        delegate.windowDidExitFullScreen(Notification(name: NSWindow.didExitFullScreenNotification, object: own))
+        own.setFrame(before, display: false)
+        own.setFrame(NSRect(x: screen.minX + 40, y: screen.minY + 40, width: 830, height: 510), display: false)
+        #expect(layout.frame == own.frame && layout.frame != before, "out of full screen, it is remembered again")
+        close(window, view)
+    }
+
+    @Test func theSplitBetweenScriptAndDiffIsRememberedAndLeavesBothPanesRoom() async {
+        let (window, view) = host(Self.numbers)
+        let first = await workbench(on: view)
+        #expect(first.split == ScriptWorkbenchLayout.defaultSplit)
+        first.moveDivider(toScriptWidth: 700, of: 1000)
+        #expect(first.split == 0.68, "the diff keeps its minimum")
+        first.moveDivider(toScriptWidth: 500, of: 1000)
+        #expect(first.split == 0.5 && layout.split == 0.5)
+        first.moveDivider(toScriptWidth: 200, of: 500)
+        #expect(first.split == 0.5, "with no room to choose in, a drag changes nothing")
+        first.discard()
+
+        let second = await workbench(on: view)
+        #expect(second.split == 0.5, "the next one opens divided as the last one was")
+        #expect(ScriptWorkbenchLayout.scriptWidth(split: second.split, total: 1800) == 900, "the same share of a larger window")
+        close(window, view)
+    }
+
+    @Test func theNoteEditedInItsOwnWindowIsNotWrittenOverAndRefreshRunsOnItAsItIs() async throws {
+        let (window, view) = host("before\n" + Self.numbers)
+        view.setSelectedRange(NSRange(location: 7, length: (Self.numbers as NSString).length))
+        let session = await workbench(on: view)
+        await session.run()
+        #expect(session.canKeep && session.target == "The selection")
+
+        // The note's window is still usable: the user types there, and selects nothing.
+        window.makeKeyAndOrderFront(nil)
+        view.setSelectedRange(NSRange(location: 0, length: 0))
+        view.insertText("5\n", replacementRange: NSRange(location: 0, length: 6 + 1))
+        #expect(view.string == "5\n" + Self.numbers)
+        session.keep()
+        #expect(view.string == "5\n" + Self.numbers, "nothing is applied")
+        #expect(!session.isClosed && session.result == nil && !session.canKeep)
+        #expect(session.notice == ScriptWorkbenchSession.Notice(
+            isError: true, text: "The note changed since the last run, so nothing was applied. Choose Refresh to run the script on the note as it is now."))
+
+        #expect(session.canRefresh)
+        await session.refresh()
+        #expect(session.notice == nil && session.target == "The whole note", "read again: nothing is selected now")
+        #expect(try #require(session.result).content.summary == TextDiff.Summary(removed: 4, added: 4))
+        #expect(view.string == "5\n" + Self.numbers, "a refresh does not touch the note")
+        session.keep()
+        #expect(view.string == "https://tracker.example.test/issue/5\n" + Self.links)
+        #expect(session.isClosed)
+        #expect(view.undoManager?.undoActionName == ScriptWorkbenchSession.unnamed)
+        close(window, view)
+    }
+
+    @Test func closingTheNotesWindowClosesTheWorkbench() async throws {
+        let (window, view) = host(Self.numbers)
+        let session = await workbench(on: view)
+        let own = try #require(session.window)
+        await session.run()
+        window.close()
+        #expect(session.isClosed && view.workbench == nil && !own.isVisible)
+        #expect(seen.closedWith == [Self.prefixing], "its script is kept for next time")
+        session.keep()
+        #expect(view.string == Self.numbers, "and it keeps nothing afterwards")
+        close(window, view)
+    }
+
+    @Test func closingTheWorkbenchsWindowEndsItAndLeavesTheNoteAlone() async throws {
+        let (window, view) = host(Self.numbers)
+        let session = await workbench(on: view)
+        await session.run()
+        let own = try #require(session.window)
+        // As the close button does.
+        own.close()
+        #expect(session.isClosed && view.workbench == nil && session.window == nil && !own.isVisible)
+        #expect(view.string == Self.numbers && view.undoManager?.canUndo == false)
+        #expect(seen.closedWith == [Self.prefixing])
+        #expect(window.isVisible, "the note's window stays")
+        // And the command opens a new one.
+        let again = await workbench(on: view)
+        #expect(view.workbench === again && again.window?.isVisible == true)
+        close(window, view)
+    }
+
+    @Test func anotherNoteLoadedIntoTheEditorClosesTheWorkbench() async throws {
+        let (window, view) = host(Self.numbers)
+        let session = await workbench(on: view)
+        await session.run()
+        let own = try #require(session.window)
+        view.load("another note\n1\n2", syntax: .plain)
+        #expect(session.isClosed && view.workbench == nil && !own.isVisible)
+        #expect(seen.messages == ["The script workbench closed with its note. Its script is there the next time it opens."])
+        session.keep()
+        #expect(view.string == "another note\n1\n2", "Keep applies to its own note and no other")
+        #expect(seen.closedWith == [Self.prefixing])
+        close(window, view)
+    }
+
+    @Test func anEditorLeavingItsWindowTakesTheWorkbenchWithIt() async throws {
+        let (window, view) = host(Self.numbers)
+        let session = await workbench(on: view)
+        let own = try #require(session.window)
         window.contentView = NSView()
-        #expect(session.isClosed && view.workbench == nil && window.attachedSheet == nil)
+        #expect(session.isClosed && view.workbench == nil && !own.isVisible)
+        close(window, view)
+    }
+
+    @Test func aWorkbenchDoesNotOpenForAnEditorThatHasNoWindowOrCannotBeEdited() async {
+        let (window, view) = host(Self.numbers)
+        view.isEditable = false
+        let readOnly = await workbench(on: view)
+        #expect(view.workbench == nil && readOnly.window == nil)
+        view.isEditable = true
+        window.contentView = NSView()
+        let detached = await workbench(on: view)
+        #expect(view.workbench == nil && detached.window == nil)
+        close(window, view)
+    }
+
+    // MARK: A review sheet and the workbench on the same note (#285)
+
+    static let whole = NSRange(location: 0, length: (numbers as NSString).length)
+
+    @Test func aReviewKeptFirstMakesTheWorkbenchRefuseUntilItHasRunAgain() async throws {
+        let (window, view) = host(Self.numbers)
+        view.reviewSheetWait = .milliseconds(200)
+        let session = await workbench(on: view)
+        await session.run()
+        #expect(session.canKeep)
+        // Run Script with Preview on the same note: its sheet opens beside the workbench.
+        await view.review([(Self.whole, "77\n1093\n4821")], of: Self.numbers, named: "Sort Lines").value
+        #expect(view.pendingReview != nil && window.attachedSheet != nil, "the review is a sheet, as before")
+        #expect(view.workbench === session && session.window?.isVisible == true && seen.messages.isEmpty)
+
+        view.keepPendingReview()
+        #expect(view.string == "77\n1093\n4821")
+        session.keep()
+        #expect(view.string == "77\n1093\n4821", "the workbench's diff was for the text before: nothing is applied over the review's change")
+        #expect(!session.isClosed && session.result == nil && session.notice?.isError == true)
+        #expect(view.undoManager?.undoActionName == "Sort Lines")
+
+        await session.refresh()
+        session.keep()
+        #expect(view.string == "https://tracker.example.test/issue/77\nhttps://tracker.example.test/issue/1093\nhttps://tracker.example.test/issue/4821")
+        #expect(view.undoManager?.undoActionName == ScriptWorkbenchSession.unnamed && session.isClosed)
+        close(window, view)
+    }
+
+    @Test func theWorkbenchKeptFirstMakesTheReviewRefuse() async throws {
+        let (window, view) = host(Self.numbers)
+        view.reviewSheetWait = .milliseconds(200)
+        // The review is up first this time, and the workbench opens all the same.
+        await view.review([(Self.whole, "77\n1093\n4821")], of: Self.numbers, named: "Sort Lines").value
+        #expect(view.pendingReview != nil)
+        let session = await workbench(on: view)
+        #expect(view.workbench === session && session.window?.isVisible == true)
+        #expect(view.pendingReview != nil && window.attachedSheet != nil, "the review stays up")
+        await session.run()
+        session.keep()
+        #expect(view.string == Self.links && session.isClosed)
+        #expect(view.pendingReview != nil, "the review is still there to answer")
+
+        view.keepPendingReview()
+        #expect(view.string == Self.links, "the review's edits were for the text before: nothing is applied over the workbench's change")
+        #expect(seen.messages == ["The note changed while Sort Lines was being reviewed, so nothing was applied."])
+        #expect(view.pendingReview == nil && window.attachedSheet == nil)
+        view.undoManager?.undo()
+        #expect(view.string == Self.numbers, "one change reached the note, in one step")
+        #expect(view.undoManager?.canUndo == false)
+        close(window, view)
+    }
+
+    @Test func aReviewDiscardedLeavesTheWorkbenchsDiffGood() async throws {
+        let (window, view) = host(Self.numbers)
+        view.reviewSheetWait = .milliseconds(200)
+        let session = await workbench(on: view)
+        await session.run()
+        await view.review([(Self.whole, "x")], of: Self.numbers, named: "Sort Lines").value
+        #expect(view.pendingReview != nil)
+        view.discardPendingReview()
+        session.keep()
+        #expect(view.string == Self.links, "the note is the text the diff was made for")
+        close(window, view)
+    }
+
+    // MARK: What Is Sent and Refresh (#285)
+
+    @Test func theSampleIsReadAgainOnlyOnRefreshAndGenerateSendsWhatIsOnShow() async throws {
+        let (window, view) = host("REG_A 1\nREG_B 2")
+        let fake = FakeGenerator()
+        let session = await workbench(on: view, generator: fake)
+        session.instruction = "make defines"
+        session.markExample(line: 2)
+        let shown = try #require(session.sampleToSend)
+        #expect(shown.text == "REG_A 1\nREG_B 2")
+
+        // The note is edited in its own window while the workbench is open.
+        view.insertText("NOT SHOWN 9\n", replacementRange: NSRange(location: 0, length: 0))
+        #expect(session.sampleToSend == shown, "an edit in the note changes nothing in the workbench")
+        await session.run()
+        #expect(session.sampleToSend == shown, "nor does a run, which reads the note for the diff alone")
+        session.generate()
+        await session.generatingTask?.value
+        var request = try #require(await fake.requests.last)
+        #expect(request.sample == shown && request.examples == [ScriptExample(line: 2, text: "REG_B 2")], "what was on show is what went")
+
+        // Refresh reads the note again, and shows what it read before anything is sent.
+        await session.refresh()
+        let fresh = try #require(session.sampleToSend)
+        #expect(fresh.text == "NOT SHOWN 9\nREG_A 1\nREG_B 2")
+        #expect(session.examples.isEmpty, "line 2 is another line now, so it is no longer an example")
+        #expect(session.result != nil, "and it ran")
+        session.generate()
+        await session.generatingTask?.value
+        request = try #require(await fake.requests.last)
+        #expect(request.sample == fresh && request.examples.isEmpty)
+        #expect(await fake.requests.count == 2)
+        close(window, view)
+    }
+
+    @Test func refreshWaitsForARequestThatIsOut() async throws {
+        let (window, view) = host("REG_A 1")
+        let fake = FakeGenerator(waits: true)
+        let session = await workbench(on: view, generator: fake)
+        session.instruction = "make defines"
+        let shown = try #require(session.sampleToSend)
+        session.generate()
+        let request = try #require(session.generatingTask)
+        view.insertText("NOT SHOWN 9\n", replacementRange: NSRange(location: 0, length: 0))
+        #expect(!session.canRefresh, "the sample a request went with stays on show until it is back")
+        await session.refresh()
+        #expect(session.sampleToSend == shown && session.result == nil)
+        session.cancelGenerating()
+        await request.value
+        #expect(session.canRefresh)
+        await session.refresh()
+        #expect(session.sampleToSend?.text == "NOT SHOWN 9\nREG_A 1")
         close(window, view)
     }
 
@@ -681,7 +978,7 @@ struct ScriptWorkbenchFlowTests {
     @Test func withoutAGeneratorThereIsNoPromptFieldOrGenerate() async {
         let (window, view) = host(Self.numbers)
         let session = await workbench(on: view)
-        #expect(session.destination == nil, "the sheet draws the prompt row only for a destination")
+        #expect(session.destination == nil, "the window draws the prompt row only for a destination")
         session.instruction = "make links"
         session.generate()
         #expect(session.generatingTask == nil && !session.isGenerating)
@@ -689,7 +986,7 @@ struct ScriptWorkbenchFlowTests {
         close(window, view)
 
         // A generator that is set up and not usable now sends nothing
-        // either; the sheet shows Generate disabled, with the reason.
+        // either; the window shows Generate disabled, with the reason.
         let (other, editor) = host(Self.numbers)
         let fake = FakeGenerator(state: .unavailable(reason: "No model is set up."))
         let idle = await workbench(on: editor, generator: fake)
@@ -703,11 +1000,11 @@ struct ScriptWorkbenchFlowTests {
         close(other, editor)
     }
 
-    @Test func aGeneratorThatIsSlowToSayItIsAvailableDoesNotHoldTheSheetBack() async throws {
+    @Test func aGeneratorThatIsSlowToSayItIsAvailableDoesNotHoldTheWindowBack() async throws {
         let (window, view) = host(Self.numbers)
         let fake = FakeGenerator(slowToSay: true)
         let session = await workbench(on: view, generator: fake, awaitingGenerator: false)
-        #expect(session.sheet != nil && window.attachedSheet === session.sheet, "the sheet is up without the answer")
+        #expect(session.window?.isVisible == true, "the window is up without the answer")
         #expect(session.destination == nil, "and has no prompt row yet")
         await session.run()
         #expect(session.canKeep, "the workbench is usable meanwhile")
@@ -715,7 +1012,7 @@ struct ScriptWorkbenchFlowTests {
         await session.availabilityCheck?.value
         #expect(session.destination == ScriptGeneratorDestination(summary: "a fake model"))
 
-        // An answer that comes after the sheet closed is dropped, and the editor is free at once.
+        // An answer that comes after the workbench closed is dropped, and the editor is free at once.
         let late = FakeGenerator(slowToSay: true)
         session.discard()
         let closed = await workbench(on: view, generator: late, awaitingGenerator: false)
@@ -779,7 +1076,7 @@ struct ScriptWorkbenchFlowTests {
         close(window, view)
     }
 
-    @Test func aRequestCanBeCancelledAndClosingTheSheetCancelsIt() async throws {
+    @Test func aRequestCanBeCancelledAndClosingTheWorkbenchCancelsIt() async throws {
         let (window, view) = host(Self.numbers)
         let fake = FakeGenerator(waits: true)
         let session = await workbench(on: view, generator: fake)
@@ -810,12 +1107,17 @@ struct ScriptWorkbenchFlowTests {
         defer { try? FileManager.default.removeItem(at: folder) }
         let model = AppModel(store: try .inMemory())
         model.scriptsFolder = folder
+        model.workbenchLayout = layout
         let (window, view) = host(Self.numbers)
-        await model.openWorkbench(in: view).value
+        model.openWorkbench(in: view)
         var session = try #require(view.workbench)
         #expect(session.script == ScriptSkeleton.lineByLine.source)
         #expect(session.destination == nil, "no generator ships")
         #expect(session.libraryScripts.contains { $0.isBundled }, "the bundled scripts are bases to adapt")
+        // Chosen again, the same workbench comes forward with its script as it is.
+        setScript(session, "// half written")
+        model.openWorkbench(in: view)
+        #expect(view.workbench === session && !session.isClosed && session.script == "// half written")
         setScript(session, Self.prefixing)
         session.name = "Numbers to Links"
         session.save()
@@ -823,7 +1125,7 @@ struct ScriptWorkbenchFlowTests {
         session.discard()
         #expect(model.workbenchDraft == Self.prefixing)
 
-        await model.openWorkbench(in: view).value
+        model.openWorkbench(in: view)
         session = try #require(view.workbench)
         #expect(session.script == Self.prefixing, "the script from last time")
         await session.run()
