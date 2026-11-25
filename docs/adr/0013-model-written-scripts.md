@@ -21,11 +21,17 @@ it (#246).
 
 The spike sends an instruction and a sample of the text to
 `SystemLanguageModel.default` in a new `LanguageModelSession`, takes the
-script out of the reply, runs it on the **whole** input the way the script
-service does (a fresh `JSContext` with Boop's `state` and nothing else, in a
-child process killed after 2 seconds) and compares the output with the
-expected text. A run passes only when every line is right; trailing spaces
-are not counted.
+script out of the reply, runs it on the **whole** input and compares the
+output with the expected text. A run passes only when every line is right;
+trailing spaces are not counted.
+
+The script runs much as the script service runs it: a fresh `JSContext`
+with Boop's `state`, in a child process that is sandboxed (no files, no
+network) and killed after 2 seconds. Two differences. The spike has no
+`require('@boop/…')`; the prompt says there is none, and a script that asks
+for one is counted as a failure. And the child confines itself with
+`sandbox_init` rather than carrying the service's App Sandbox, which a
+plain executable cannot.
 
 Three synthetic fixtures, the second in two forms:
 
@@ -56,44 +62,47 @@ keep a run near twenty minutes; the runs per cell were not cut.
 
 macOS 26.7.4 (25G422), Apple silicon, on 2026-11-25. FoundationModels has no
 call that reports the model's version, so the OS build is the record of it.
-Default sampling; replies capped at 1500 tokens.
+Default sampling; replies capped at 1500 tokens. The seconds are the model's
+alone, from the request to the complete reply.
 
 | Fixture | Variation | First try | After one retry | Median s to first script | Slowest s |
 |---|---|---|---|---|---|
-| urls | baseline | 1/10 | 2/10 | 1.3 | 1.9 |
-| urls | terse | 0/10 | 0/10 | 1.4 | 3.1 |
-| urls | full-sample | 0/10 | 0/10 | 1.6 | 2.6 |
-| urls | guided | 0/10 | 0/10 | 2.4 | 17.0 |
-| urls | with-output | 1/10 | 1/10 | 1.4 | 17.1 |
-| defines | baseline | 0/10 | 0/10 | 2.9 | 3.7 |
-| defines | terse | 0/10 | 0/10 | 1.4 | 3.3 |
-| defines | full-sample | 0/10 | 0/10 | 3.4 | 4.3 |
-| defines | guided | 0/10 | 0/10 | 2.7 | 17.2 |
-| defines | with-output | 0/10 | 0/10 | 3.1 | 5.1 |
-| defines+comment | baseline | 0/10 | 0/10 | 3.3 | 5.0 |
-| defines+comment | terse | 0/10 | 0/10 | 1.6 | 2.3 |
-| defines+comment | full-sample | 0/10 | 0/10 | 2.7 | 17.5 |
-| defines+comment | guided | 0/10 | 0/10 | 3.0 | 4.5 |
-| defines+comment | with-output | 0/10 | 0/10 | 3.5 | 17.4 |
-| string-table | baseline | 0/10 | 0/10 | 1.0 | 17.6 |
-| string-table | terse | 0/10 | 0/10 | 2.8 | 16.8 |
-| string-table | full-sample | 0/10 | 0/10 | 1.6 | 3.1 |
-| string-table | guided | 0/10 | 0/10 | 1.2 | 2.1 |
-| string-table | with-output | 0/10 | 0/10 | 1.2 | 2.9 |
+| urls | baseline | 0/10 | 0/10 | 1.5 | 2.7 |
+| urls | terse | 0/10 | 0/10 | 1.2 | 2.0 |
+| urls | full-sample | 0/10 | 0/10 | 1.5 | 2.3 |
+| urls | guided | 0/10 | 0/10 | 9.6 | 16.8 |
+| urls | with-output | 1/10 | 1/10 | 1.7 | 2.1 |
+| defines | baseline | 0/10 | 0/10 | 2.0 | 16.7 |
+| defines | terse | 0/10 | 0/10 | 1.4 | 2.3 |
+| defines | full-sample | 0/10 | 0/10 | 3.0 | 5.1 |
+| defines | guided | 0/10 | 0/10 | 2.3 | 17.4 |
+| defines | with-output | 0/10 | 0/10 | 2.6 | 4.7 |
+| defines+comment | baseline | 0/10 | 0/10 | 4.0 | 6.3 |
+| defines+comment | terse | 0/10 | 0/10 | 2.5 | 16.5 |
+| defines+comment | full-sample | 0/10 | 0/10 | 3.4 | 5.8 |
+| defines+comment | guided | 0/10 | 0/10 | 3.4 | 5.7 |
+| defines+comment | with-output | 0/10 | 0/10 | 3.6 | 4.7 |
+| string-table | baseline | 0/10 | 0/10 | 17.0 | 17.3 |
+| string-table | terse | 0/10 | 0/10 | 9.8 | 17.2 |
+| string-table | full-sample | 0/10 | 0/10 | 1.6 | 2.1 |
+| string-table | guided | 0/10 | 0/10 | 1.0 | 3.0 |
+| string-table | with-output | 0/10 | 0/10 | 1.2 | 1.9 |
 
 | Fixture | First try | After one retry | Retries that fixed it |
 |---|---|---|---|
-| urls | 2/50 | 3/50 | 1/44 |
+| urls | 1/50 | 1/50 | 0/44 |
 | defines | 0/50 | 0/50 | 0/49 |
 | defines+comment | 0/50 | 0/50 | 0/50 |
 | string-table | 0/50 | 0/50 | 0/50 |
 
-An earlier run the same day, without `with-output`, passed 0 of 160 on the
-first try and 0 after the retry. The model samples, so a rerun moves a cell
-by a run or two; it does not move the picture.
+Two earlier runs the same day, before the runner was sandboxed and the
+seconds were narrowed to the model's own, agree: 0 of 160 first tries
+without `with-output`, then 2 of 200 (3 after the retry), all on `urls`.
+The model samples, so a rerun moves a cell by a run or two; it does not
+move the picture.
 
-Reproduce with, from the repository root (about twenty minutes, on a Mac
-with Apple Intelligence on):
+Reproduce with, from the repository root (twenty to twenty-five minutes, on
+a Mac with Apple Intelligence on):
 
 ```sh
 swift run -c release --package-path Spikes/ModelScriptSpike ModelScriptSpike --out Spikes/ModelScriptSpike/RESULTS.md
@@ -103,31 +112,33 @@ swift run -c release --package-path Spikes/ModelScriptSpike ModelScriptSpike --o
 
 The spike's own checks pass (each fixture's hand-written reference script
 scores as a pass; a loop, a syntax error, a thrown error, a posted error and
-a reply without a script are each reported as that), so the failures are the
-model's. `RESULTS.md` lists examples per fixture. In short:
+a reply without a script are each reported as that; the runner's sandbox
+refuses a file read and a connection), so the failures are the model's. `RESULTS.md` lists examples per fixture. In short:
 
-- **Speed is not the problem.** A script arrives in one to four seconds.
-  The 17-second runs are replies that ran into the token cap.
+- **Speed is not the problem.** A reply that is a script arrives in one to
+  four seconds. The 17-second runs are replies that ran into the token
+  cap, most of them `string-table` replies listing invented error names
+  until cut off, which is why that fixture's baseline median is 17.
 - **The script runs and writes the wrong text** (73 of 200 first tries). It
   keeps only lines that are a bare number, strips the stray text and
   forgets the prefix, hard-codes the sample's three registers, or returns
   the input unchanged. A frequent near miss assigns an array to
   `state.text` without joining it, which arrives as one comma-separated
   line.
-- **The script fails** (86 of 200): JavaScript that does not parse, methods
+- **The script fails** (78 of 200): JavaScript that does not parse, methods
   that do not exist (`"\n".join(list)`, from Python), `const` reassigned,
   or a `postError` on the first line that does not fit the shape the
   script assumed, most often a wrapped description line taken for a
   register.
-- **No script at all** (34 of 200, all `string-table`): the model answers
+- **No script at all** (42 of 200, all `string-table`): the model answers
   the task instead of writing a program for it. It replies with a
   JavaScript array of the names, or with statements and no `main`.
 - **Guided generation is worse, not better.** The `script` string comes
   back with the JSON escapes resolved, so `split("\n")` holds a real line
-  break and does not parse; five guided runs ended in `decodingFailure`
+  break and does not parse; six guided runs ended in `decodingFailure`
   after 17 seconds.
-- **The retry does not help.** It fixed 1 of 193 failures. In 128 of them
-  the model sent the same script back, character for character.
+- **The retry does not help.** It fixed none of 193 failures. In 125 of
+  them the model sent the same script back, character for character.
 - **Nothing varied enough to matter.** Wording, the whole text as the
   sample, and showing the wanted output for the sample all stayed within
   one pass in ten of each other.
@@ -135,7 +146,7 @@ model's. `RESULTS.md` lists examples per fixture. In short:
 ## Decision
 
 - **The model path is not good enough to ship for any of the three
-  fixtures on this OS.** Not for the easy one (`urls`, 3 of 50 after a
+  fixtures on this OS.** Not for the easy one (`urls`, 1 of 50 after a
   retry), and not at all for the register table or the string table.
 
   | Fixture | Good enough to ship | Fallback |

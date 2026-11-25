@@ -15,7 +15,7 @@ From the repository root:
 swift run -c release --package-path Spikes/ModelScriptSpike ModelScriptSpike --out Spikes/ModelScriptSpike/RESULTS.md
 ```
 
-That runs every fixture in every variation ten times (about twenty minutes),
+That runs every fixture in every variation ten times (twenty to twenty-five minutes),
 prints the report and rewrites `RESULTS.md`, the table the ADR quotes. The
 model samples, so the numbers move a little from run to run.
 
@@ -25,7 +25,8 @@ model samples, so the numbers move a little from run to run.
   model: each fixture's hand-written reference script must pass, and a
   looping script, a syntax error, a thrown error, a posted error, a
   `require`, a reply with no script and a wrong output must each be
-  reported as that failure. It runs before every measurement too.
+  reported as that failure; the runner's sandbox must refuse a file read
+  and a connection. It runs before every measurement too.
 - `swift test --package-path Spikes/ModelScriptSpike` tests the pure
   helpers (reply extraction, scoring).
 
@@ -38,9 +39,21 @@ runs it on the fixture's whole input and compares the output with the
 expected text. A failed first try gets one retry in the same session, with
 the script's error or the first wrong line fed back.
 
-The script runs as it does in the app's script service (ADR 0007): a fresh
-`JSContext` with Boop's `state` object and nothing else, in a child process
-that is killed after 2 seconds.
+The script runs much as it does in the app's script service (ADR 0007): a
+fresh `JSContext` with Boop's `state` object, in a child process that is
+sandboxed and killed after 2 seconds. Two differences, both on purpose:
+
+- There is no `require('@boop/…')`. The bundled libraries are the app's,
+  and the prompt tells the model there is no `require`, so a script that
+  asks for one fails here though the service would resolve it.
+- The child confines itself with `sandbox_init` and the system's
+  pure-computation profile (no files, no network), as a SwiftPM executable
+  cannot carry the App Sandbox the service runs in. The self-check asks a
+  child to read a file and open a connection, and fails unless both are
+  refused.
+
+The seconds in the report are the model's alone, from the request to the
+complete reply; running the script is not counted.
 
 ## Layout
 

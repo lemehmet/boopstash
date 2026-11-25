@@ -133,8 +133,12 @@ for (reply, kind, what) in probes {
         selfCheckFailed = true
     }
 }
+if !ScriptRunner.sandboxHolds() {
+    say("self-check: the script runner's sandbox did not refuse a file read and a socket")
+    selfCheckFailed = true
+}
 if selfCheckFailed { exit(1) }
-say("self-check passed: \(Fixture.all.count) reference scripts, \(probes.count) failure probes")
+say("self-check passed: \(Fixture.all.count) reference scripts, \(probes.count) failure probes, the runner's sandbox holds")
 if CommandLine.arguments.contains("--selfcheck") { exit(0) }
 
 // MARK: The measurement
@@ -159,12 +163,16 @@ func timed<T>(_ work: () async -> T) async -> (T, Double) {
     return (result, Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18)
 }
 
-func attempt(_ chat: ModelChat, _ prompt: String, _ fixture: Fixture) async -> (Outcome, String) {
-    do {
-        let reply = try await chat.ask(prompt)
-        return (judge(reply, fixture), reply)
-    } catch {
-        return (.modelError(ModelChat.name(of: error)), "")
+/// One question to the model and the verdict on its reply. The seconds are
+/// the model's alone, from the request to the complete reply: running and
+/// scoring the script is not counted.
+func attempt(_ chat: ModelChat, _ prompt: String, _ fixture: Fixture) async -> (outcome: Outcome, reply: String, seconds: Double) {
+    let (reply, seconds) = await timed { () -> Result<String, Error> in
+        do { return .success(try await chat.ask(prompt)) } catch { return .failure(error) }
+    }
+    switch reply {
+    case .success(let reply): return (judge(reply, fixture), reply, seconds)
+    case .failure(let error): return (.modelError(ModelChat.name(of: error)), "", seconds)
     }
 }
 
@@ -180,12 +188,12 @@ for fixture in fixtures {
                                          sample: variation.fullSample ? fixture.input : fixture.shortSample,
                                          isWholeText: variation.fullSample,
                                          sampleOutput: variation.showsOutput ? fixture.sampleExpected : nil)
-            let ((first, firstReply), firstSeconds) = await timed { await attempt(chat, prompt, fixture) }
+            let (first, firstReply, firstSeconds) = await attempt(chat, prompt, fixture)
             var run = Run(first: first, firstSeconds: firstSeconds)
             var log = "## prompt\n\(prompt)\n\n## reply (\(String(format: "%.1f", firstSeconds)) s)\n\(firstReply)\n\n## outcome\n\(first.kind) \(first.detail)\n"
             if let problem = first.retryProblem {
                 let again = Prompts.retry(problem)
-                let ((second, secondReply), secondSeconds) = await timed { await attempt(chat, again, fixture) }
+                let (second, secondReply, secondSeconds) = await attempt(chat, again, fixture)
                 run.retry = second
                 run.retrySeconds = secondSeconds
                 log += "\n## retry prompt\n\(again)\n\n## retry reply (\(String(format: "%.1f", secondSeconds)) s)\n\(secondReply)\n\n## retry outcome\n\(second.kind) \(second.detail)\n"
@@ -222,7 +230,8 @@ var report = """
 - macOS \(system), on-device model `SystemLanguageModel.default` (\(ModelChat.availability))
 - \(runsPerCell) runs per fixture and variation, a new session each run, default sampling, replies capped at 1500 tokens
 - A run passes when the script's output on the whole input equals the expected text (trailing spaces aside)
-- Scripts run in a child process killed after \(Int(ScriptRunner.timeLimit)) s
+- Scripts run in a sandboxed child process killed after \(Int(ScriptRunner.timeLimit)) s
+- Seconds are the model's time from the request to the complete reply, without running the script
 - Total time: \(String(format: "%.1f", minutes)) minutes
 
 | Fixture | Variation | First try | After one retry | Median s to first script | Slowest s | First-try failures |
