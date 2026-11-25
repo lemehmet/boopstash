@@ -30,6 +30,26 @@ model samples, so the numbers move a little from run to run.
 - `swift test --package-path Spikes/ModelScriptSpike` tests the pure
   helpers (reply extraction, scoring).
 
+## A model behind an endpoint
+
+`--endpoint <base URL> --model <name>` measures a model served through an
+OpenAI-compatible chat completions API (llama.cpp, llama-swap, Ollama, LM
+Studio, vLLM, MLX servers) with the same fixtures, prompts, runner and
+scoring, in place of the on-device model. It is how a model someone runs
+themselves is held against ADR 0013's bar; the results so far are in
+`RESULTS-endpoint.md`.
+
+- The key, if the server wants one, is read from `MODEL_SPIKE_API_KEY`.
+  Neither it nor the address is written to the report.
+- `--temperature`, `--top-p`, `--max-tokens` and `--timeout` set the
+  request (defaults 0.2, 1.0, 2048 and 120 s).
+- `--extra-body '<JSON object>'` is merged into each request, for what
+  the server at hand needs: switching a model's reasoning off is spelled
+  differently by each.
+- The `guided` variation is FoundationModels' own and is left out.
+- The script still runs in the spike's sandboxed child; only the spike
+  itself talks to the endpoint.
+
 ## What it does
 
 For each run it starts a new `LanguageModelSession` on

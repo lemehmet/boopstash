@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import SpikeKit
 
@@ -117,5 +118,101 @@ import Testing
     @Test func promptsNameTheSampleHonestly() {
         #expect(Prompts.request(instruction: "do", sample: "a", isWholeText: false).contains("more lines"))
         #expect(!Prompts.request(instruction: "do", sample: "a", isWholeText: true).contains("more lines"))
+    }
+}
+
+@Suite struct ChatCompletionTests {
+    func reply(_ content: String?, finish: String = "stop") -> Data {
+        var message: [String: Any] = ["role": "assistant"]
+        if let content { message["content"] = content }
+        return try! JSONSerialization.data(withJSONObject: ["choices": [["message": message, "finish_reason": finish]]])
+    }
+
+    @Test func theBodyCarriesTheSettingsAndTheExtraFields() {
+        let body = ChatCompletion.body(model: "m", messages: [["role": "user", "content": "hi"]], temperature: 0.2, topP: 1,
+                                       maxTokens: 2048, extra: ["chat_template_kwargs": ["enable_thinking": false]])
+        #expect(body["model"] as? String == "m")
+        #expect(body["temperature"] as? Double == 0.2)
+        #expect(body["max_tokens"] as? Int == 2048)
+        #expect(body["stream"] as? Bool == false)
+        #expect((body["chat_template_kwargs"] as? [String: Bool]) == ["enable_thinking": false])
+        #expect(JSONSerialization.isValidJSONObject(body))
+    }
+
+    @Test func anExtraFieldCanReplaceAStandardOne() {
+        let body = ChatCompletion.body(model: "m", messages: [], temperature: 0.2, topP: 1, maxTokens: 2048, extra: ["max_tokens": 64])
+        #expect(body["max_tokens"] as? Int == 64)
+    }
+
+    @Test func theContentIsReadWithoutItsThinking() {
+        #expect(ChatCompletion.content(in: reply("```js\nfunction main(state) {}\n```")) == "```js\nfunction main(state) {}\n```")
+        #expect(ChatCompletion.content(in: reply("<think>first this\nthen that</think>\nthe answer")) == "the answer")
+        #expect(ChatCompletion.content(in: reply("<think>a</think>x<think>b</think>y")) == "xy")
+        #expect(ChatCompletion.content(in: reply("<think>never closed")) == "<think>never closed")
+    }
+
+    @Test func aReplyWithoutContentIsNil() {
+        #expect(ChatCompletion.content(in: reply(nil)) == nil)
+        #expect(ChatCompletion.content(in: Data("not json".utf8)) == nil)
+        #expect(ChatCompletion.content(in: Data(#"{"error":{"message":"no"}}"#.utf8)) == nil)
+    }
+
+    @Test func aReplyWithAnAnswerIsItsContent() {
+        #expect(ChatCompletion.reply(in: reply("the answer")) == .content("the answer"))
+        #expect(ChatCompletion.reply(in: reply("<think>first</think>the answer")) == .content("the answer"))
+        #expect(ChatCompletion.reply(in: reply("", finish: "stop")) == .content(""), "empty, but the model chose to stop")
+        #expect(ChatCompletion.reply(in: reply("half a script", finish: "length")) == .content("half a script"),
+                "cut off, but with something to judge")
+    }
+
+    /// The three shapes a server gives a reply that ran out of tokens
+    /// while the model was still reasoning.
+    @Test func aReplyThatRanOutWhileReasoningWasCutOff() {
+        #expect(ChatCompletion.reply(in: reply("", finish: "length")) == .cutOff, "empty content")
+        #expect(ChatCompletion.reply(in: reply(nil, finish: "length")) == .cutOff, "no content: the reasoning has a field of its own")
+        #expect(ChatCompletion.reply(in: reply("<think>still reasoning when the tokens ran", finish: "length")) == .cutOff,
+                "reasoning in the content, never closed")
+        #expect(ChatCompletion.reply(in: reply("<think>a</think><think>and again, unfinished", finish: "length")) == .cutOff)
+    }
+
+    @Test func anAnswerBeforeUnfinishedReasoningIsKept() {
+        #expect(ChatCompletion.reply(in: reply("the answer\n<think>and then more", finish: "length")) == .content("the answer"))
+    }
+
+    @Test func unfinishedReasoningWithoutTheTokenLimitIsLeftAlone() {
+        #expect(ChatCompletion.reply(in: reply("<think>never closed", finish: "stop")) == .content("<think>never closed"))
+    }
+
+    @Test func aReplyThatIsNoCompletionIsNone() {
+        #expect(ChatCompletion.reply(in: reply(nil)) == .none)
+        #expect(ChatCompletion.reply(in: Data("not json".utf8)) == .none)
+        #expect(ChatCompletion.reply(in: Data(#"{"error":{"message":"no"}}"#.utf8)) == .none)
+    }
+
+    @Test func theReportStatesTheSettingsAsSent() {
+        let plain = ChatCompletion.body(model: "m", messages: [], temperature: 0.2, topP: 1, maxTokens: 2048)
+        #expect(ChatCompletion.effective(plain).maxTokens == "2048")
+        #expect(ChatCompletion.effective(plain).temperature == "0.2")
+        let replaced = ChatCompletion.body(model: "m", messages: [], temperature: 0.2, topP: 1, maxTokens: 2048,
+                                           extra: ["max_tokens": 64, "temperature": 0.9])
+        #expect(ChatCompletion.effective(replaced).maxTokens == "64", "what went out, not what was asked first")
+        #expect(ChatCompletion.effective(replaced).temperature == "0.9")
+        #expect(ChatCompletion.effective(replaced).topP == "1.0")
+    }
+
+    @Test func anEndpointIsAnHTTPURLWithAHost() {
+        #expect(ChatCompletion.isEndpoint(URL(string: "http://localhost:8080")!))
+        #expect(ChatCompletion.isEndpoint(URL(string: "HTTPS://host.example/v1")!))
+        #expect(!ChatCompletion.isEndpoint(URL(string: "localhost:8080")!), "the host is taken for the scheme")
+        #expect(!ChatCompletion.isEndpoint(URL(string: "host.example")!))
+        #expect(!ChatCompletion.isEndpoint(URL(string: "file:///tmp/x")!))
+        #expect(!ChatCompletion.isEndpoint(URL(string: "http://")!))
+    }
+
+    @Test func theCompletionsURLIsUnderV1Once() {
+        #expect(ChatCompletion.url(base: URL(string: "http://host.example:4000")!).absoluteString == "http://host.example:4000/v1/chat/completions")
+        #expect(ChatCompletion.url(base: URL(string: "http://host.example:4000/v1")!).absoluteString == "http://host.example:4000/v1/chat/completions")
+        #expect(ChatCompletion.url(base: URL(string: "http://host.example:4000/v1/")!).absoluteString == "http://host.example:4000/v1/chat/completions")
+        #expect(ChatCompletion.url(base: URL(string: "https://host.example/api")!).absoluteString == "https://host.example/api/v1/chat/completions")
     }
 }
