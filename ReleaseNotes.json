@@ -1,6 +1,8 @@
 {
   "appStoreSince": { "mac": "0.3.0", "ios": "0.3.0" },
   "unreleased": [
+    { "on": "mac", "text": "Help ▸ BoopStash Help shows what the app does and how it treats your notes, without going online." },
+    { "on": "ios", "text": "Settings ▸ Help shows what the app does and how it treats your notes, without going online." },
     { "on": "mac", "text": "What's New: after an update, BoopStash shows once what changed. The notes stay in Help ▸ What's New and in Settings, and can be copied or saved as a note." },
     { "on": "ios", "text": "What's New: after an update, BoopStash shows once what changed. The notes stay in Settings ▸ What's New, and can be copied or saved as a note." },
     { "on": "mac", "text": "Clean Up Pasted Text in the Edit menu tidies text copied from a terminal: tables become Markdown tables, and shared indentation, trailing spaces and colour codes go." },

@@ -8,6 +8,14 @@ breaking changes may land in a minor release.
 
 ### New
 
+- **Help in the app (#254).** Help ▸ BoopStash Help on the Mac, also in
+  Settings, and Settings ▸ Help on iOS show the project's README, drawn
+  by the note preview. It is the repository's own file, bundled at build
+  time and never fetched: there is no web view, a picture it may gain is
+  named and not loaded, and a link opens in the browser only when
+  clicked. Links to the repository's files (`SECURITY.md`, `docs/adr/`)
+  lead to them on GitHub. The system's Help item, which looked for a help
+  book the app does not have, is gone.
 - **What's New (#253).** On the first launch after an update, BoopStash
   shows once what changed since the version last run on that device: the
   notes of every version in between, newest first, with only the lines

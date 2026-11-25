@@ -13,6 +13,9 @@ struct PreviewView: View {
     /// Copies an image's text (#243); with it, each picture has a Copy
     /// Text command.
     var copyImageText: ((UUID) -> Void)?
+    /// Where relative links lead; nil for a note, whose relative links
+    /// stay text (the help page's lead to the repository, #254).
+    var linkBase: URL?
     @Environment(\.colorScheme) private var colorScheme
     @State private var blocks: [PreviewBlock] = []
     @State private var renders = PreviewRenders()
@@ -38,7 +41,7 @@ struct PreviewView: View {
         .task(id: markdown) {
             // Never gated on `Task.isCancelled`: see PreviewRenders (#206).
             let debounce: Duration? = blocks.isEmpty ? nil : .milliseconds(250)
-            if let rendered = await renders.render(markdown, debounce: debounce, { await MarkdownPreview.blocks(for: $0) }) {
+            if let rendered = await renders.render(markdown, debounce: debounce, { [linkBase] in await MarkdownPreview.blocks(for: $0, linkBase: linkBase) }) {
                 blocks = rendered
             }
         }

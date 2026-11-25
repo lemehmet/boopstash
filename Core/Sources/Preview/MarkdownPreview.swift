@@ -53,10 +53,12 @@ public enum MarkdownPreview {
     }
 
     /// The blocks for a note. Fenced code is highlighted with the editor's
-    /// grammars.
-    public static func blocks(for markdown: String) async -> [PreviewBlock] {
+    /// grammars. `linkBase` is where the text's relative links lead: a note
+    /// has none, so its relative links stay text; the README the app shows
+    /// as help (#254) names the repository's files that way.
+    public static func blocks(for markdown: String, linkBase: URL? = nil) async -> [PreviewBlock] {
         let document = Document(parsing: markdown)
-        var builder = BlockBuilder()
+        var builder = BlockBuilder(linkBase: linkBase)
         var blocks = builder.blocks(document.children)
         for (path, code, language) in builder.codeBlocks {
             let highlights = await highlight(code, language: language)
@@ -67,11 +69,25 @@ public enum MarkdownPreview {
 
     /// A link destination the preview may offer: web, mail, an attachment.
     /// Anything else (`javascript:`, `file:`) keeps its text, not its link.
-    public static func safeLink(_ destination: String?) -> URL? {
+    ///
+    /// With `base`, a destination with no scheme (`docs/adr/`, `LICENSE`) is
+    /// a web link under it. One that names a scheme is judged as before,
+    /// and one that only names a place in the page (`#install`) is no link:
+    /// the preview has nowhere to scroll to.
+    public static func safeLink(_ destination: String?, relativeTo base: URL? = nil) -> URL? {
         guard let destination = destination?.trimmingCharacters(in: .whitespaces), !destination.isEmpty,
-              let url = URL(string: destination), let scheme = url.scheme?.lowercased()
+              let url = URL(string: destination)
         else { return nil }
-        return ["http", "https", "mailto", "attachment"].contains(scheme) ? url : nil
+        if let scheme = url.scheme?.lowercased() {
+            return ["http", "https", "mailto", "attachment"].contains(scheme) ? url : nil
+        }
+        guard let base, !destination.hasPrefix("#"),
+              let resolved = URL(string: destination, relativeTo: base)?.absoluteURL,
+              let scheme = resolved.scheme?.lowercased(), ["http", "https"].contains(scheme),
+              // `//other.test/x` would leave the base's site.
+              resolved.host() == base.host()
+        else { return nil }
+        return resolved
     }
 
     static func highlight(_ code: String, language: String?) async -> [PreviewHighlight] {
@@ -108,6 +124,8 @@ public enum MarkdownPreview {
 /// Walks the markdown tree into blocks, noting where each code block sits
 /// so highlighting can fill it in afterwards.
 struct BlockBuilder {
+    /// Where relative links lead; nil keeps them text.
+    var linkBase: URL?
     var codeBlocks: [(path: [Int], code: String, language: String?)] = []
     private var path: [Int] = []
 
@@ -124,10 +142,10 @@ struct BlockBuilder {
     mutating func blocks(for markup: Markup) -> [PreviewBlock] {
         switch markup {
         case let heading as Heading:
-            return [.heading(level: min(max(heading.level, 1), 6), text: Inline.text(heading.children))]
+            return [.heading(level: min(max(heading.level, 1), 6), text: Inline.text(heading.children, linkBase: linkBase))]
         case let paragraph as Paragraph:
             // Images become blocks of their own, after the paragraph's text.
-            let text = Inline.text(paragraph.children)
+            let text = Inline.text(paragraph.children, linkBase: linkBase)
             // Images anywhere in the paragraph, including inside a link or
             // emphasis ([![alt](…)](…)), not only its direct children.
             let images = Self.images(in: paragraph).map { PreviewBlock.image(Inline.image($0)) }
@@ -150,8 +168,9 @@ struct BlockBuilder {
                 default: .leading
                 }
             }
-            let header = table.head.cells.map { Inline.text($0.children) }
-            let rows = table.body.rows.map { row in Array(row.cells.map { Inline.text($0.children) }) }
+            let base = linkBase
+            let header = table.head.cells.map { Inline.text($0.children, linkBase: base) }
+            let rows = table.body.rows.map { row in Array(row.cells.map { Inline.text($0.children, linkBase: base) }) }
             return [.table(header: Array(header), rows: Array(rows), alignments: alignments)]
         case is ThematicBreak:
             return [.rule]
@@ -188,25 +207,25 @@ struct BlockBuilder {
 /// Inline markdown as an `AttributedString` with Foundation's presentation
 /// intents, which SwiftUI's `Text` draws as emphasis, code and so on.
 enum Inline {
-    static func text(_ children: some Sequence<Markup>) -> AttributedString {
-        children.reduce(into: AttributedString()) { $0 += text($1) }
+    static func text(_ children: some Sequence<Markup>, linkBase: URL? = nil) -> AttributedString {
+        children.reduce(into: AttributedString()) { $0 += text($1, linkBase: linkBase) }
     }
 
-    static func text(_ markup: Markup) -> AttributedString {
+    static func text(_ markup: Markup, linkBase: URL? = nil) -> AttributedString {
         switch markup {
         case let text as Markdown.Text:
             return AttributedString(text.string)
         case let emphasis as Emphasis:
-            return styled(text(emphasis.children), .emphasized)
+            return styled(text(emphasis.children, linkBase: linkBase), .emphasized)
         case let strong as Strong:
-            return styled(text(strong.children), .stronglyEmphasized)
+            return styled(text(strong.children, linkBase: linkBase), .stronglyEmphasized)
         case let strike as Strikethrough:
-            return styled(text(strike.children), .strikethrough)
+            return styled(text(strike.children, linkBase: linkBase), .strikethrough)
         case let code as InlineCode:
             return styled(AttributedString(code.code), .code)
         case let link as Markdown.Link:
-            var inner = text(link.children)
-            if let url = MarkdownPreview.safeLink(link.destination) { inner.link = url }
+            var inner = text(link.children, linkBase: linkBase)
+            if let url = MarkdownPreview.safeLink(link.destination, relativeTo: linkBase) { inner.link = url }
             return inner
         case let html as InlineHTML:
             return AttributedString(html.rawHTML)
@@ -218,7 +237,7 @@ enum Inline {
             // Drawn as a block after the paragraph.
             return AttributedString()
         default:
-            return text(markup.children)
+            return text(markup.children, linkBase: linkBase)
         }
     }
 

@@ -88,10 +88,13 @@ struct GeneralSettings: View {
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
-            // Also Help ▸ What's New (#253).
+            // Also Help ▸ BoopStash Help (#254) and Help ▸ What's New (#253).
             Section("About") {
                 LabeledContent("BoopStash \(LiveReleaseNotes.runningVersion)") {
-                    Button("What's New…") { openWindow(id: WhatsNew.windowID) }
+                    HStack {
+                        Button("Help…") { openWindow(id: HelpWindow.windowID) }
+                        Button("What's New…") { openWindow(id: WhatsNew.windowID) }
+                    }
                 }
             }
         }
