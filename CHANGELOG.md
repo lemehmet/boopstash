@@ -96,6 +96,13 @@ breaking changes may land in a minor release.
 
 ### Fixed
 
+- **Mac: the workbench's script keeps its font and text colour after the
+  editor was emptied.** A draft from Generate or a starting point from
+  Start From that went into an editor with nothing in it (after deleting
+  or cutting everything, or undoing back to nothing) came out in a
+  proportional font with black text, unreadable in dark appearance. Text
+  now takes the editor's monospaced font and the system's text colour
+  however it gets there (#286).
 - **Mac: a result is never applied over a note that changed only in how a
   character is encoded.** A script, Clean Up Pasted Text, Format, Replace
   All or a review's Keep that finished after an "é" in the note went from
