@@ -210,6 +210,123 @@ import Testing
         #expect(try store.applyServerRecord(record, systemFields: fields, changeTag: "tag-old") != nil, "the stale tag is not")
     }
 
+    /// A note synced at `tag-1`, edited, and its upload built: the record the
+    /// engine sends, which the server may save without the response coming
+    /// back.
+    func unacknowledgedUpload(of base: Note) throws -> SyncRecord? {
+        try store.applyServerRecord(SyncMapping.record(for: base), systemFields: fields, changeTag: "tag-1")
+        var mine = base
+        mine.body = "first edit"
+        mine.updatedAt = base.updatedAt.addingTimeInterval(10)
+        try store.save(mine)
+        guard case .save(let uploaded, _, _)? = try store.pendingSave(kind: .note, name: base.id.uuidString.lowercased()) else { return nil }
+        return uploaded
+    }
+
+    /// #229: the server saved an upload, but the response was lost, and a
+    /// newer edit was saved here. The retry is refused and the server's
+    /// record, this device's own upload, is applied without an
+    /// acknowledgement: the edit stays, pending, with no copy, and the next
+    /// send goes over the server's record instead of being refused again.
+    @Test func ownUploadWithoutItsAcknowledgementKeepsTheEdits() throws {
+        let base = note("base", title: "Plan")
+        let name = base.id.uuidString.lowercased()
+        let uploaded = try #require(try unacknowledgedUpload(of: base))
+        var mine = try #require(try store.note(id: base.id))
+        mine.body = "second edit"
+        mine.updatedAt = base.updatedAt.addingTimeInterval(20)
+        try store.save(mine)
+        let serverFields = Data("server-fields".utf8)
+
+        #expect(try store.applyServerRecord(uploaded, systemFields: serverFields, changeTag: "tag-2") == nil)
+        #expect(try store.note(id: base.id)?.body == "second edit")
+        #expect(try store.notes(matching: NoteQuery()).count == 1, "no conflict copy")
+        #expect(try pendingNames() == ["save Note \(name)"], "the edit is still to send")
+        guard case .save(_, let systemFields, _)? = try store.pendingSave(kind: .note, name: name) else {
+            Issue.record("not pending")
+            return
+        }
+        #expect(systemFields == serverFields, "sent over the server's record")
+    }
+
+    /// A body this device never built is still another device's edit, also
+    /// with an upload unacknowledged; once it is merged, the bodies sent
+    /// before are forgotten, and one of them coming back is foreign too.
+    @Test func aForeignBodyStillMakesACopyAfterAnUnacknowledgedUpload() throws {
+        let base = note("base", title: "Plan")
+        _ = try #require(try unacknowledgedUpload(of: base))
+        var theirs = base
+        theirs.body = "their edit"
+        theirs.updatedAt = base.updatedAt.addingTimeInterval(5)
+
+        let copy = try #require(try store.applyServerRecord(SyncMapping.record(for: theirs), systemFields: fields, changeTag: "tag-2"))
+        #expect(copy.body == "first edit")
+        #expect(try store.note(id: base.id)?.body == "their edit")
+
+        var mine = try #require(try store.note(id: base.id))
+        mine.body = "after the merge"
+        mine.updatedAt = base.updatedAt.addingTimeInterval(30)
+        try store.save(mine)
+        var reverted = base
+        reverted.body = "first edit"
+        reverted.updatedAt = base.updatedAt.addingTimeInterval(25)
+        #expect(try store.applyServerRecord(SyncMapping.record(for: reverted), systemFields: fields, changeTag: "tag-3") != nil)
+    }
+
+    /// Two devices in step label the same note at once: the other device's
+    /// record has the body this one built, but not its labels, so it is an
+    /// edit made elsewhere and the labels merge, on both devices.
+    @Test func aForeignLabelOnTheSameBodyStillMerges() throws {
+        let base = note("base", title: "Plan")
+        let name = base.id.uuidString.lowercased()
+        try store.applyServerRecord(SyncMapping.record(for: base), systemFields: fields, changeTag: "tag-1")
+        let mine = try store.createLabel(name: "mine"), theirs = try store.createLabel(name: "theirs")
+        try store.assignLabel(mine.id, to: base.id)
+        _ = try #require(try store.pendingSave(kind: .note, name: name))
+
+        try store.applyServerRecord(SyncMapping.record(for: base, labelIDs: [theirs.id]), systemFields: fields, changeTag: "tag-2")
+        #expect(Set(try store.labels(of: base.id).map(\.id)) == [mine.id, theirs.id])
+        guard case .save(let record, _, _)? = try store.pendingSave(kind: .note, name: name) else {
+            Issue.record("not pending")
+            return
+        }
+        #expect(SyncMapping.labelIDs(from: record) == [mine.id, theirs.id], "the merge is sent")
+    }
+
+    /// The digest leaves out the dates, which do not come back exactly as
+    /// sent, and nothing else.
+    @Test func theContentDigestIgnoresOnlyDates() {
+        let base = note("base", title: "Plan")
+        var later = base
+        later.updatedAt = base.updatedAt.addingTimeInterval(0.001)
+        var retitled = base
+        retitled.title = "Other"
+        let digest = SyncMapping.record(for: base).contentDigest
+        #expect(SyncMapping.record(for: later).contentDigest == digest)
+        #expect(SyncMapping.record(for: retitled).contentDigest != digest)
+        #expect(SyncMapping.record(for: base, labelIDs: [UUID()]).contentDigest != digest)
+    }
+
+    /// Once the server has acknowledged the last body built, the note is in
+    /// step and the bodies sent are forgotten: one of them arriving later,
+    /// with another tag, is an edit made elsewhere.
+    @Test func bodiesSentAreForgottenOnceInStep() throws {
+        let base = note("base", title: "Plan")
+        let name = base.id.uuidString.lowercased()
+        _ = try #require(try unacknowledgedUpload(of: base))
+        try store.acknowledgeSave(kind: .note, name: name, version: try #require(try version(of: name)), systemFields: fields, changeTag: "tag-2")
+        #expect(try pendingNames().isEmpty)
+        var mine = try #require(try store.note(id: base.id))
+        mine.body = "second edit"
+        mine.updatedAt = base.updatedAt.addingTimeInterval(20)
+        try store.save(mine)
+        var reverted = base
+        reverted.body = "first edit"
+        reverted.updatedAt = base.updatedAt.addingTimeInterval(15)
+
+        #expect(try store.applyServerRecord(SyncMapping.record(for: reverted), systemFields: fields, changeTag: "tag-3") != nil)
+    }
+
     @Test func aUserTitleBeatsAGeneratedOne() {
         var local = note("same", title: "My name")
         local.titleIsUserSet = true
@@ -532,8 +649,10 @@ import Testing
             return
         }
         #expect(record == SyncMapping.record(for: mine))
+        #expect(try store.hasPendingSave(kind: .note, name: name))
         try store.acknowledgeSave(kind: .note, name: name, version: version, systemFields: fields)
         #expect(try store.pendingSave(kind: .note, name: name) == nil)
+        #expect(try !store.hasPendingSave(kind: .note, name: name))
         #expect(try store.pendingSave(kind: .attachment, name: name) == nil)
     }
 
@@ -554,6 +673,27 @@ import Testing
         #expect(systemFields == nil, "sent as new")
         #expect(try store.syncEngineState() == nil)
         #expect(try store.prepareSync(environment: "Production") == false, "recorded")
+    }
+
+    /// The bodies sent belong to the environment they were sent to, also
+    /// when nothing there was acknowledged yet: in another one, a record
+    /// with one of them is not this device's upload.
+    @Test func anotherEnvironmentForgetsTheBodiesSent() throws {
+        try store.prepareSync(environment: "Development")
+        let first = note("first")
+        try store.save(first)
+        let name = first.id.uuidString.lowercased()
+        guard case .save(let uploaded, _, _)? = try store.pendingSave(kind: .note, name: name) else {
+            Issue.record("not pending")
+            return
+        }
+        #expect(try store.prepareSync(environment: "Production") == false, "nothing synced yet")
+        var mine = first
+        mine.body = "edited"
+        mine.updatedAt = first.updatedAt.addingTimeInterval(10)
+        try store.save(mine)
+
+        #expect(try store.applyServerRecord(uploaded, systemFields: fields) != nil, "merged, with a copy")
     }
 
     /// A store that synced before environments were recorded is treated as
