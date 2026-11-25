@@ -3,7 +3,7 @@
 - **Status:** Accepted (2026-11-25); the app does not use it until #269 lands
 - **Deciders:** boopstash maintainers
 - **Amends:** ADR 0001 (privacy baseline) and ADR 0013 (model-written scripts)
-- **Evidence:** `Spikes/ModelScriptSpike/RESULTS-endpoint.md`
+- **Evidence:** `Spikes/ModelScriptSpike/RESULTS-endpoint.md` (added by #275)
 
 ## Context
 
@@ -47,16 +47,31 @@ This is the only exception this ADR makes to ADR 0001.
   Generate and beside the endpoint in Settings, with the details on hover
   and as its accessibility label, and a stronger mark and wording when the
   host is not this Mac or the local network.
-- **What is sent.** The instruction the user typed and the sample and
-  examples shown in the workbench before Generate is pressed. Nothing else
-  of the note, no other note, no title, no search, no identifier. Fetching
-  the endpoint's model list happens in Settings on the user's action.
+- **What is sent.** From the note, only what the workbench shows before
+  Generate is pressed: the sample, and any lines the user marked as
+  examples with what each should become. From the user, the instruction
+  they typed. Nothing else of the note, no other note, no title, no search,
+  no identifier of the user or the device.
+
+  A request also carries what is not the user's text, and this is the
+  whole list: BoopStash's own fixed prompt (how a script is written, the
+  script API, an example script of ours); the model's name; the generation
+  settings (context and reply limits, temperature, top-p); the extra
+  request fields the user entered in Settings, as they entered them; and
+  the user's API key, if they set one, as the `Authorization` header.
+  Fetching the endpoint's model list sends the key and nothing else, and
+  happens in Settings on the user's action.
 - **The process that holds the notes still cannot reach the network.** The
   request is made by a separate, sandboxed helper process, which alone has
-  the outgoing-network entitlement and is handed only the endpoint, the
-  settings, the instruction and the sample, the way the script service is
-  kept apart in ADR 0007. The app's own entitlements do not change. The
-  release check enforces both halves, in both distribution channels.
+  the outgoing-network entitlement, the way the script service is kept
+  apart in ADR 0007. For each request the app hands it exactly what the
+  request carries, as listed above, and the endpoint's address; the helper
+  keeps nothing between requests. The API key is read from the Keychain by
+  the app and passed with the request: the helper has no
+  `keychain-access-groups` and no `application-groups` entitlement, so it
+  can reach neither the Keychain nor the App Group container the notes
+  live in (ADR 0009). The app's own entitlements do not change. The
+  release check enforces all of this, in both distribution channels.
 - **The standard interface is the OpenAI-compatible chat completions API**
   (`<base>/v1/chat/completions`, and `<base>/v1/models` for the list),
   which llama.cpp, llama-swap, Ollama, LM Studio, vLLM and MLX servers

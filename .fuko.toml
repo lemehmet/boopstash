@@ -50,10 +50,12 @@ speculative so a reader can discount the level without discarding the finding.
 Rank by what happens when it is NOT fixed:
   high   - lost or corrupted notes, note content leaving the device other than
            through the user's own iCloud or, under ADR 0014, the instruction
-           and shown sample sent to the model endpoint the user configured;
+           and the shown sample and examples sent to the model endpoint the
+           user configured;
            a network call anywhere but in the model helper process, or one
            that carries more than ADR 0014 lists; a network entitlement on
-           the app itself; a background
+           the app itself, or a Keychain or App Group entitlement on the
+           model helper; a background
            pasteboard read, a new entitlement without an ADR, secrets or
            personal data committed to this public repository, or a silent
            failure of something load-bearing
@@ -109,10 +111,12 @@ being limited here; verbosity is."""
 # Rank by what happens when it is NOT fixed:
 #   high   - lost or corrupted notes, note content leaving the device other than
 #            through the user's own iCloud or, under ADR 0014, the instruction
-#            and shown sample sent to the model endpoint the user configured;
+#            and the shown sample and examples sent to the model endpoint the
+#            user configured;
 #            a network call anywhere but in the model helper process, or one
 #            that carries more than ADR 0014 lists; a network entitlement on
-#            the app itself; a background
+#            the app itself, or a Keychain or App Group entitlement on the
+#            model helper; a background
 #            pasteboard read, a new entitlement without an ADR, secrets or
 #            personal data committed to this public repository, or a silent
 #            failure of something load-bearing
@@ -161,10 +165,12 @@ speculative so a reader can discount the level without discarding the finding.
 Rank by what happens when it is NOT fixed:
   high   - lost or corrupted notes, note content leaving the device other than
            through the user's own iCloud or, under ADR 0014, the instruction
-           and shown sample sent to the model endpoint the user configured;
+           and the shown sample and examples sent to the model endpoint the
+           user configured;
            a network call anywhere but in the model helper process, or one
            that carries more than ADR 0014 lists; a network entitlement on
-           the app itself; a background
+           the app itself, or a Keychain or App Group entitlement on the
+           model helper; a background
            pasteboard read, a new entitlement without an ADR, secrets or
            personal data committed to this public repository, or a silent
            failure of something load-bearing

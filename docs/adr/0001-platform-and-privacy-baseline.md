@@ -1,6 +1,9 @@
 # ADR 0001 — Platform floor and privacy baseline
 
-- **Status:** Accepted (2026-10-28)
+- **Status:** Accepted (2026-10-28); amended by ADR 0014 (2026-11-25), which
+  allows one request beyond iCloud: to a language model endpoint the user
+  configures, to draft a script. "No network access except iCloud" and "AI
+  is local only" below hold for everything else
 - **Deciders:** boopstash maintainers
 
 ## Context
