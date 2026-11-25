@@ -117,8 +117,12 @@ struct BoopstashApp: App {
                 }
                 .disabled(!(delegate.model?.editorHasFocus ?? false))
             }
-            HelpCommands()
-            WhatsNewCommands()
+            // One entry: a commands block takes at most ten on the SDK CI
+            // builds with.
+            Group {
+                HelpCommands()
+                WhatsNewCommands()
+            }
             // A local note for bug reports (#185); nothing is sent anywhere.
             CommandGroup(after: .help) {
                 Divider()
