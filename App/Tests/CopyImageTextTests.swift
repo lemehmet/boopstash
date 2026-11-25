@@ -337,6 +337,21 @@ struct CopyImageTextTests {
         window.close()
     }
 
+    /// Another note loaded after a reload that could not tell the copies
+    /// apart: the message is the other note's, the reason that holds now.
+    @Test func anotherNoteAfterAnAmbiguousReloadSaysTheImageIsGone() async throws {
+        let image = try image()
+        let markdown = AttachmentReference.markdown(for: image.id)
+        let (window, view) = host(markdown + "\nafter")
+        let task = view.insertImageText(of: image.id)
+        view.load(markdown + "\nbetween\n" + markdown + "\nafter", sameNote: true)
+        view.load("another note")
+        await task.value
+        #expect(view.string == "another note")
+        #expect(messages.all == ["The image is no longer in this note, so its text was not inserted."])
+        window.close()
+    }
+
     /// A note reloaded and then replaced by another is another note.
     @Test func insertIsDroppedWhenAnotherNoteFollowsAReload() async throws {
         let image = try image()

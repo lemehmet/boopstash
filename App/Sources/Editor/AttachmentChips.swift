@@ -386,11 +386,18 @@ final class InsertAnchor {
         self.range = range
     }
 
-    /// The whole text was replaced. Another note ends the insert; another
-    /// version of the same note is searched for the image.
-    func documentReplaced(from previous: String, with text: String, sameNote: Bool) {
+    /// Another note replaced the whole text, which ends the insert: also
+    /// one a reload had already left ambiguous, whose reason is now this.
+    func anotherNoteLoaded() {
         range = nil
-        guard sameNote else { return }
+        ambiguous = false
+    }
+
+    /// Another version of the same note replaced the whole text, `previous`,
+    /// in which the reference was still followed: `text` is searched for
+    /// the image.
+    func reloaded(from previous: String, to text: String) {
+        range = nil
         let before = AttachmentReference.matches(in: previous).count { $0.id == id }
         switch TrackedRange.reloaded(before: before, among: AttachmentReference.matches(in: text).filter { $0.id == id }.map(\.range)) {
         case .found(let found): range = found
@@ -402,14 +409,5 @@ final class InsertAnchor {
     func stop() {
         if let observer { NotificationCenter.default.removeObserver(observer) }
         observer = nil
-    }
-}
-
-extension BoopTextView {
-    /// The pending inserts whose reference is still in the text. One that
-    /// lost its reference to an edit stays lost: a reload does not put the
-    /// text under another copy of the image.
-    func followedInsertAnchors() -> [InsertAnchor] {
-        insertAnchors.allObjects.filter { $0.range != nil }
     }
 }

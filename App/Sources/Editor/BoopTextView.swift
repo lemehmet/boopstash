@@ -236,12 +236,19 @@ final class BoopTextView: NSTextView {
         // A format still running belongs to the previous note.
         formatting?.cancel()
         documentGeneration += 1
-        // The references pending inserts still follow; replacing the text
-        // loses every one of them.
-        let followed = followedInsertAnchors()
+        // Pending inserts, and those whose reference is still in the text:
+        // replacing the text loses every one of them. One that lost its
+        // reference to an edit stays lost, so a reload does not put the
+        // text under another copy of the image.
+        let pending = insertAnchors.allObjects
+        let followed = pending.filter { $0.range != nil }
         let previous = followed.isEmpty ? "" : string
         syntax.replacingDocument { string = text }
-        followed.forEach { $0.documentReplaced(from: previous, with: text, sameNote: sameNote) }
+        if sameNote {
+            followed.forEach { $0.reloaded(from: previous, to: text) }
+        } else {
+            pending.forEach { $0.anotherNoteLoaded() }
+        }
         // Folds are offsets into one note (ADR 0006).
         folding.load(text)
         find.documentReplaced()
