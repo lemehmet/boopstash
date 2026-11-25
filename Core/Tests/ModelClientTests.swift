@@ -208,6 +208,19 @@ struct ModelClientTests {
         #expect(ContinuousClock.now - started < .seconds(10))
     }
 
+    @Test func aClientCancelledBeforeItStartsMakesNoRequest() async {
+        let test = "early"
+        Stub.set(.respond(status: 200, body: Data("{}".utf8)), for: test)
+        let client = ModelClient { $0.protocolClasses = [Stub.self] }
+        client.cancel()
+        let response = await withCheckedContinuation { continuation in
+            client.perform(chat(test)) { continuation.resume(returning: $0) }
+        }
+        #expect(response == ModelServiceResponse(failure: .cancelled))
+        try? await Task.sleep(for: .milliseconds(200))
+        #expect(Stub.requests(for: test).isEmpty, "the request never left")
+    }
+
     @Test func aHugeReplyIsDroppedNotRead() async {
         let streamed = "huge"
         Stub.set(.stream(status: 200, chunk: Data(repeating: 0x61, count: 1_024), count: 64), for: streamed)

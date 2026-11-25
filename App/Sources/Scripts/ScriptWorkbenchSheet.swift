@@ -103,7 +103,8 @@ private struct WorkbenchUnavailablePrompt: View {
 private struct WorkbenchPromptRow: View {
     @Bindable var session: ScriptWorkbenchSession
     let destination: ScriptGeneratorDestination
-    @State private var showsSent = false
+    /// Open from the start: what is sent is shown before Generate.
+    @State private var showsSent = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -145,8 +146,8 @@ struct ModelEndpointMark: View {
     }
 }
 
-/// Exactly what Generate would send from the note now: the marked
-/// examples, then the sample, line by line. A line is marked as an
+/// Exactly what Generate sends from the note: the marked examples, then
+/// the sample the session holds, line by line. A line is marked as an
 /// example with the button before it, or by its number.
 private struct WorkbenchSent: View {
     let session: ScriptWorkbenchSession

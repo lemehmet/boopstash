@@ -203,15 +203,22 @@ struct ModelEndpointTests {
 
     // MARK: The sample and the examples
 
+    @Test func tokensAreEstimatedHighAlsoForNumbers() {
+        #expect(ModelSampleBudget.tokens(in: "") == 0 && ModelSampleBudget.tokens(in: "a") == 1 && ModelSampleBudget.tokens(in: "abcd") == 2)
+        #expect(ModelSampleBudget.tokens(in: "hello world") == 4, "letters and spaces, three to a token")
+        // Tokenizers split numbers digit by digit, or in short groups.
+        #expect(ModelSampleBudget.tokens(in: "4821") == 4 && ModelSampleBudget.tokens(in: "0x1F,") == 3 + 1)
+        #expect(ModelSampleBudget.tokens(in: "ticket 4821\n") == 3 + 4 + 1)
+        #expect(ModelSampleBudget.tokens(in: "é") == 2 && ModelSampleBudget.tokens(in: "日本語") == 6, "two for a character outside ASCII")
+        #expect(ModelSampleBudget.tokens(in: "{}[];") == 5)
+    }
+
     @Test func theSampleIsWhatFitsTheContext() {
         let fixed = ModelSampleBudget.tokens(in: ModelScriptPrompt.instructions(wholeText: false))
         let around = ModelSampleBudget.tokens(in: "Task: make links\n\nA sample of the text (the whole text has more lines like these):\n")
         let tokens = ModelSampleBudget.sampleTokens(context: 32_768, reply: 2_048, instruction: "make links", examples: [])
         #expect(tokens == 32_768 - 2_048 - 512 - fixed - around)
         #expect(tokens > 29_000, "nearly all of the context is the user's text")
-        #expect(ModelSampleBudget.sampleBytes(context: 32_768, reply: 2_048, instruction: "make links", examples: []) == tokens * 3)
-        #expect(ModelSampleBudget.tokens(in: "") == 0 && ModelSampleBudget.tokens(in: "a") == 1 && ModelSampleBudget.tokens(in: "abcd") == 2)
-        #expect(ModelSampleBudget.tokens(in: "é") == 1 && ModelSampleBudget.tokens(in: "日本語") == 3, "bytes, not characters")
         #expect(ModelSampleBudget.sampleTokens(context: 2_048, reply: 4_096, instruction: "x", examples: []) == 0, "never negative")
         let example = ScriptExample(line: 3, text: String(repeating: "x", count: 300), expected: String(repeating: "y", count: 300))
         let withExample = ModelSampleBudget.sampleTokens(context: 32_768, reply: 2_048, instruction: "make links", examples: [example])
@@ -221,8 +228,14 @@ struct ModelEndpointTests {
         let long = (1...40_000).map { "ticket \($0)" }.joined(separator: "\n")
         let sample = allowance.sample(of: long, instruction: "  make links ", examples: [])
         #expect(!sample.isWholeText && sample.totalLines == 40_000)
-        #expect(sample.text.utf8.count <= tokens * 3 && sample.text.utf8.count > tokens * 3 - 20, "as much as fits, in whole lines")
-        #expect(sample.text.split(separator: "\n").count > 40, "far more than the forty lines of a fixed sample")
+        // As much as fits, in whole lines, counted line by line: a digit
+        // is a token, so a text of numbers gets fewer lines than letters.
+        let lines = sample.text.split(separator: "\n", omittingEmptySubsequences: false)
+        let counted = lines.enumerated().reduce(0) { $0 + ModelSampleBudget.tokens(in: ($1.offset == 0 ? "" : "\n") + $1.element) }
+        #expect(counted <= tokens && counted > tokens - 12)
+        #expect(ModelSampleBudget.tokens(in: sample.text) <= tokens)
+        #expect(lines.count > 40, "far more than the forty lines of a fixed sample")
+        #expect(sample.text.utf8.count < tokens * 2, "numbers are not taken for three bytes a token")
         #expect(allowance.sample(of: "a\nb", instruction: "x", examples: []) == ScriptSample(text: "a\nb", isWholeText: true, totalLines: 2))
         // The whole request fits the context by the same estimate.
         let request = ScriptGenerationRequest(instruction: "make links", sample: sample)
@@ -554,7 +567,7 @@ struct ModelEndpointTests {
     static let script = "function main(state) {\n  state.text = state.text.toUpperCase();\n}"
 
     func generator(_ settings: ModelEndpointSettings, key: String? = nil, helper: FakeHelper) -> ModelEndpointGenerator {
-        ModelEndpointGenerator(settings: { settings }, apiKey: { key }, transport: { await helper.send($0) })
+        ModelEndpointGenerator(settings: { settings }, apiKey: { _ in key }, transport: { await helper.send($0) })
     }
 
     func ok() -> ModelServiceResponse {
@@ -685,9 +698,68 @@ struct ModelEndpointTests {
 
         struct Locked: Error {}
         let helper = FakeHelper(ok())
-        let locked = ModelEndpointGenerator(settings: { settings }, apiKey: { throw Locked() }, transport: { await helper.send($0) })
+        let locked = ModelEndpointGenerator(settings: { settings }, apiKey: { _ in throw Locked() }, transport: { await helper.send($0) })
         #expect(await locked.generate(request) == .failure(.unavailable("The API key could not be read from the Keychain, so no request was made.")))
         #expect(await helper.requests.isEmpty)
+    }
+
+    /// Settings that change between two readings, as when the user edits
+    /// them while a request is being made.
+    actor Changing {
+        var settings: ModelEndpointSettings
+        var askedFor: [String] = []
+
+        init(_ settings: ModelEndpointSettings) { self.settings = settings }
+        func set(_ settings: ModelEndpointSettings) { self.settings = settings }
+        func asked(_ account: String) { askedFor.append(account) }
+    }
+
+    @Test func theKeyIsReadForTheAddressTheRequestGoesTo() async throws {
+        let helper = FakeHelper(ok())
+        let first = ModelEndpointSettings(baseURL: "http://studio.local:8080", model: "m")
+        let second = ModelEndpointSettings(baseURL: "https://models.example", model: "m")
+        let changing = Changing(first)
+        let keys = ["http://studio.local:8080": "sk-test-first", "https://models.example": "sk-test-second"]
+        // The settings move to the second endpoint while the key is read.
+        let generator = ModelEndpointGenerator(
+            settings: { await changing.settings },
+            apiKey: { address in
+                await changing.asked(address.keyAccount)
+                await changing.set(second)
+                return keys[address.keyAccount]
+            },
+            transport: { await helper.send($0) })
+        let sample = ScriptSample(text: "a", isWholeText: true, totalLines: 1)
+        #expect(await generator.generate(ScriptGenerationRequest(instruction: "x", sample: sample)) == .success(Self.script))
+        let request = try #require(await helper.requests.first)
+        #expect(request.baseURL == "http://studio.local:8080" && request.apiKey == "sk-test-first", "one reading: its address, and that address's key")
+        #expect(await changing.askedFor == ["http://studio.local:8080"])
+        #expect(ModelEndpointAddress.parse("HTTPS://Models.Example:8443/v1").map(\.keyAccount) == .success("https://models.example:8443"))
+    }
+
+    @Test func aRequestGoesWhereTheWorkbenchSaidOrNowhere() async throws {
+        let helper = FakeHelper(ok())
+        let shownSettings = ModelEndpointSettings(baseURL: "http://localhost:8080", model: "m")
+        let shown = try #require(ScriptGeneration.destination(ModelEndpointGenerator.availability(for: shownSettings)))
+        let sample = ScriptSample(text: "a", isWholeText: true, totalLines: 1)
+        let request = ScriptGenerationRequest(instruction: "x", sample: sample, destination: shown)
+        #expect(await generator(shownSettings, helper: helper).generate(request) == .success(Self.script))
+        #expect(await helper.requests.count == 1)
+
+        // The endpoint was changed in Settings after the sheet showed it.
+        let moved = ModelEndpointSettings(baseURL: "https://models.example", model: "m")
+        #expect(await generator(moved, helper: helper).generate(request) == .failure(.unavailable(ModelEndpointGenerator.settingsChanged)))
+        // So was the context, which the shown sample was sized for.
+        var resized = shownSettings
+        resized.generation.contextLength = 4_096
+        #expect(await generator(resized, helper: helper).generate(request) == .failure(.unavailable(ModelEndpointGenerator.settingsChanged)))
+        #expect(await helper.requests.count == 1, "nothing was sent to a destination that was not shown")
+        // Through the workbench's call too.
+        #expect(await ScriptGeneration.run(generator(moved, helper: helper), instruction: "x", sample: sample, destination: shown)
+            == .failure(.unavailable(ModelEndpointGenerator.settingsChanged)))
+        #expect(await ScriptGeneration.run(generator(shownSettings, helper: helper), instruction: " x ", sample: sample, destination: shown)
+            == .success(Self.script))
+        #expect(await helper.requests.last?.baseURL == "http://localhost:8080")
     }
 
     @Test func cancellingStopsTheRequest() async {
@@ -703,17 +775,21 @@ struct ModelEndpointTests {
         let helper = FakeHelper(ModelServiceResponse(status: 200, body: Data(#"{"data":[{"id":"a"},{"id":"b"},{"id":"c"}]}"#.utf8)))
         var settings = ModelEndpointSettings(baseURL: "http://studio.local:8080", model: "old")
         settings.generation.extraFields = #"{"seed":1}"#
-        let listed = await ModelEndpointGenerator.models(settings: settings, apiKey: "sk-test-1", transport: { await helper.send($0) })
+        let listed = await ModelEndpointGenerator.models(settings: settings, apiKey: { _ in "sk-test-1" }, transport: { await helper.send($0) })
         #expect(listed == .success(["a", "b", "c"]))
         #expect(await helper.requests == [ModelServiceRequest(call: .models, baseURL: "http://studio.local:8080", apiKey: "sk-test-1", body: nil, timeLimit: 15)])
 
         let down = FakeHelper(ModelServiceResponse(failure: .unreachable("Down.")))
-        #expect(await ModelEndpointGenerator.models(settings: settings, apiKey: nil, transport: { await down.send($0) })
+        #expect(await ModelEndpointGenerator.models(settings: settings, apiKey: { _ in nil }, transport: { await down.send($0) })
             == .failure(.init(reason: "The model at studio.local:8080 could not be reached: Down.")))
         let unasked = FakeHelper(ok())
         settings.baseURL = "http://models.example"
-        #expect(await ModelEndpointGenerator.models(settings: settings, apiKey: nil, transport: { await unasked.send($0) })
+        #expect(await ModelEndpointGenerator.models(settings: settings, apiKey: { _ in nil }, transport: { await unasked.send($0) })
             == .failure(.init(reason: ModelEndpointAddress.Problem.plainHTTP(host: "models.example").message)))
+        settings.baseURL = "http://localhost"
+        struct Locked: Error {}
+        #expect(await ModelEndpointGenerator.models(settings: settings, apiKey: { _ in throw Locked() }, transport: { await unasked.send($0) })
+            == .failure(.init(reason: "The API key could not be read from the Keychain, so no request was made.")))
         #expect(await unasked.requests.isEmpty)
     }
 }

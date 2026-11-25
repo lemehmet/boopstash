@@ -193,6 +193,13 @@ two. None widens what may be sent.
   and the three generation settings have fields of their own, from which
   the sample's size is worked out. So no merged value differs from the
   one shown.
+- **What is shown is what is sent, and where.** The workbench takes the
+  sample from the note when it shows it, and Generate sends that sample
+  and those examples: the note is not read again, so text that changed
+  under the open sheet is not sent unseen. The request also names the
+  destination the sheet showed; if the settings no longer give that
+  destination, nothing is sent until the sheet has shown the new one. The
+  key is read for the address the request goes to.
 - **The time limit is for the whole request,** from its start to the end
   of the reply, not for the gap between two pieces of it, and its expiry
   is reported as a timeout.

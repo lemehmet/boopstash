@@ -58,10 +58,26 @@ public enum ModelSampleBudget {
     /// the estimate.
     public static let margin = 512
 
-    /// An estimate of `text`'s tokens that errs high for prose and code:
-    /// one token for every three UTF-8 bytes.
-    public static func tokens(in text: String) -> Int {
-        (text.utf8.count + 2) / 3
+    /// An estimate of `text`'s tokens that errs high, also for the text
+    /// the workbench is mostly given: one token for every three letters
+    /// or spaces, and a whole token for each digit and each punctuation
+    /// mark or symbol, since tokenizers split numbers digit by digit or in
+    /// short groups. A character outside ASCII counts as two.
+    public static func tokens(in text: some StringProtocol) -> Int {
+        var wordBytes = 0
+        var singles = 0
+        var wide = 0
+        for scalar in text.unicodeScalars {
+            if !scalar.isASCII {
+                wide += 1
+            } else if (scalar.value >= 65 && scalar.value <= 90) || (scalar.value >= 97 && scalar.value <= 122)
+                        || scalar == " " || scalar == "\t" {
+                wordBytes += 1
+            } else {
+                singles += 1
+            }
+        }
+        return (wordBytes + 2) / 3 + singles + 2 * wide
     }
 
     /// Tokens left for the sample: the context length less the reply
@@ -72,11 +88,6 @@ public enum ModelSampleBudget {
         let fixed = tokens(in: ModelScriptPrompt.instructions(wholeText: false))
         let request = tokens(in: ModelScriptPrompt.request(instruction: instruction, examples: examples, sample: empty))
         return max(0, context - reply - margin - fixed - request)
-    }
-
-    /// The sample's size in UTF-8 bytes, the inverse of `tokens(in:)`.
-    public static func sampleBytes(context: Int, reply: Int, instruction: String, examples: [ScriptExample]) -> Int {
-        sampleTokens(context: context, reply: reply, instruction: instruction, examples: examples) * 3
     }
 }
 
@@ -515,15 +526,18 @@ public struct ModelEndpointGenerator: ScriptGenerator {
     public typealias Transport = @Sendable (ModelServiceRequest) async -> ModelServiceResponse
 
     private let settings: @Sendable () async -> ModelEndpointSettings
-    private let apiKey: @Sendable () async throws -> String?
+    private let apiKey: @Sendable (ModelEndpointAddress) async throws -> String?
     private let transport: Transport
 
     /// - Parameters:
     ///   - settings: what Settings ▸ Model holds now.
-    ///   - apiKey: the key from the Keychain, nil when none is set.
+    ///   - apiKey: the key the Keychain holds for the address it is
+    ///     given, nil when none is set. The address is the one the
+    ///     request goes to, so a key is never read for one endpoint and
+    ///     sent to another.
     ///   - transport: the model helper.
     public init(settings: @escaping @Sendable () async -> ModelEndpointSettings,
-                apiKey: @escaping @Sendable () async throws -> String?,
+                apiKey: @escaping @Sendable (ModelEndpointAddress) async throws -> String?,
                 transport: @escaping Transport) {
         self.settings = settings
         self.apiKey = apiKey
@@ -546,14 +560,26 @@ public struct ModelEndpointGenerator: ScriptGenerator {
         }
     }
 
+    /// What `generate` answers when the settings are no longer the ones
+    /// the workbench showed.
+    public static let settingsChanged = "The model settings changed since this sheet showed where the text goes, so nothing was sent. Choose Check Again, look at the destination, then Generate."
+
+    /// The settings are read once, and that one reading decides where the
+    /// request goes, which key goes with it and what it carries. When the
+    /// request names the destination the workbench showed, a reading that
+    /// no longer gives that destination sends nothing: the text goes
+    /// where the mark said, or nowhere.
     public func generate(_ request: ScriptGenerationRequest) async -> Result<String, ScriptGenerationFailure> {
         let settings = await settings()
         guard case .ready(let address) = settings.state else {
             if case .incomplete(let reason) = settings.state { return .failure(.unavailable(reason)) }
             return .failure(.unavailable("No model is set up in Settings ▸ Model."))
         }
+        if let shown = request.destination, Self.availability(for: settings) != .available(shown) {
+            return .failure(.unavailable(Self.settingsChanged))
+        }
         let key: String?
-        do { key = try await apiKey() } catch {
+        do { key = try await apiKey(address) } catch {
             return .failure(.unavailable("The API key could not be read from the Keychain, so no request was made."))
         }
         let body: Data
@@ -575,17 +601,23 @@ public struct ModelEndpointGenerator: ScriptGenerator {
     public static let listTimeLimit = 15.0
 
     /// The service's model list, for Settings. Sends the key and nothing
-    /// else.
-    public static func models(settings: ModelEndpointSettings, apiKey: String?, transport: Transport)
-        async -> Result<[String], ModelListFailure> {
+    /// else; the key is read for the address the request goes to.
+    public static func models(settings: ModelEndpointSettings,
+                              apiKey: @Sendable (ModelEndpointAddress) async throws -> String?,
+                              transport: Transport) async -> Result<[String], ModelListFailure> {
         let address: ModelEndpointAddress
         switch ModelEndpointAddress.parse(settings.baseURL) {
         case .success(let parsed): address = parsed
         case .failure(let problem): return .failure(ModelListFailure(reason: problem.message))
         }
+        let key: String?
+        do { key = try await apiKey(address) } catch {
+            return .failure(ModelListFailure(reason: "The API key could not be read from the Keychain, so no request was made."))
+        }
+        guard !Task.isCancelled else { return .failure(ModelListFailure(reason: "The request was cancelled.")) }
         let response = await transport(ModelServiceRequest(
-            call: .models, baseURL: address.url.absoluteString, apiKey: apiKey, body: nil, timeLimit: listTimeLimit))
-        return ModelList.outcome(of: response, host: address.host, timeLimit: listTimeLimit, apiKey: apiKey)
+            call: .models, baseURL: address.url.absoluteString, apiKey: key, body: nil, timeLimit: listTimeLimit))
+        return ModelList.outcome(of: response, host: address.host, timeLimit: listTimeLimit, apiKey: key)
     }
 }
 

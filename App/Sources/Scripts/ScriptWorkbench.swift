@@ -57,7 +57,15 @@ final class ScriptWorkbenchSession {
     /// shown disabled, with this. Nil when nothing is set up, which shows
     /// no prompt field at all.
     private(set) var unavailableReason: String?
-    var instruction = ""
+    var instruction = "" {
+        didSet { if instruction != oldValue { refreshSample() } }
+    }
+    /// The sample Generate sends: taken from the note when the sheet
+    /// learns where a request goes, and again when the instruction or the
+    /// examples change (they take room from it). The sheet shows this
+    /// under What Is Sent, and `generate` sends this and nothing read
+    /// from the note later.
+    private(set) var sampleToSend: ScriptSample?
     /// Lines of the text the user marked as examples for the generator.
     private(set) var examples: [ScriptExample] = []
     /// Why a line could not be marked.
@@ -315,6 +323,7 @@ final class ScriptWorkbenchSession {
             guard let self, !self.isClosed else { return }
             self.destination = ScriptGeneration.destination(availability)
             self.unavailableReason = ScriptGeneration.unavailableReason(availability)
+            self.refreshSample()
         }
     }
 
@@ -338,52 +347,56 @@ final class ScriptWorkbenchSession {
         return states.first?.text ?? ""
     }
 
-    /// The sample Generate would send now, with this instruction and
-    /// these examples: what the sheet shows under What Is Sent, and
-    /// exactly what `generate` sends.
-    var sampleToSend: ScriptSample? {
-        guard let destination else { return nil }
-        return destination.allowance.sample(of: generationTarget, instruction: instruction, examples: examples)
+    /// Takes the sample again from the note as it is now, for this
+    /// instruction and these examples. Not while a request is out.
+    private func refreshSample() {
+        guard !isGenerating else { return }
+        sampleToSend = destination.map {
+            $0.allowance.sample(of: generationTarget, instruction: instruction, examples: examples)
+        }
     }
 
     /// Marks line `line` of the text as an example.
     func markExample(line: Int) {
+        guard !isGenerating else { return }
         switch ScriptExamples.marking(line: line, of: generationTarget, in: examples) {
         case .success(let marked):
             examples = marked
             exampleProblem = nil
+            refreshSample()
         case .failure(let refusal):
             exampleProblem = refusal.reason
         }
     }
 
     func unmarkExample(line: Int) {
+        guard !isGenerating else { return }
         examples.removeAll { $0.line == line }
         exampleProblem = nil
+        refreshSample()
     }
 
     /// What the marked line should become; empty for "just handle it".
     func setExpected(_ expected: String, forExampleAt line: Int) {
-        guard let index = examples.firstIndex(where: { $0.line == line }) else { return }
+        guard !isGenerating, let index = examples.firstIndex(where: { $0.line == line }) else { return }
         examples[index].expected = expected
+        refreshSample()
     }
 
     /// Asks the generator for a draft from the instruction, the marked
-    /// examples and a bounded sample of what the script would run on.
-    /// The draft replaces the editor's text and does not run.
+    /// examples and the sample, exactly as the sheet shows them, to the
+    /// destination it shows. Nothing is read from the note here: if the
+    /// note changed under the sheet since the sample was taken, what is
+    /// sent is still what was shown. The draft replaces the editor's text
+    /// and does not run.
     func generate() {
-        guard let generator, let destination, generating == nil, !isClosed, editor != nil else { return }
-        let target = generationTarget
-        // Examples are lines of the text as it is now; one whose line has
-        // changed since it was marked is not sent.
-        let lines = ScriptExamples.lines(of: target)
-        examples.removeAll { $0.line > lines.count || lines[$0.line - 1] != $0.text }
+        guard let generator, let destination, let sample = sampleToSend, generating == nil, !isClosed, editor != nil else { return }
         let examples = examples
         let instruction = instruction
         isGenerating = true
         generating = Task { [weak self] in
-            let answer = await ScriptGeneration.run(generator, instruction: instruction, target: target,
-                                                    examples: examples, allowance: destination.allowance)
+            let answer = await ScriptGeneration.run(generator, instruction: instruction, sample: sample,
+                                                    examples: examples, destination: destination)
             guard let self else { return }
             self.generating = nil
             self.isGenerating = false
@@ -396,11 +409,13 @@ final class ScriptWorkbenchSession {
             case .failure(let failure):
                 if let message = failure.message { self.notice = Notice(isError: true, text: message) }
                 // A generator that cannot be used now (the model is not
-                // reachable) has Generate disabled, with the reason,
-                // until it is asked again.
+                // reachable, or the settings are no longer the ones
+                // shown) has Generate disabled, with the reason, until it
+                // is asked again and the sheet shows where a request goes.
                 if case .unavailable(let reason) = failure {
                     self.destination = nil
                     self.unavailableReason = reason
+                    self.sampleToSend = nil
                 }
             }
         }

@@ -110,11 +110,12 @@ final class ModelEndpointStore {
     nonisolated var generator: ModelEndpointGenerator {
         ModelEndpointGenerator(
             settings: { [weak self] in await self?.settings ?? ModelEndpointSettings() },
-            apiKey: { [weak self] in try await self?.key() },
+            apiKey: { [keys] address in try keys.read(account: address.keyAccount) },
             transport: transport)
     }
 
-    /// The key saved for the endpoint, read from the Keychain now.
+    /// The key saved for the endpoint in the settings, read from the
+    /// Keychain now.
     func key() throws -> String? {
         guard let address else { return nil }
         return try keys.read(account: address.keyAccount)
@@ -230,10 +231,11 @@ final class ModelEndpointStore {
         listing?.cancel()
         let asked = settings
         isListing = true
-        let task = Task { [weak self, transport] in
-            let key = try? await self?.key()
-            guard !Task.isCancelled else { return }
-            let result = await ModelEndpointGenerator.models(settings: asked, apiKey: key, transport: transport)
+        let task = Task { [weak self, transport, keys] in
+            // The key is read for the address asked, whatever the
+            // settings have become since.
+            let result = await ModelEndpointGenerator.models(
+                settings: asked, apiKey: { address in try keys.read(account: address.keyAccount) }, transport: transport)
             guard let self, !Task.isCancelled, self.settings.baseURL == asked.baseURL else { return }
             self.isListing = false
             switch result {

@@ -65,6 +65,14 @@ final class ModelClient: NSObject, URLSessionDataDelegate, @unchecked Sendable {
             completion(ModelServiceResponse(failure: .refused("A model client makes one request.")))
             return
         }
+        // Stopped before it started (the connection closed first): the
+        // request is never made.
+        if let failure {
+            lock.unlock()
+            session.invalidateAndCancel()
+            completion(ModelServiceResponse(failure: failure))
+            return
+        }
         // The limit is a deadline for the whole request: URLSession's
         // request timeout alone only counts the time between two pieces
         // of the reply, which a slow model could stretch for ever.
@@ -78,7 +86,8 @@ final class ModelClient: NSObject, URLSessionDataDelegate, @unchecked Sendable {
         task.resume()
     }
 
-    /// Stops the request; its completion answers `.cancelled`.
+    /// Stops the request; its completion answers `.cancelled`. A client
+    /// stopped before `perform` never makes its request.
     func cancel() {
         stop(with: .cancelled)
     }

@@ -292,8 +292,11 @@ struct ModelEndpointFlowTests {
         await store.test()?.value
         let model = AppModel(store: try .inMemory())
         model.modelEndpoint = store
+        // The report reads the same settings the endpoint was saved in.
+        #expect(defaults.data(forKey: ModelEndpointStore.settingsKey) != nil)
         let report = try #require(model.createProblemReport(
-            environment: model.problemReportEnvironment(), note: model.problemReportNote(editor: nil),
+            environment: model.problemReportEnvironment(defaults: defaults),
+            note: model.problemReportNote(editor: nil, defaults: defaults),
             list: model.problemReportList(), logLines: try LiveDiagnostics.recentLog(since: Date().addingTimeInterval(-600)), screenshot: nil))
         for hidden in ["sk-test-1", "studio.local", "secret-model-name", "private_field", "private-value", "trim every line"] {
             #expect(!report.body.contains(hidden) && !report.title.contains(hidden), "\(hidden)")
@@ -374,6 +377,58 @@ struct ModelEndpointFlowTests {
         #expect(content.contains("This line:\nREG_A 1\nmust become exactly:\n#define REG_A (1)"))
         let sent = String(decoding: try #require(request.body), as: UTF8.self)
         #expect(!sent.contains("title: registers") && !sent.contains("footer"), "nothing else of the note")
+        flows.close(window, view)
+    }
+
+    @Test func whatIsSentIsWhatWasShownEvenIfTheNoteChangesUnderTheSheet() async throws {
+        defer { cleanUp() }
+        let store = configured()
+        defer { withExtendedLifetime(store) {} }
+        let (window, view) = flows.host("REG_A 1\nREG_B 2")
+        let session = await flows.workbench(on: view, generator: store.generator)
+        session.instruction = "make defines"
+        session.markExample(line: 2)
+        let shown = try #require(session.sampleToSend)
+        #expect(shown.text == "REG_A 1\nREG_B 2")
+        // The note changes under the open sheet, as a sync can change it.
+        view.load("PRIVATE 9\nNEVER SHOWN 8\nMORE 7", syntax: .plain)
+        #expect(session.sampleToSend == shown, "the sheet still shows what it showed")
+        session.generate()
+        await session.generatingTask?.value
+        let request = try #require(await helper.requests.first)
+        let content = try #require((try body(request)["messages"] as? [[String: String]])?.last?["content"])
+        #expect(content == ModelScriptPrompt.request(instruction: "make defines", examples: [ScriptExample(line: 2, text: "REG_B 2")], sample: shown))
+        let sent = String(decoding: try #require(request.body), as: UTF8.self)
+        #expect(!sent.contains("PRIVATE") && !sent.contains("NEVER SHOWN") && !sent.contains("MORE 7"), "nothing that was not shown")
+        // Touching the instruction takes the sample again, and shows it.
+        session.instruction = "make defines again"
+        #expect(session.sampleToSend?.text == "PRIVATE 9\nNEVER SHOWN 8\nMORE 7")
+        flows.close(window, view)
+    }
+
+    @Test func anEndpointChangedInSettingsUnderTheSheetGetsNothingUntilItIsShown() async throws {
+        defer { cleanUp() }
+        let store = configured()
+        defer { withExtendedLifetime(store) {} }
+        store.setKey("sk-test-first")
+        let (window, view) = flows.host(ScriptWorkbenchFlowTests.numbers)
+        let session = await flows.workbench(on: view, generator: store.generator)
+        #expect(session.destination?.host == "studio.local:8080")
+        // Settings now name another host; the sheet still shows the first.
+        store.setBaseURL("https://models.example")
+        session.instruction = "links"
+        session.generate()
+        await session.generatingTask?.value
+        #expect(await helper.requests.isEmpty, "nothing goes to a host the mark did not name")
+        #expect(session.destination == nil && session.unavailableReason == ModelEndpointGenerator.settingsChanged)
+        #expect(session.sampleToSend == nil)
+        session.checkAgain()
+        await session.availabilityCheck?.value
+        #expect(session.destination?.host == "models.example" && session.destination?.indicator?.isStrong == true)
+        session.generate()
+        await session.generatingTask?.value
+        let request = try #require(await helper.requests.first)
+        #expect(request.baseURL == "https://models.example" && request.apiKey == nil, "and the first host's key does not go with it")
         flows.close(window, view)
     }
 

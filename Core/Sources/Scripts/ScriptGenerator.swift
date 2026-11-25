@@ -41,11 +41,17 @@ public struct ScriptGenerationRequest: Sendable, Hashable {
     public var instruction: String
     public var sample: ScriptSample
     public var examples: [ScriptExample]
+    /// Where the workbench said the request goes, when it showed a
+    /// destination. A generator whose destination is no longer this one
+    /// sends nothing.
+    public var destination: ScriptGeneratorDestination?
 
-    public init(instruction: String, sample: ScriptSample, examples: [ScriptExample] = []) {
+    public init(instruction: String, sample: ScriptSample, examples: [ScriptExample] = [],
+                destination: ScriptGeneratorDestination? = nil) {
         self.instruction = instruction
         self.sample = sample
         self.examples = examples
+        self.destination = destination
     }
 }
 
@@ -147,14 +153,24 @@ public enum ScriptGeneration {
     public static func run(_ generator: any ScriptGenerator, instruction: String, target: String,
                            examples: [ScriptExample] = [], allowance: ScriptSampleAllowance = .standard)
         async -> Result<String, ScriptGenerationFailure> {
+        let sample = allowance.sample(of: target, instruction: instruction, examples: examples)
+        return await run(generator, instruction: instruction, sample: sample, examples: examples)
+    }
+
+    /// Asks `generator` for a script with exactly this sample and these
+    /// examples, which are the ones the workbench showed, to the
+    /// destination it showed: nothing is read from the note again here.
+    public static func run(_ generator: any ScriptGenerator, instruction: String, sample: ScriptSample,
+                           examples: [ScriptExample] = [], destination: ScriptGeneratorDestination? = nil)
+        async -> Result<String, ScriptGenerationFailure> {
         let instruction = instruction.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !instruction.isEmpty else { return .failure(.failed("Say what the script should do.")) }
         guard !Task.isCancelled else { return .failure(.cancelled) }
-        let sample = allowance.sample(of: target, instruction: instruction, examples: examples)
-        guard !sample.text.isEmpty || target.isEmpty else {
+        guard !sample.text.isEmpty || sample.isWholeText else {
             return .failure(.failed("The instruction and the examples leave no room for a sample of the text. Remove examples, or raise the context length in Settings ▸ Model."))
         }
-        let result = await generator.generate(ScriptGenerationRequest(instruction: instruction, sample: sample, examples: examples))
+        let result = await generator.generate(ScriptGenerationRequest(
+            instruction: instruction, sample: sample, examples: examples, destination: destination))
         guard !Task.isCancelled else { return .failure(.cancelled) }
         return result.flatMap { script in
             script.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .failure(.noScript) : .success(script)
@@ -260,8 +276,8 @@ public enum ScriptSampleAllowance: Sendable, Hashable {
             return ScriptSampling.sample(of: target, budget: budget, maxLines: maxLines)
         case .tokens(let context, let reply):
             let instruction = instruction.trimmingCharacters(in: .whitespacesAndNewlines)
-            let bytes = ModelSampleBudget.sampleBytes(context: context, reply: reply, instruction: instruction, examples: examples)
-            return ScriptSampling.sample(of: target, budget: bytes, maxLines: .max, measure: { $0.utf8.count })
+            let tokens = ModelSampleBudget.sampleTokens(context: context, reply: reply, instruction: instruction, examples: examples)
+            return ScriptSampling.sample(of: target, budget: tokens, maxLines: .max, measure: { ModelSampleBudget.tokens(in: $0) })
         }
     }
 }

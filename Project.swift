@@ -80,7 +80,7 @@ let syntaxProducts = ["SwiftTreeSitter"] + grammars.flatMap(\.products)
 
 // Why macOS asks for Local Network access (ADR 0014), in the app's
 // Info.plist and the model helper's.
-let localNetworkUsage = "BoopStash reaches a language model on your local network only if you set one up in Settings ▸ Model, and only to draft a script when you choose Generate."
+let localNetworkUsage = "BoopStash reaches a language model on your local network only if you set one up in Settings ▸ Model: when you enter its address or press Refresh or Test there, and to draft a script when you choose Generate."
 
 let project = Project(
     name: "Boopstash",
