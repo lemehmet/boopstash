@@ -51,11 +51,12 @@ Rank by what happens when it is NOT fixed:
   high   - lost or corrupted notes, note content leaving the device other than
            through the user's own iCloud or, under ADR 0014, the instruction
            and the shown sample and examples sent to the model endpoint the
-           user configured;
-           a network call anywhere but in the model helper process, or one
-           that carries more than ADR 0014 lists; a network entitlement on
-           the app itself, or a Keychain or App Group entitlement on the
-           model helper; a background
+           user configured; any network request ADR 0014 does not expressly
+           allow (made outside the model helper process, carrying more than
+           it lists, not started by the user's Generate or by their action
+           in Settings, or going anywhere but the endpoint they configured);
+           a network entitlement on the app itself; an App Group entitlement
+           or any Keychain call in the model helper; a background
            pasteboard read, a new entitlement without an ADR, secrets or
            personal data committed to this public repository, or a silent
            failure of something load-bearing
@@ -112,11 +113,12 @@ being limited here; verbosity is."""
 #   high   - lost or corrupted notes, note content leaving the device other than
 #            through the user's own iCloud or, under ADR 0014, the instruction
 #            and the shown sample and examples sent to the model endpoint the
-#            user configured;
-#            a network call anywhere but in the model helper process, or one
-#            that carries more than ADR 0014 lists; a network entitlement on
-#            the app itself, or a Keychain or App Group entitlement on the
-#            model helper; a background
+#            user configured; any network request ADR 0014 does not expressly
+#            allow (made outside the model helper process, carrying more than
+#            it lists, not started by the user's Generate or by their action
+#            in Settings, or going anywhere but the endpoint they configured);
+#            a network entitlement on the app itself; an App Group entitlement
+#            or any Keychain call in the model helper; a background
 #            pasteboard read, a new entitlement without an ADR, secrets or
 #            personal data committed to this public repository, or a silent
 #            failure of something load-bearing
@@ -166,11 +168,12 @@ Rank by what happens when it is NOT fixed:
   high   - lost or corrupted notes, note content leaving the device other than
            through the user's own iCloud or, under ADR 0014, the instruction
            and the shown sample and examples sent to the model endpoint the
-           user configured;
-           a network call anywhere but in the model helper process, or one
-           that carries more than ADR 0014 lists; a network entitlement on
-           the app itself, or a Keychain or App Group entitlement on the
-           model helper; a background
+           user configured; any network request ADR 0014 does not expressly
+           allow (made outside the model helper process, carrying more than
+           it lists, not started by the user's Generate or by their action
+           in Settings, or going anywhere but the endpoint they configured);
+           a network entitlement on the app itself; an App Group entitlement
+           or any Keychain call in the model helper; a background
            pasteboard read, a new entitlement without an ADR, secrets or
            personal data committed to this public repository, or a silent
            failure of something load-bearing

@@ -66,12 +66,25 @@ This is the only exception this ADR makes to ADR 0001.
   the outgoing-network entitlement, the way the script service is kept
   apart in ADR 0007. For each request the app hands it exactly what the
   request carries, as listed above, and the endpoint's address; the helper
-  keeps nothing between requests. The API key is read from the Keychain by
-  the app and passed with the request: the helper has no
-  `keychain-access-groups` and no `application-groups` entitlement, so it
-  can reach neither the Keychain nor the App Group container the notes
-  live in (ADR 0009). The app's own entitlements do not change. The
-  release check enforces all of this, in both distribution channels.
+  keeps nothing between requests.
+
+  The API key is the app's to keep. The app stores it in the
+  data-protection keychain under its own access group, reads it, and
+  passes it with each request. The helper is a different program with a
+  different application identifier and shares no keychain access group
+  with the app, which is what keeps that item out of its reach; no missing
+  entitlement does that by itself, since any sandboxed process may use a
+  keychain of its own. So the rule is on what the helper does: it calls no
+  Keychain API at all, and it has no `application-groups` entitlement, so
+  the App Group container the notes live in (ADR 0009) is closed to it.
+  The app's own entitlements do not change. The release check covers the
+  helper's entitlements in both distribution channels, and review covers
+  the rest: a `SecItem` call in the helper is a defect.
+- **Every request is the user's.** A request goes out only as the result
+  of the user pressing Generate, or entering an endpoint or pressing
+  Refresh or Test in Settings, and only to the endpoint they configured.
+  No request is made at launch, in the background, on a timer, to a host
+  the user did not type, or while no endpoint is configured.
 - **The standard interface is the OpenAI-compatible chat completions API**
   (`<base>/v1/chat/completions`, and `<base>/v1/models` for the list),
   which llama.cpp, llama-swap, Ollama, LM Studio, vLLM and MLX servers
@@ -92,9 +105,28 @@ update checks, remote resources in the preview, a model service that
 BoopStash picks, and `PrivateCloudComputeLanguageModel`. Titles, search and
 image text stay on the device; this ADR gives them no use of the endpoint.
 
-ADR 0013's "the workbench has no Generate" now reads: no Generate from the
-on-device model until its bar is met, and Generate from a configured
-endpoint under this ADR.
+**What this does to ADR 0013.** ADR 0013 says "Generate is not part of
+[the workbench] until the bar below is met" and "A different model is out
+of scope here and would need its own ADR". This is that ADR. The bar still
+governs the on-device model. Of the rules ADR 0013 lists as holding "now,
+and for any later Generate", for Generate from a configured endpoint:
+
+- *Model-written code runs only in the script service* — applies as
+  written.
+- *Nothing is applied without review* — applies as written.
+- *`SystemLanguageModel.default` only … The instruction and the sample
+  stay on the device* — replaced. It remains the rule for any on-device
+  generation. For an endpoint, what leaves the device and to where is what
+  this ADR lists, and nothing more.
+- *Free text, not guided generation* — applies as written.
+- *When the model is unavailable … from
+  `SystemLanguageModel.default.availability`* — replaced. With no endpoint
+  configured there is no Generate at all. With one configured that cannot
+  be used (unreachable, refused, no model chosen), Generate is disabled
+  and says why; everything else in the workbench works.
+- *When the model fails … no automatic retry* — applies as written, with
+  one more failure named: a reply cut off at the token limit before any
+  answer.
 
 ## Consequences
 
