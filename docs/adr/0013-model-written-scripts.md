@@ -1,6 +1,9 @@
 # ADR 0013 — Model-written scripts: the on-device model is not good enough yet
 
-- **Status:** Accepted (2026-11-25)
+- **Status:** Accepted (2026-11-25); amended by ADR 0014 the same day: the
+  workbench may have Generate from a model endpoint the user configures.
+  What follows about the on-device model, its bar and
+  `SystemLanguageModel.default` stands for the on-device model
 - **Deciders:** boopstash maintainers
 - **Refines:** ADR 0005 (formatting and transforms) and ADR 0007 (script
   service), within ADR 0001 (privacy baseline)
