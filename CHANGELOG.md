@@ -6,6 +6,21 @@ breaking changes may land in a minor release.
 
 ## Unreleased
 
+### New
+
+- **Copy the text in an image (#243).** On the Mac, right-click an image
+  in the editor (or select it and use the Edit menu) for Copy Text from
+  Image, or Insert Text Below to put the text into the note under the
+  image as one undo step. On iOS, touch and hold an image in a note's
+  preview for Copy Text. An image whose text has not been read yet is
+  read then, on device as always; one with no text says so and leaves
+  the clipboard alone.
+- **Text read from images keeps its rows.** What stands on one line in
+  the picture is one line of text, and the cells of a table are a tab
+  apart, so a screenshot of a table pastes into a spreadsheet as a
+  table. This applies to images added from now on; text already read is
+  kept as it is.
+
 ## v0.4.6 — 2026-11-10
 
 ### Fixed
