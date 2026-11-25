@@ -492,8 +492,8 @@ final class BoopTextView: NSTextView {
             showMessage?("\(name) finished after the note changed, so its result was not shown.")
             return Task {}
         }
-        // One review at a time.
-        guard pendingReview == nil, !reviewStarting else {
+        // One review at a time, and none over the script workbench.
+        guard pendingReview == nil, !reviewStarting, workbench == nil else {
             NSSound.beep()
             showMessage?("\(name) could not show its changes while another sheet is open.")
             return Task {}
@@ -538,12 +538,24 @@ final class BoopTextView: NSTextView {
     /// they were made for; then nothing is applied and the banner says so.
     func keepPendingReview() {
         guard let review = endPendingReview() else { return }
-        guard documentGeneration == review.generation, TextDiff.identical(string, review.snapshot) else {
+        guard applyReviewed(review.edits, of: review.snapshot, generation: review.generation, named: review.name) else {
             NSSound.beep()
             showMessage?("The note changed while \(review.name) was being reviewed, so nothing was applied.")
             return
         }
-        apply(review.edits, actionName: review.name)
+    }
+
+    /// The check every reviewed change passes before it reaches the note,
+    /// the review sheet's and the script workbench's (#247) alike: the
+    /// edits are applied, as one undoable edit named `name`, only if the
+    /// note is still the document (`generation`) and the text (`snapshot`,
+    /// code unit for code unit) they were made for. False when it is not,
+    /// and then nothing is applied.
+    @discardableResult
+    func applyReviewed(_ edits: [(NSRange, String)], of snapshot: String, generation: Int, named name: String) -> Bool {
+        guard documentGeneration == generation, TextDiff.identical(string, snapshot) else { return false }
+        apply(edits, actionName: name)
+        return true
     }
 
     /// Discard, or Escape: closes the review. The note and its undo stack
@@ -567,7 +579,10 @@ final class BoopTextView: NSTextView {
     /// An editor leaving its window takes its review with it: the sheet
     /// would otherwise stay on a window whose note it no longer belongs to.
     override func viewWillMove(toWindow newWindow: NSWindow?) {
-        if newWindow !== window { endPendingReview(refocus: false) }
+        if newWindow !== window {
+            endPendingReview(refocus: false)
+            workbench?.close(refocus: false)
+        }
         super.viewWillMove(toWindow: newWindow)
     }
 
@@ -766,6 +781,9 @@ final class BoopTextView: NSTextView {
     private(set) var pendingReview: PendingReview?
     /// A review is on its way to its sheet.
     private var reviewStarting = false
+    /// The script workbench open on this editor, or on its way to its
+    /// sheet (#247).
+    var workbench: ScriptWorkbenchSession?
     /// How long a review waits for a sheet that is closing before it
     /// gives up: the picker's own sheet animates out. Tests shorten it.
     var reviewSheetWait: Duration = .seconds(2)

@@ -134,10 +134,18 @@ public enum ScriptSearch {
 /// The scripts on offer: Boop's bundled set and the user's own (#59).
 public enum ScriptCatalog {
     /// A user script with the same name as a bundled one replaces it, so a
-    /// tweaked copy of a Boop script is the one that runs.
+    /// tweaked copy of a Boop script is the one that runs. Names are the
+    /// same without regard to case, as Save as Script reads them
+    /// (`ScriptSave.plan`): `sort lines` replaces `Sort Lines`.
     public static func merge(bundled: [BoopScript], user: [BoopScript]) -> [BoopScript] {
-        let mine = Set(user.map(\.name))
-        return bundled.filter { !mine.contains($0.name) } + user
+        let mine = Set(user.map { nameKey($0.name) })
+        return bundled.filter { !mine.contains(nameKey($0.name)) } + user
+    }
+
+    /// What two script names are compared by: the name as it is saved,
+    /// without regard to case.
+    public static func nameKey(_ name: String) -> String {
+        ScriptHeader.cleanName(name).lowercased()
     }
 
     /// Everything the picker offers: the built-in commands, the bundled

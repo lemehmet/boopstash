@@ -187,6 +187,10 @@ These hold now, and for any later Generate:
   script reaches the note only through the diff review from #245
   (`BoopTextView.review`, then `keepPendingReview` on Keep), which refuses
   over a note that changed meanwhile. There is no "generate and apply".
+  *Amended 2026-11-25 (#247): the workbench shows the same diff in its own
+  sheet, and its Keep does not go through `review`. Both sheets apply
+  through `BoopTextView.applyReviewed`, which is the one place that
+  refuses over a note that changed; that is the function to audit.*
 - **`SystemLanguageModel.default` only,** named explicitly, as
   `LiveModelTitler` does. Never `PrivateCloudComputeLanguageModel`, which
   sends the prompt to Apple's servers. The instruction and the sample stay

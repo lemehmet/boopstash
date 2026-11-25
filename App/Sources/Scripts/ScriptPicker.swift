@@ -77,9 +77,10 @@ struct ScriptPicker: View {
     }
 }
 
-/// Scripts ▸ Run Script… and Run Last Script. The picker opens in the key
-/// window only: each window publishes its own presentation as a focused
-/// scene value.
+/// Scripts ▸ Run Script…, Run Last Script and Script Workbench… (#247).
+/// The picker opens in the key window only: each window publishes its own
+/// presentation as a focused scene value. The workbench is a sheet on the
+/// key editor's window.
 struct ScriptCommands: Commands {
     let model: AppModel?
     @FocusedValue(\.scriptPicker) private var picker
@@ -105,6 +106,12 @@ struct ScriptCommands: Commands {
             Button("Run Last Script") { model?.runLastScript() }
                 .keyboardShortcut("b", modifiers: [.command, .shift])
                 .disabled(!(model?.editorHasFocus ?? false) || model?.lastScript == nil)
+            Divider()
+            Button("Script Workbench…") {
+                if let model, let editor = model.keyEditor() { model.openWorkbench(in: editor) }
+            }
+            .keyboardShortcut("b", modifiers: [.command, .control])
+            .disabled(!(model?.editorHasFocus ?? false))
         }
     }
 }

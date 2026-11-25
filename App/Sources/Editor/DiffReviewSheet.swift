@@ -56,17 +56,23 @@ private struct DiffReviewButtons: View {
     }
 }
 
-private struct DiffReviewBody: View {
+/// The diff itself, scrolling both ways. The script workbench (#247) shows
+/// the same rows beside its script.
+struct DiffReviewBody: View {
     let content: DiffReviewContent
 
     var body: some View {
-        ScrollView([.vertical, .horizontal]) {
-            LazyVStack(alignment: .leading, spacing: 0) {
-                ForEach(content.parts) { part in
-                    DiffReviewPart(part: part, first: part.id == content.parts.first?.id)
+        // A view that scrolls both ways centres what is smaller than it:
+        // a short diff starts at the top left, as a long one does.
+        GeometryReader { (proxy: GeometryProxy) in
+            ScrollView([.vertical, .horizontal]) {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(content.parts) { part in
+                        DiffReviewPart(part: part, first: part.id == content.parts.first?.id)
+                    }
                 }
+                .frame(minWidth: proxy.size.width, minHeight: proxy.size.height, alignment: .topLeading)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .background(Color(nsColor: .textBackgroundColor))
     }
