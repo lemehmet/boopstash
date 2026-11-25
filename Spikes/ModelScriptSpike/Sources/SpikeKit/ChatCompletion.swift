@@ -85,6 +85,13 @@ public enum ChatCompletion {
         return text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// An endpoint's base is an http or https URL with a host. A bare
+    /// `host:port` parses as a URL whose scheme is the host, and is not one.
+    public static func isEndpoint(_ base: URL) -> Bool {
+        guard let scheme = base.scheme?.lowercased(), scheme == "http" || scheme == "https" else { return false }
+        return !(base.host ?? "").isEmpty
+    }
+
     /// `<base>/v1/chat/completions`, also when the base already ends in `/v1`.
     public static func url(base: URL) -> URL {
         let trimmed = base.path.hasSuffix("/") ? String(base.path.dropLast()) : base.path

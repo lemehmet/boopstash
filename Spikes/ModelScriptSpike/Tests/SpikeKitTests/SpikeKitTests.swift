@@ -200,6 +200,15 @@ import Testing
         #expect(ChatCompletion.effective(replaced).topP == "1.0")
     }
 
+    @Test func anEndpointIsAnHTTPURLWithAHost() {
+        #expect(ChatCompletion.isEndpoint(URL(string: "http://localhost:8080")!))
+        #expect(ChatCompletion.isEndpoint(URL(string: "HTTPS://host.example/v1")!))
+        #expect(!ChatCompletion.isEndpoint(URL(string: "localhost:8080")!), "the host is taken for the scheme")
+        #expect(!ChatCompletion.isEndpoint(URL(string: "host.example")!))
+        #expect(!ChatCompletion.isEndpoint(URL(string: "file:///tmp/x")!))
+        #expect(!ChatCompletion.isEndpoint(URL(string: "http://")!))
+    }
+
     @Test func theCompletionsURLIsUnderV1Once() {
         #expect(ChatCompletion.url(base: URL(string: "http://host.example:4000")!).absoluteString == "http://host.example:4000/v1/chat/completions")
         #expect(ChatCompletion.url(base: URL(string: "http://host.example:4000/v1")!).absoluteString == "http://host.example:4000/v1/chat/completions")

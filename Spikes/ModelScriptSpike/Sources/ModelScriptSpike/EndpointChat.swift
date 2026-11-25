@@ -33,6 +33,8 @@ enum EndpointError: Error, CustomStringConvertible {
     /// that reasons first spent the whole allowance on its reasoning.
     case cutOff
     case transport(String)
+    /// The request ran past its time limit.
+    case timedOut
 
     var description: String {
         switch self {
@@ -40,6 +42,7 @@ enum EndpointError: Error, CustomStringConvertible {
         case .noContent: "no content in the reply"
         case .cutOff: "the reply was cut off at the token limit before any answer"
         case .transport(let why): "transport: \(why)"
+        case .timedOut: "the request timed out"
         }
     }
 }
@@ -71,6 +74,8 @@ final class EndpointChat {
         do {
             (data, response) = try await URLSession.shared.data(for: request)
         } catch {
+            // By the error's code: its description is in the system's language.
+            if (error as? URLError)?.code == .timedOut { throw EndpointError.timedOut }
             throw EndpointError.transport((error as NSError).localizedDescription)
         }
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
@@ -94,7 +99,8 @@ final class EndpointChat {
             case .http(let status, _): return "http \(status)"
             case .noContent: return "no content"
             case .cutOff: return "cut off at the token limit"
-            case .transport(let why): return why.contains("timed out") ? "request timed out" : "transport error"
+            case .transport: return "transport error"
+            case .timedOut: return "request timed out"
             }
         }
         return ModelChat.name(of: error)

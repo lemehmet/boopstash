@@ -159,8 +159,10 @@ if CommandLine.arguments.contains("--selfcheck") { exit(0) }
 // MARK: The measurement
 
 let endpoint: Endpoint? = value(of: "--endpoint").map { text in
-    guard let base = URL(string: text), base.scheme != nil, let model = value(of: "--model"), !model.isEmpty else {
-        say("--endpoint needs a URL with a scheme, and --model a name")
+    // "localhost:8080" parses with "localhost" as its scheme: only http
+    // and https are endpoints.
+    guard let base = URL(string: text), ChatCompletion.isEndpoint(base), let model = value(of: "--model"), !model.isEmpty else {
+        say("--endpoint needs an http or https URL with a host, such as http://localhost:8080, and --model a name")
         exit(2)
     }
     var extra: [String: Any] = [:]
