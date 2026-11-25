@@ -117,7 +117,12 @@ struct BoopstashApp: App {
                 }
                 .disabled(!(delegate.model?.editorHasFocus ?? false))
             }
-            WhatsNewCommands()
+            // One entry: a commands block takes at most ten on the SDK CI
+            // builds with.
+            Group {
+                HelpCommands()
+                WhatsNewCommands()
+            }
             // A local note for bug reports (#185); nothing is sent anywhere.
             CommandGroup(after: .help) {
                 Divider()
@@ -129,6 +134,15 @@ struct BoopstashApp: App {
                     .disabled(delegate.model?.selection == nil)
             }
         }
+
+        // Help ▸ BoopStash Help (#254): the README, from the bundle.
+        Window(HelpWindow.title, id: HelpWindow.windowID) {
+            HelpView(appearance: appearance)
+                .frame(minWidth: 480, idealWidth: 680, minHeight: 320, idealHeight: 720)
+        }
+        .windowResizability(.contentMinSize)
+        // Opened only when asked for, never back by itself at launch.
+        .restorationBehavior(.disabled)
 
         // Help ▸ What's New (#253): every version's notes, from the bundle.
         Window("What's New", id: WhatsNew.windowID) {

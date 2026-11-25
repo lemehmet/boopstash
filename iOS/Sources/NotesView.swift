@@ -246,8 +246,14 @@ struct SettingsView: View {
                 } footer: {
                     Text("Notes and images go to your own iCloud, in fields encrypted on this device. With Advanced Data Protection they are end-to-end encrypted; without it, Apple holds the keys, as for most iCloud data.")
                 }
-                // Every version's notes, from the bundle (#253).
+                // The README (#254) and every version's notes (#253), both
+                // from the bundle.
                 Section {
+                    NavigationLink("Help") {
+                        HelpView(appearance: EditorAppearance())
+                            .navigationTitle("Help")
+                            .navigationBarTitleDisplayMode(.inline)
+                    }
                     NavigationLink("What's New") { WhatsNewList(model: model, releases: LiveReleaseNotes.all) }
                 } footer: {
                     Text("BoopStash \(LiveReleaseNotes.runningVersion)")

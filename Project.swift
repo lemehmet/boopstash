@@ -165,6 +165,8 @@ let project = Project(
                 "App/Resources/**",
                 // What's New (#253): the one curated store, in both apps.
                 "ReleaseNotes.json",
+                // Help (#254): the repository's README itself, in both apps.
+                "README.md",
                 // Boop's scripts (ADR 0005); the app lists and sends them.
                 .folderReference(path: "Vendor/Boop/scripts"),
             ],
@@ -235,7 +237,7 @@ let project = Project(
                 "UIBackgroundModes": ["remote-notification"],
             ]),
             sources: ["iOS/Sources/**", "iOS/Shared/**", "App/Adapters/**", "App/SharedViews/**", "Vendor/MiniLM/MiniLM.mlpackage"],
-            resources: ["iOS/Resources/**", "Vendor/MiniLM/vocab.txt", "ReleaseNotes.json"],
+            resources: ["iOS/Resources/**", "Vendor/MiniLM/vocab.txt", "ReleaseNotes.json", "README.md"],
             dependencies: [.target(name: "BoopstashCore"), .target(name: "BoopStashShare")],
             settings: .settings(base: [
                 "PRODUCT_MODULE_NAME": "BoopStashMobile",
