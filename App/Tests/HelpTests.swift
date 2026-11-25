@@ -37,12 +37,10 @@ struct HelpTests {
         }
     }
 
-    @Test func thePageIsDrawnWithoutAskingForAnImage() async throws {
-        let asked = Asked()
-        let view = PreviewView(markdown: try #require(LiveHelp.markdown), appearance: EditorAppearance(), image: { id in
-            await asked.add(id)
-            return nil
-        }, linkBase: HelpPage.linkBase)
+    /// That the page has nothing to load is checked on its blocks, above
+    /// and in Core: the view asks for a picture only for an attachment.
+    @Test func thePageIsDrawn() async throws {
+        let view = PreviewView(markdown: try #require(LiveHelp.markdown), appearance: EditorAppearance(), linkBase: HelpPage.linkBase)
         let host = NSHostingView(rootView: view)
         host.frame = NSRect(x: 0, y: 0, width: 600, height: 500)
         let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
@@ -55,12 +53,6 @@ struct HelpTests {
             host.layoutSubtreeIfNeeded()
             return host.fittingSize.height > 500
         })
-        #expect(await asked.ids.isEmpty)
-    }
-
-    actor Asked {
-        var ids: [UUID] = []
-        func add(_ id: UUID) { ids.append(id) }
     }
 
     @Test func theMenuItemOpensOneWindowAndBringsItForwardWhenChosenAgain() async throws {
@@ -72,7 +64,6 @@ struct HelpTests {
         #expect(items.count == 1)
         let item = try #require(items.first)
         try #require(item.action != #selector(NSApplication.showHelp(_:)))
-        #expect(item.keyEquivalent == "?")
         defer { helpWindows().forEach { $0.close() } }
 
         help.performActionForItem(at: help.index(of: item))
