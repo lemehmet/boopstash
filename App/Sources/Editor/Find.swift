@@ -370,7 +370,7 @@ final class FindController {
             guard let self, let view = self.view else { return }
             // Another note with the same text in this reused editor is not
             // the note the replacements were found in.
-            guard view.documentGeneration == generation, view.string == snapshot else {
+            guard view.documentGeneration == generation, TextDiff.identical(view.string, snapshot) else {
                 view.showMessage?("The note changed while its matches were being replaced, so it was left as it is.")
                 return
             }

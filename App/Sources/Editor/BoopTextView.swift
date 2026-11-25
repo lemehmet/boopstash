@@ -456,7 +456,7 @@ final class BoopTextView: NSTextView {
             showMessage?("\(script.name) finished after its note was closed, so its result was not applied.")
             return
         }
-        guard documentGeneration == generation, string == fullText else {
+        guard documentGeneration == generation, TextDiff.identical(string, fullText) else {
             showMessage?("\(script.name) finished after the note changed, so its result was not applied.")
             return
         }
@@ -488,7 +488,7 @@ final class BoopTextView: NSTextView {
     @discardableResult
     func review(_ edits: [(NSRange, String)], of snapshot: String, named name: String, generation: Int? = nil) -> Task<Void, Never> {
         let generation = generation ?? documentGeneration
-        guard documentGeneration == generation, string == snapshot else {
+        guard documentGeneration == generation, TextDiff.identical(string, snapshot) else {
             showMessage?("\(name) finished after the note changed, so its result was not shown.")
             return Task {}
         }
@@ -514,7 +514,7 @@ final class BoopTextView: NSTextView {
             while self.window?.attachedSheet != nil, ContinuousClock.now < deadline {
                 try? await Task.sleep(for: .milliseconds(25))
             }
-            guard self.documentGeneration == generation, self.string == snapshot else {
+            guard self.documentGeneration == generation, TextDiff.identical(self.string, snapshot) else {
                 self.showMessage?("\(name) finished after the note changed, so its result was not shown.")
                 return
             }
@@ -538,7 +538,7 @@ final class BoopTextView: NSTextView {
     /// they were made for; then nothing is applied and the banner says so.
     func keepPendingReview() {
         guard let review = endPendingReview() else { return }
-        guard documentGeneration == review.generation, string == review.snapshot else {
+        guard documentGeneration == review.generation, TextDiff.identical(string, review.snapshot) else {
             NSSound.beep()
             showMessage?("The note changed while \(review.name) was being reviewed, so nothing was applied.")
             return
@@ -599,7 +599,7 @@ final class BoopTextView: NSTextView {
                 return ScriptEdits.replacements(fullText: snapshot, selections: selections, response: ScriptResponse(outputs: outputs))
             }.value
             guard let self, let edits else { return }
-            guard self.window != nil, self.documentGeneration == generation, self.string == snapshot,
+            guard self.window != nil, self.documentGeneration == generation, TextDiff.identical(self.string, snapshot),
                   self.selectedRanges.map(\.rangeValue) == selections else {
                 Log.editor.notice("\(command.rawValue, privacy: .public) dropped: the note changed meanwhile")
                 self.showMessage?("The note changed while \(command.name) ran, so it was left as it is.")
@@ -731,7 +731,7 @@ final class BoopTextView: NSTextView {
             guard let self, !Task.isCancelled else { return }
             // Another note in this reused editor, even one with the same
             // text, is not the note that was formatted.
-            guard self.documentGeneration == generation, self.string == snapshot, self.selectedRange() == selection else {
+            guard self.documentGeneration == generation, TextDiff.identical(self.string, snapshot), self.selectedRange() == selection else {
                 Log.editor.notice("format dropped: the note changed meanwhile")
                 self.showMessage?("The note changed while it was being formatted, so it was left as it is.")
                 return

@@ -82,6 +82,27 @@ struct FormatDocumentTests {
         window.close()
     }
 
+    /// The same for an edit that leaves a canonically equal text (#266):
+    /// "e" with a combining accent made the precomposed letter is one
+    /// UTF-16 unit shorter, and the result's range was for the longer text.
+    @Test func anEditToACanonicallyEqualTextDuringFormattingIsKept() async {
+        let (window, view) = host("{\"a\":\"e\u{301}\"}", .json)
+        var message: String?
+        view.showMessage = { message = $0 }
+        view.setSelectedRange(NSRange(location: 0, length: 0))
+        view.formatter = { source, language, style, indent in
+            try? await Task.sleep(for: .milliseconds(300))
+            return DocumentFormatter.format(source, as: language, style: style, indent: indent)
+        }
+        let running = view.format(style: .standard)
+        view.insertText("\u{E9}", replacementRange: NSRange(location: 6, length: 2))
+        view.setSelectedRange(NSRange(location: 0, length: 0))
+        await running.value
+        #expect(Array(view.string.utf16) == Array("{\"a\":\"\u{E9}\"}".utf16))
+        #expect(message == "The note changed while it was being formatted, so it was left as it is.")
+        window.close()
+    }
+
     /// The editor is reused across notes: a format started on one note is
     /// not applied to the next, even when its text is the same.
     @Test func aFormatIsNotAppliedToTheNextNote() async {

@@ -59,6 +59,13 @@ breaking changes may land in a minor release.
 
 ### Fixed
 
+- **Mac: a result is never applied over a note that changed only in how a
+  character is encoded.** A script, Clean Up Pasted Text, Format, Replace
+  All or a review's Keep that finished after an "é" in the note went from
+  a letter plus a combining accent to the single letter (or back) took the
+  note for unchanged and could ask for text past its end. Such a note now
+  counts as changed, and the result is dropped with the usual message
+  (#266).
 - **Mac: letting go of the preview divider where you grabbed it no longer
   changes the split.** With the editor at its narrowest, such a drag
   stored the narrowest width over the size you had set, so a wider window

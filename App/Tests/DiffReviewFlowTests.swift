@@ -169,6 +169,93 @@ struct DiffReviewFlowTests {
         close(window, view)
     }
 
+    // MARK: A note that became a canonically equal text (#266)
+
+    /// The note's "e" with a combining accent becomes the precomposed
+    /// letter: the same text to Swift's `==`, one UTF-16 unit shorter. A
+    /// result made for the longer text has ranges this one does not.
+    func recompose(_ view: BoopTextView, at location: Int) {
+        view.insertText("\u{E9}", replacementRange: NSRange(location: location, length: 2))
+    }
+
+    @Test func keepRefusesOverANoteThatBecameACanonicallyEqualText() async throws {
+        let source = "cafe\u{301}\n"
+        let (window, view) = host(source)
+        let whole = NSRange(location: 0, length: (source as NSString).length)
+        await view.review([(whole, "CAFE\u{301}\n")], of: source, named: "Upcase").value
+        #expect(view.pendingReview != nil)
+        recompose(view, at: 3)
+        #expect(view.string == source, "equal to Swift, which is why the check is on code units")
+        view.keepPendingReview()
+        #expect(Array(view.string.utf16) == Array("caf\u{E9}\n".utf16), "nothing was applied")
+        #expect(view.pendingReview == nil)
+        #expect(messages.all == ["The note changed while Upcase was being reviewed, so nothing was applied."])
+        close(window, view)
+    }
+
+    @Test func aResultForACanonicallyEqualTextIsNotShown() async {
+        let (window, view) = host("caf\u{E9}\n")
+        let snapshot = "cafe\u{301}\n"
+        let whole = NSRange(location: 0, length: (snapshot as NSString).length)
+        await view.review([(whole, "CAFE\u{301}\n")], of: snapshot, named: "Upcase").value
+        #expect(view.pendingReview == nil)
+        #expect(Array(view.string.utf16) == Array("caf\u{E9}\n".utf16))
+        #expect(messages.all == ["Upcase finished after the note changed, so its result was not shown."])
+        close(window, view)
+    }
+
+    @Test func aNoteRecomposedWhileTheDiffIsWorkedOutIsNotReviewed() async {
+        let source = "cafe\u{301}\n"
+        let (window, view) = host(source)
+        let whole = NSRange(location: 0, length: (source as NSString).length)
+        let review = view.review([(whole, "CAFE\u{301}\n")], of: source, named: "Upcase")
+        recompose(view, at: 3)
+        await review.value
+        #expect(view.pendingReview == nil)
+        #expect(messages.all == ["Upcase finished after the note changed, so its result was not shown."])
+        close(window, view)
+    }
+
+    /// The built-in command, applied at once: the selection is put back
+    /// where it was, so only the text's code units tell the two apart.
+    @Test func aBuiltInCommandLeavesANoteRecomposedMeanwhileAlone() async {
+        let source = "e\u{301}\n" + Self.table
+        let (window, view) = host(source)
+        view.setSelectedRange(NSRange(location: 0, length: 0))
+        let running = view.run(.cleanUpPastedText)
+        recompose(view, at: 0)
+        view.setSelectedRange(NSRange(location: 0, length: 0))
+        await running.value
+        #expect(Array(view.string.utf16) == Array(("\u{E9}\n" + Self.table).utf16), "nothing was applied")
+        #expect(messages.all == ["The note changed while Clean Up Pasted Text ran, so it was left as it is."])
+        close(window, view)
+    }
+
+    /// A script in the service, applied at once. The script is slow on
+    /// purpose, so the note changes while it runs.
+    @Test func aScriptLeavesANoteRecomposedMeanwhileAlone() async throws {
+        let slow = """
+        /**
+        {"api":1,"name":"Slow Upcase"}
+        **/
+        function main(state) {
+            var end = Date.now() + 1000
+            while (Date.now() < end) {}
+            state.text = state.text.toUpperCase()
+        }
+        """
+        let script = try BoopScript.parse(slow, id: "user/SlowUpcase.js", bundled: false).get()
+        let (window, view) = host("cafe\u{301}\n")
+        let running = Task { await view.run(script, with: LiveScriptRunner()) }
+        // The run has read the note and is waiting on the service.
+        try await Task.sleep(for: .milliseconds(100))
+        recompose(view, at: 3)
+        await running.value
+        #expect(Array(view.string.utf16) == Array("caf\u{E9}\n".utf16), "nothing was applied")
+        #expect(messages.all == ["Slow Upcase finished after the note changed, so its result was not applied."])
+        close(window, view)
+    }
+
     /// A script runs in the service for a moment. Another note loaded
     /// meanwhile is another note even when its text is the same, so the
     /// result made for the first is not shown over it.

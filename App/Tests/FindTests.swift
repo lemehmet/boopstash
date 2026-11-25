@@ -356,6 +356,24 @@ struct FindTests {
         host.close()
     }
 
+    /// A note that became a canonically equal text while its matches were
+    /// found is a changed note (#266): the ranges were for the other one.
+    @Test func replaceAllLeavesANoteThatBecameACanonicallyEqualTextAlone() async throws {
+        let host = Host("e\u{301} x x")
+        var messages: [String] = []
+        host.view.showMessage = { messages.append($0) }
+        host.view.find.show(replace: true)
+        host.view.find.setQueryText("x")
+        host.view.find.setReplacement("y")
+        #expect(try await matches(of: host, 2))
+        host.view.find.replaceAll()
+        host.view.insertText("\u{E9}", replacementRange: NSRange(location: 0, length: 2))
+        #expect(try await eventually { !messages.isEmpty })
+        #expect(Array(host.view.string.utf16) == Array("\u{E9} x x".utf16), "nothing was replaced")
+        #expect(messages == ["The note changed while its matches were being replaced, so it was left as it is."])
+        host.close()
+    }
+
     @Test func aLineBreakInTheQueryFieldStepsBack() async throws {
         let host = Host("q q q")
         host.view.setSelectedRange(NSRange(location: 2, length: 1))
