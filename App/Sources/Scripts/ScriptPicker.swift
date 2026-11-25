@@ -3,7 +3,8 @@ import SwiftUI
 
 /// Scripts ▸ Run Script… (⌘B, as in Boop): type to filter, ↑ and ↓ to
 /// choose, Return to run on the selection or the whole note, Escape to
-/// close.
+/// close. Opened by Run Script with Preview… (⌥⌘B), the choice's result is
+/// shown as a diff to keep or discard (#245).
 struct ScriptPicker: View {
     @Bindable var model: AppModel
     /// The editor this picker runs in, fixed when it opened.
@@ -19,7 +20,7 @@ struct ScriptPicker: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            TextField("Run a script…", text: $query)
+            TextField(target.preview ? "Run a script with preview…" : "Run a script…", text: $query)
                 .textFieldStyle(.plain)
                 .font(.title3)
                 .padding(12)
@@ -93,6 +94,14 @@ struct ScriptCommands: Commands {
             }
             .keyboardShortcut("b")
             .disabled(!(model?.editorHasFocus ?? false) || picker == nil)
+            Button("Run Script with Preview…") {
+                if let model, let editor = model.keyEditor() {
+                    model.reloadScripts()
+                    picker?.wrappedValue = PickerTarget(editor: editor, preview: true)
+                }
+            }
+            .keyboardShortcut("b", modifiers: [.command, .option])
+            .disabled(!(model?.editorHasFocus ?? false) || picker == nil)
             Button("Run Last Script") { model?.runLastScript() }
                 .keyboardShortcut("b", modifiers: [.command, .shift])
                 .disabled(!(model?.editorHasFocus ?? false) || model?.lastScript == nil)
@@ -103,14 +112,20 @@ struct ScriptCommands: Commands {
 /// A window's open picker and the editor it runs in. Set opens the sheet.
 final class PickerTarget: Identifiable {
     weak var editor: BoopTextView?
-    init(editor: BoopTextView) { self.editor = editor }
+    /// Show the result as a diff to keep or discard, not apply it (#245).
+    let preview: Bool
+
+    init(editor: BoopTextView, preview: Bool = false) {
+        self.editor = editor
+        self.preview = preview
+    }
 
     /// Runs the picker's choice in its own editor, whatever window is key
     /// now (#85).
     @MainActor
     func run(_ script: BoopScript, with model: AppModel) {
         guard let editor else { return }
-        model.run(script, in: editor)
+        model.run(script, in: editor, preview: preview)
     }
 }
 

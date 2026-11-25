@@ -169,9 +169,11 @@ final class AppModel {
         return editor
     }
 
-    func run(_ script: BoopScript, in editor: BoopTextView) {
+    /// With `preview` the script's result is shown as a diff to keep or
+    /// discard (#245) and not applied at once.
+    func run(_ script: BoopScript, in editor: BoopTextView, preview: Bool = false) {
         lastScript = script
-        Task { await editor.run(script, with: scriptRunner) }
+        Task { await editor.run(script, with: scriptRunner, preview: preview) }
     }
 
     func runLastScript() {
