@@ -132,8 +132,9 @@ def release_notes(metadata)
 end
 
 # What the App Store build may claim: the same as the Developer ID release
-# (ADR 0008, 0009), the script service the sandbox alone (ADR 0007), and
-# the command the sandbox and the App Group (ADR 0009). Checked
+# (ADR 0008, 0009), the script service the sandbox alone (ADR 0007), the
+# model helper the sandbox and the outgoing-network key alone (ADR 0014),
+# and the command the sandbox and the App Group (ADR 0009). Checked
 # before anything is uploaded.
 def check_entitlements!(pkg)
   root = Dir.mktmpdir
@@ -153,6 +154,12 @@ def check_entitlements!(pkg)
       "com.apple.developer.team-identifier" => team
     },
     File.join(app, "Contents/XPCServices/BoopStashScripts.xpc") => { "com.apple.security.app-sandbox" => true },
+    # The model helper (ADR 0014): the only product with a network key, and
+    # with nothing else beside the sandbox.
+    File.join(app, "Contents/XPCServices/BoopStashModel.xpc") => {
+      "com.apple.security.app-sandbox" => true,
+      "com.apple.security.network.client" => true
+    },
     # The `boopstash` command (ADR 0009).
     File.join(app, "Contents/Helpers/boopstash") => {
       "com.apple.security.app-sandbox" => true,
@@ -180,6 +187,8 @@ def check_entitlements!(pkg)
   unless groups.include?("#{team}.*") || groups.include?("A658882T2K.com.lemehmet.boopstash")
     UI.user_error!("the provisioning profile does not authorise the App Group (#{groups}); regenerate it")
   end
+  # ADR 0014 from the other side: no other product has a network key.
+  sh("../packaging/release/check-network-boundary.sh", "--app", app)
   UI.success("entitlements checked")
 ensure
   FileUtils.rm_rf(root) if root

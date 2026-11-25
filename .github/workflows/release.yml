@@ -234,6 +234,26 @@ jobs:
           if actual != expected:
               sys.exit(f"::error::script service entitlements are {actual}, expected {expected}")
           PY
+          # The model helper (ADR 0014) is the only product that may reach the
+          # network: the sandbox and the outgoing-network key, and nothing
+          # else. No App Group, so it cannot open the notes' container.
+          model="$app/Contents/XPCServices/BoopStashModel.xpc"
+          [ -d "$model" ] || { echo "::error::the model helper is missing"; exit 1; }
+          model_details="$(codesign -dvv "$model" 2>&1)"
+          echo "$model_details" | grep -Eq "flags=0x[0-9a-f]+\([^)]*runtime" || { echo "::error::the model helper has no hardened runtime"; exit 1; }
+          echo "$model_details" | grep -q "^Identifier=com.lemehmet.boopstash.model$" || { echo "::error::the model helper has the wrong identifier"; exit 1; }
+          codesign -d --entitlements - --xml "$model" 2>/dev/null | plutil -convert json -o - - > "$RUNNER_TEMP/model-entitlements.json"
+          python3 - "$RUNNER_TEMP/model-entitlements.json" <<'PY'
+          import json, sys
+          actual = json.load(open(sys.argv[1]))
+          expected = {"com.apple.security.app-sandbox": True, "com.apple.security.network.client": True}
+          if actual != expected:
+              sys.exit(f"::error::model helper entitlements are {actual}, expected {expected}")
+          PY
+          # The same rule from the other side: no other signed product has a
+          # network key, no source outside the helper makes a request, and
+          # plain HTTP is allowed for local addresses only, in the helper only.
+          packaging/release/check-network-boundary.sh --app "$app"
           # The `boopstash` command (ADR 0009): signed like the app, with the
           # sandbox and the App Group only.
           helper="$app/Contents/Helpers/boopstash"

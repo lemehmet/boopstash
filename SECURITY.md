@@ -36,12 +36,52 @@ around that, and each point is enforceable rather than aspirational:
   open panel, which is how export works and how Install Command Line Tool…
   links the `boopstash` command into a folder on your `PATH`. It cannot read
   or write anything else on disk.
-- **No network access except your iCloud.** There is no network-client
-  entitlement. No analytics, no crash reporting service, no update checks. The
-  only remote endpoint is the private database of the app's iCloud container,
-  under your Apple Account, reached through the system's iCloud service. The
-  app does not contact it, or check your account, until you turn on Sync with
-  iCloud, which is off by default.
+- **No network access except your iCloud and a model endpoint you configure
+  yourself.** No analytics, no crash reporting service, no update checks. The
+  app itself has no network-client entitlement. One remote endpoint is the
+  private database of the app's iCloud container, under your Apple Account,
+  reached through the system's iCloud service. The app does not contact it, or
+  check your account, until you turn on Sync with iCloud, which is off by
+  default. The other is described next, and is off by default too.
+- **A model you run yourself, if you set one up (ADR 0014).** Settings ▸
+  Model takes the address of an OpenAI-compatible model endpoint, on your Mac,
+  on your network or wherever you say. It is empty by default; while it is
+  empty the feature does not exist, no helper process is started and no
+  request is made. BoopStash picks no service, ships no key and recommends no
+  provider.
+  - *When a request is made.* Only when you press Generate in the script
+    workbench, or enter the address or press Refresh or Test in Settings, and
+    only to the address you typed. Nothing at launch, in the background or on
+    a timer. A redirect to another host is not followed.
+  - *What a request carries.* Your instruction, the sample of the note the
+    workbench shows under What Is Sent before you press Generate, and any
+    lines you marked as examples; BoopStash's own fixed prompt; the model's
+    name; the generation settings; the extra request fields you entered; and
+    your API key, if you set one, as the `Authorization` header. Nothing else
+    of the note, no other note, no title, and nothing that identifies you or
+    your Mac: the other headers are fixed (`User-Agent: BoopStash`, without a
+    version) and there are no cookies. Refresh sends the key and nothing
+    else. Test sends an instruction and a two-line sample of BoopStash's own,
+    none of your text.
+  - *Which process makes it.* A separate sandboxed helper
+    (`Contents/XPCServices/BoopStashModel.xpc`), whose entitlements are the
+    sandbox and the outgoing-network key and nothing else
+    (`App/ModelService.entitlements`). It has no App Group, so the container
+    your notes live in is closed to it, and it calls no Keychain API. The app,
+    which holds the notes, still cannot reach the network. The release check
+    refuses a build in which the app has a network entitlement or the helper
+    has any other.
+  - *The key.* The app keeps it in the Keychain, for the endpoint it was
+    entered for, and passes it with each request. It is never written to a
+    note, a log, the settings file or a problem report.
+  - *Where it goes is your decision.* Any host you type is allowed. A warning
+    mark beside Generate and beside the address in Settings says what is sent
+    and to which host; when the host is not your Mac or your local network,
+    the mark is the stronger one and says the text leaves your local network.
+    Plain `http://` is accepted for local addresses only.
+  - *The reply is untrusted text.* It goes into the workbench's editor and
+    runs only when you run it, in the script sandbox above; nothing reaches
+    the note without the diff review.
 - **Problem reports are ordinary notes, sent to no one.** Help ▸ Report a
   Problem… makes an ordinary note, labelled `bug`, with the app's version and settings, counts
   and IDs describing what was on screen (never the text or title of a note),
@@ -61,8 +101,11 @@ around that, and each point is enforceable rather than aspirational:
 - **Password-manager content is refused.** Pasteboard items marked as concealed
   or transient (`org.nspasteboard.ConcealedType`,
   `org.nspasteboard.TransientType`) are not stored.
-- **AI runs on-device.** Apple's Foundation Models, NaturalLanguage and Vision
-  frameworks only.
+- **AI runs on-device, except a model you point it at.** Titles, search by
+  meaning and text in images use Apple's Foundation Models, NaturalLanguage
+  and Vision frameworks and a bundled model, on the device only. The one
+  exception is the script workbench's Generate, with the endpoint you
+  configured, as above.
 - **The markdown preview fetches nothing.** Remote images and resources are
   blocked by default.
 - **Scripts run without network or file access.** Boop-compatible scripts run in

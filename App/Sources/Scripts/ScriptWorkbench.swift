@@ -50,10 +50,18 @@ final class ScriptWorkbenchSession {
     /// The save `saveQuestion` asks about. A yes is a yes to this plan
     /// and to no other the folder may have turned it into since.
     @ObservationIgnored private var askedPlan: ScriptSave.Plan?
-    /// Where Generate would send a request. Nil, as it always is until a
-    /// generator exists, means no prompt field and no Generate button.
+    /// Where Generate would send a request. Nil with no generator, with
+    /// nothing configured, and with one that cannot be used now.
     private(set) var destination: ScriptGeneratorDestination?
+    /// Why a generator that is set up cannot be used now: Generate is
+    /// shown disabled, with this. Nil when nothing is set up, which shows
+    /// no prompt field at all.
+    private(set) var unavailableReason: String?
     var instruction = ""
+    /// Lines of the text the user marked as examples for the generator.
+    private(set) var examples: [ScriptExample] = []
+    /// Why a line could not be marked.
+    private(set) var exampleProblem: String?
     private(set) var isGenerating = false
     /// What the script runs on, in words.
     private(set) var target: String
@@ -88,7 +96,7 @@ final class ScriptWorkbenchSession {
     ///   - scripts: the library, for starting points and name clashes.
     ///   - folder: the user's Scripts folder, where Save as Script writes.
     ///   - runner: the script service.
-    ///   - generator: nil until one exists (#269).
+    ///   - generator: what writes a draft (ADR 0014), or nil for none.
     ///   - onSaved: a script was written to the folder.
     ///   - onClose: the sheet closed; its script, to offer again next time.
     init(editor: BoopTextView, script: String, scripts: [BoopScript], folder: URL?,
@@ -294,35 +302,88 @@ final class ScriptWorkbenchSession {
         saveQuestion = plan?.question(name: name)
     }
 
-    // MARK: Generate (the seam; no generator ships, #269)
+    // MARK: Generate (ADR 0014)
 
     /// Asks the generator, if there is one, whether it can be used,
     /// without waiting for the answer: a generator that is slow to say
     /// delays the prompt row and nothing else. An answer that comes after
-    /// the sheet closed is dropped.
+    /// the sheet closed is dropped. Asking sends nothing anywhere.
     private func checkAvailability() {
         guard let generator, checking == nil, !isClosed else { return }
         checking = Task { [weak self] in
             let availability = await generator.availability()
             guard let self, !self.isClosed else { return }
             self.destination = ScriptGeneration.destination(availability)
+            self.unavailableReason = ScriptGeneration.unavailableReason(availability)
         }
     }
 
     /// The availability check in flight or done, for tests to wait on.
     var availabilityCheck: Task<Void, Never>? { checking }
 
-    /// Asks the generator for a draft from the instruction and a bounded
-    /// sample of what the script would run on. The draft replaces the
-    /// editor's text and does not run.
-    func generate() {
-        guard let generator, destination != nil, generating == nil, !isClosed, let editor else { return }
+    /// Asks again whether the generator can be used, after it could not:
+    /// the user changed something in Settings, or the model is back.
+    func checkAgain() {
+        guard !isGenerating, !isClosed else { return }
+        checking?.cancel()
+        checking = nil
+        checkAvailability()
+    }
+
+    /// The text the script would run on, which is what a sample and the
+    /// examples are taken from: the selection, or the whole note.
+    var generationTarget: String {
+        guard let editor else { return "" }
         let states = ScriptEdits.states(fullText: editor.string, selections: editor.selectedRanges.map(\.rangeValue))
-        let target = states.first?.text ?? ""
+        return states.first?.text ?? ""
+    }
+
+    /// The sample Generate would send now, with this instruction and
+    /// these examples: what the sheet shows under What Is Sent, and
+    /// exactly what `generate` sends.
+    var sampleToSend: ScriptSample? {
+        guard let destination else { return nil }
+        return destination.allowance.sample(of: generationTarget, instruction: instruction, examples: examples)
+    }
+
+    /// Marks line `line` of the text as an example.
+    func markExample(line: Int) {
+        switch ScriptExamples.marking(line: line, of: generationTarget, in: examples) {
+        case .success(let marked):
+            examples = marked
+            exampleProblem = nil
+        case .failure(let refusal):
+            exampleProblem = refusal.reason
+        }
+    }
+
+    func unmarkExample(line: Int) {
+        examples.removeAll { $0.line == line }
+        exampleProblem = nil
+    }
+
+    /// What the marked line should become; empty for "just handle it".
+    func setExpected(_ expected: String, forExampleAt line: Int) {
+        guard let index = examples.firstIndex(where: { $0.line == line }) else { return }
+        examples[index].expected = expected
+    }
+
+    /// Asks the generator for a draft from the instruction, the marked
+    /// examples and a bounded sample of what the script would run on.
+    /// The draft replaces the editor's text and does not run.
+    func generate() {
+        guard let generator, let destination, generating == nil, !isClosed, editor != nil else { return }
+        let target = generationTarget
+        // Examples are lines of the text as it is now; one whose line has
+        // changed since it was marked is not sent.
+        let lines = ScriptExamples.lines(of: target)
+        examples.removeAll { $0.line > lines.count || lines[$0.line - 1] != $0.text }
+        let examples = examples
         let instruction = instruction
         isGenerating = true
         generating = Task { [weak self] in
-            let answer = await ScriptGeneration.run(generator, instruction: instruction, target: target)
+            let answer = await ScriptGeneration.run(generator, instruction: instruction, target: target,
+                                                    examples: examples, allowance: destination.allowance)
             guard let self else { return }
             self.generating = nil
             self.isGenerating = false
@@ -334,6 +395,13 @@ final class ScriptWorkbenchSession {
                 self.notice = Notice(isError: false, text: "A draft is in the editor and has not run. Read it, then choose Run.")
             case .failure(let failure):
                 if let message = failure.message { self.notice = Notice(isError: true, text: message) }
+                // A generator that cannot be used now (the model is not
+                // reachable) has Generate disabled, with the reason,
+                // until it is asked again.
+                if case .unavailable(let reason) = failure {
+                    self.destination = nil
+                    self.unavailableReason = reason
+                }
             }
         }
     }

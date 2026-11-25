@@ -10,7 +10,9 @@
     notes, so the bundled `boopstash` command can reach them (ADR 0009).
   Builds that embed a provisioning profile use BoopstashCloud.entitlements,
   which adds iCloud for sync (ADR 0008). There is deliberately no
-  network-client entitlement.
+  network-client entitlement: the one request the app can cause, to a model
+  endpoint the user configured, is made by the model helper, which has that
+  key and no way to the notes (App/ModelService.entitlements, ADR 0014).
 -->
 <plist version="1.0">
 <dict>

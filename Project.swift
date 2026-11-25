@@ -78,6 +78,10 @@ let syntaxPackages: [Package] =
     + grammars.map { .remote(url: $0.url, requirement: $0.requirement) }
 let syntaxProducts = ["SwiftTreeSitter"] + grammars.flatMap(\.products)
 
+// Why macOS asks for Local Network access (ADR 0014), in the app's
+// Info.plist and the model helper's.
+let localNetworkUsage = "BoopStash reaches a language model on your local network only if you set one up in Settings ▸ Model, and only to draft a script when you choose Generate."
+
 let project = Project(
     name: "Boopstash",
     options: .options(
@@ -121,7 +125,10 @@ let project = Project(
             bundleId: "\(appBundleId).core.tests",
             deploymentTargets: macDeployment,
             infoPlist: .default,
-            sources: ["Core/Tests/**"],
+            // The model helper's client (ADR 0014) is compiled into these
+            // tests too, which answer its requests themselves: the app's
+            // hosted tests are sandboxed without a network, as the app is.
+            sources: ["Core/Tests/**", "App/ModelService/ModelClient.swift"],
             dependencies: [.target(name: "BoopstashCore")]
         ),
         .target(
@@ -157,6 +164,10 @@ let project = Project(
                         "NSRequiredContext": [:],
                     ],
                 ],
+                // Asked by macOS the first time the model helper reaches a
+                // model on the local network (ADR 0014). The app itself
+                // makes no request; the question is put in its name.
+                "NSLocalNetworkUsageDescription": .string(localNetworkUsage),
             ]),
             // The semantic search model (#157), compiled by Xcode.
             sources: ["App/Sources/**", "App/Shared/**", "App/Adapters/**", "App/SharedViews/**", "Vendor/MiniLM/MiniLM.mlpackage"],
@@ -185,7 +196,7 @@ let project = Project(
                     basedOnDependencyAnalysis: true
                 ),
             ],
-            dependencies: [.target(name: "BoopstashCore"), .target(name: "BoopStashScripts"), .target(name: "BoopStashCLI")],
+            dependencies: [.target(name: "BoopstashCore"), .target(name: "BoopStashScripts"), .target(name: "BoopStashModel"), .target(name: "BoopStashCLI")],
             // Notarization requires the hardened runtime; every build has it
             // so what is tested is what ships (ADR 0004).
             settings: .settings(base: [
@@ -317,6 +328,33 @@ let project = Project(
                 "App/ScriptService/WasmHost.js",
             ],
             entitlements: .file(path: "App/ScriptService.entitlements"),
+            dependencies: [.target(name: "BoopstashCore")],
+            settings: .settings(base: [
+                "ENABLE_HARDENED_RUNTIME": "YES",
+                // BoopstashCore is embedded once, in the app's Frameworks.
+                "LD_RUNPATH_SEARCH_PATHS": "$(inherited) @executable_path/../../../../Frameworks",
+            ])
+        ),
+        // Makes the request to a model endpoint the user configured, in its
+        // own sandboxed process: the only target with the outgoing-network
+        // entitlement, and with no way to the notes (ADR 0014).
+        .target(
+            name: "BoopStashModel",
+            destinations: .macOS,
+            product: .xpc,
+            bundleId: "\(appBundleId).model",
+            deploymentTargets: macDeployment,
+            infoPlist: .extendingDefault(with: [
+                "CFBundleShortVersionString": "$(MARKETING_VERSION)",
+                "CFBundleVersion": "$(CURRENT_PROJECT_VERSION)",
+                "XPCService": ["ServiceType": "Application"],
+                // Plain HTTP for a model on this Mac or the local network
+                // only; every other host needs HTTPS.
+                "NSAppTransportSecurity": ["NSAllowsLocalNetworking": true],
+                "NSLocalNetworkUsageDescription": .string(localNetworkUsage),
+            ]),
+            sources: ["App/ModelService/**", "App/Shared/ModelServiceProtocol.swift"],
+            entitlements: .file(path: "App/ModelService.entitlements"),
             dependencies: [.target(name: "BoopstashCore")],
             settings: .settings(base: [
                 "ENABLE_HARDENED_RUNTIME": "YES",

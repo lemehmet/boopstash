@@ -39,6 +39,15 @@ jobs:
           bash packaging/release/test-release-notes.sh
           packaging/release/release-notes.sh verify
 
+      # ADR 0014: only the model helper may reach the network. The check's
+      # own tests, then the repository: no other entitlements file has a
+      # network key, the helper's has the sandbox and the outgoing one and
+      # nothing else, and no code outside the helper makes a request.
+      - name: Network boundary
+        run: |
+          bash packaging/release/test-check-network-boundary.sh
+          packaging/release/check-network-boundary.sh
+
       - name: Xcode
         run: |
           xcodebuild -version
