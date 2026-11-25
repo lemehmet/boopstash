@@ -103,6 +103,17 @@ struct FormatDocumentTests {
         window.close()
     }
 
+    /// A formatter's result that differs from its source only in how a
+    /// character is encoded is a change, as a script's is (#266).
+    @Test func aFormatThatOnlyChangesTheEncodingIsApplied() async {
+        let (window, view) = host("{\"a\":\"e\u{301}\"}", .json)
+        view.formatter = { _, _, _, _ in .success("{\"a\":\"\u{E9}\"}") }
+        await view.format(style: .standard).value
+        #expect(Array(view.string.utf16) == Array("{\"a\":\"\u{E9}\"}".utf16))
+        #expect(view.undoManager?.undoActionName == "Format")
+        window.close()
+    }
+
     /// The editor is reused across notes: a format started on one note is
     /// not applied to the next, even when its text is the same.
     @Test func aFormatIsNotAppliedToTheNextNote() async {

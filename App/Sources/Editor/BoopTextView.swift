@@ -724,7 +724,7 @@ final class BoopTextView: NSTextView {
                     // Sorting moves keys, so no character keeps its place; the
                     // caret goes to the start rather than onto some other key.
                     let caret = !whole || style == .sortedKeys ? 0 : DocumentFormatter.caret(selection.location, from: snapshot, to: text)
-                    return Formatted(text: text, unchanged: text == source, caret: caret)
+                    return Formatted(text: text, unchanged: TextDiff.identical(text, source), caret: caret)
                 }
             }
             let result = await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
