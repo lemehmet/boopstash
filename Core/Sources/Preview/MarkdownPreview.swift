@@ -129,6 +129,12 @@ struct BlockBuilder {
     var codeBlocks: [(path: [Int], code: String, language: String?)] = []
     private var path: [Int] = []
 
+    /// Written out: with a private property, older compilers make the
+    /// memberwise initializer private too.
+    init(linkBase: URL? = nil) {
+        self.linkBase = linkBase
+    }
+
     mutating func blocks(_ children: some Sequence<Markup>) -> [PreviewBlock] {
         var out: [PreviewBlock] = []
         for child in children {
