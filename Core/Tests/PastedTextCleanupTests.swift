@@ -47,8 +47,16 @@ import Testing
         #expect(PastedTextCleanup.removingEscapeCodes(text) == text)
     }
 
-    @Test func aSequenceUncoveredByARemovalGoesToo() {
-        #expect(PastedTextCleanup.removingEscapeCodes("\u{1B}\u{1B}[0m[1mx") == "x")
+    /// An ESC or a one-character CSI that starts no sequence is removed
+    /// alone, and what follows it stays.
+    @Test func aStrayEscapeIsRemovedAlone() {
+        #expect(PastedTextCleanup.removingEscapeCodes("a\u{1B} │ b\u{1B}") == "a │ b")
+        #expect(PastedTextCleanup.removingEscapeCodes("a\u{9B} │ \u{9B}3 é") == "a │ 3 é")
+    }
+
+    /// The text a removal leaves next to a stray ESC was never a sequence.
+    @Test func whatARemovalUncoversIsText() {
+        #expect(PastedTextCleanup.removingEscapeCodes("\u{1B}\u{1B}[0m[1mx") == "[1mx")
     }
 
     // MARK: Indent
@@ -204,6 +212,30 @@ import Testing
         #expect(clean(table) == "| item | qty |\n| --- | --- |\n| ant | 1 |\n| bee | 2 |\n| all | 3 |")
     }
 
+    /// A body above a totals rule: a row with a name and no value is a
+    /// row, not the rest of the one above.
+    @Test func aRowWithAnEmptyCellAboveATotalsRuleStaysARow() {
+        let table = """
+        +------+-----+
+        | item | qty |
+        +------+-----+
+        | ant  | 1   |
+        | bee  |     |
+        +------+-----+
+        | all  | 1   |
+        +------+-----+
+        """
+        #expect(clean(table) == "| item | qty |\n| --- | --- |\n| ant | 1 |\n| bee |  |\n| all | 1 |")
+    }
+
+    @Test func anEmptyRowBetweenRowsStaysAndPaddingGoes() {
+        let table = "+---+---+\n| a | b |\n+---+---+\n|   |   |\n| c | d |\n|   |   |\n+---+---+"
+        #expect(clean(table) == "| a | b |\n| --- | --- |\n|  |  |\n| c | d |")
+        // An empty row is not evidence of a table.
+        let box = "+---+---+\n| a | b |\n|   |   |\n+---+---+"
+        #expect(clean(box) == box)
+    }
+
     @Test func aPipeInACellIsEscaped() {
         let table = "┌─────┬────────┐\n│ op  │ means  │\n├─────┼────────┤\n│ a|b │ a or b │\n└─────┴────────┘"
         #expect(clean(table) == "| op | means |\n| --- | --- |\n| a\\|b | a or b |")
@@ -263,6 +295,14 @@ import Testing
         "cat x | sort | uniq\ngrep a | wc -l\n",
         "---\ntitle: x\n---\n",
         "--- a/file\n+++ b/file\n+--\n-| a | b |\n",
+        // A diff that adds or removes a table, Markdown or ruled.
+        "+---\n+| a | b |\n+| --- | --- |\n+| c | d |\n",
+        "+---\n+| a | b |\n+| c | d |\n",
+        "++---+---+\n+| a | b |\n+| c | d |\n++---+---+\n",
+        "-+---+---+\n-| a | b |\n-| c | d |\n-+---+---+\n",
+        "+ a | b\n+---+---\n+ c | d\n",
+        // A line with a pipe straight above a table's border.
+        "see a | b | c\n----+----\n c | d\n e | f\n",
     ])
     func whatIsNotConvincinglyATableIsLeftAlone(_ text: String) {
         #expect(clean(text) == text)
@@ -289,6 +329,10 @@ import Testing
         " Name | Count\n------+-------\n ant  |     1\n      |    22\n",
         "Counts:\n  ┌───┬───┐\n  │ a │ b │\n  │ c │ d │\n  └───┴───┘\n",
         "\tone  \n\t\ttwo\t\n",
+        // A stray ESC or CSI at a cell's end must not become a sequence
+        // once the Markdown row puts ` |` after it.
+        "│ a\u{1B} │ b │\n├───┼───┤\n│ c\u{9B} │ d\u{1B}[3 │\n└───┴───┘\n",
+        "+---+---+\n| a | b |\n+---+---+\n|   |   |\n| c | d |\n+---+---+\n",
         // A box table straight above an ASCII border: the Markdown rows
         // must not be read as that border's table the second time.
         "┌───┬───┐\n│ a │ b │\n│ c │ d │\n└───┴───┘\n+---+---+\n",

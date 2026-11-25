@@ -77,25 +77,23 @@ public enum PastedTextCleanup {
     /// ANSI escape sequences: OSC (a window title or a hyperlink, up to its
     /// BEL or ST, never past the line), CSI (colours, cursor movement), and
     /// the two- and three-character escapes (charset selection, save and
-    /// restore cursor).
+    /// restore cursor). An ESC or a one-character CSI that starts none of
+    /// these goes on its own: it is a control character, never text, and
+    /// left in place it could become a sequence once a later pass writes
+    /// after it (a table's ` |`), so cleaning twice would differ.
     static let escapeCodes = try! NSRegularExpression(pattern: [
         #"\x1B\][^\x07\x1B\r\n]*(?:\x07|\x1B\\)"#,
         #"\x1B\[[0-?]*[ -/]*[@-~]"#,
         #"\u009B[0-?]*[ -/]*[@-~]"#,
         #"\x1B[ -/]*[0-~]"#,
+        #"[\x1B\u009B]"#,
     ].joined(separator: "|"))
 
     /// Removes ANSI escape sequences, everywhere: they are never text.
     public static func removingEscapeCodes(_ text: String) -> String {
-        var text = text
-        // Until nothing is left: removing a sequence can put a stray ESC
-        // next to what then reads as one.
-        while true {
-            let ns = text as NSString
-            let stripped = escapeCodes.stringByReplacingMatches(in: text, range: NSRange(location: 0, length: ns.length), withTemplate: "")
-            if stripped == text { return text }
-            text = stripped
-        }
+        // One pass leaves no ESC and no CSI character behind, so nothing
+        // can read as a sequence afterwards.
+        escapeCodes.stringByReplacingMatches(in: text, range: NSRange(location: 0, length: (text as NSString).length), withTemplate: "")
     }
 
     // MARK: - Indent
@@ -251,6 +249,7 @@ public enum PastedTextCleanup {
         guard !kinds.contains(.markdownRule), kinds.contains(where: \.isBorder) else { return nil }
         let separators: Set<Character> = box ? boxVerticals : ["|"]
         let rowTexts = zip(block, kinds).map { $1.isBorder ? nil : $0.content.trimmingCharacters(in: .whitespaces) }
+        let borderTexts = zip(block, kinds).compactMap { $1.isBorder ? $0.content.trimmingCharacters(in: .whitespaces) : nil }
         // Rows closed at both ends lose the empty pieces outside the outer
         // separators; psql's open rows keep every piece.
         let closed = rowTexts.compactMap { $0 }.allSatisfy { row in
@@ -260,6 +259,17 @@ public enum PastedTextCleanup {
             var pieces = row.split(omittingEmptySubsequences: false, whereSeparator: { separators.contains($0) })
             if closed { pieces = Array(pieces.dropFirst().dropLast()) }
             return pieces.map { $0.trimmingCharacters(in: .whitespaces) }
+        }
+        if !box {
+            // An ASCII border has a `+` wherever the rows have a `|`. Rows
+            // open at the ends (psql) go with a border open at the ends,
+            // `----+----`; under `+---+` a row that is not closed is a
+            // line of something else, such as a diff's `+| a | b |`, and
+            // so is a first row whose `|` do not match the border's `+`.
+            let openBorders = borderTexts.allSatisfy { $0.first != "+" && $0.last != "+" }
+            guard closed || openBorders else { return nil }
+            let columns = rowTexts.compactMap { $0 }.first?.count(where: { $0 == "|" })
+            guard borderTexts.allSatisfy({ $0.count(where: { $0 == "+" }) == columns }) else { return nil }
         }
         // The rows between one border and the next.
         var segments: [[[String]]] = [[]]
@@ -280,18 +290,25 @@ public enum PastedTextCleanup {
             // With a border under it, the first segment is the header,
             // however many lines it wraps over. In a table ruled between
             // every row (three segments or more), a segment whose later
-            // lines each leave a cell empty is one row with a wrapped cell;
-            // otherwise each line is a row of its own, as in the body under
-            // a header rule, where an empty cell is just an empty cell.
-            let wrapped = segments.count >= 3 && segment.dropFirst().allSatisfy { $0.contains(where: \.isEmpty) }
+            // lines each start with an empty cell is one row with a wrapped
+            // cell; otherwise each line is a row of its own, as in the body
+            // under a header rule, where an empty cell is just an empty
+            // cell, or in a body above a totals rule, where a row with a
+            // name and no value is a row.
+            let wrapped = segments.count >= 3 && segment.dropFirst().allSatisfy { $0.first?.isEmpty == true }
             if segments.count > 1, number == 0 || wrapped {
                 rows.append(merged(segment))
             } else {
                 rows.append(contentsOf: segment)
             }
         }
-        rows.removeAll { $0.allSatisfy(\.isEmpty) }
-        guard rows.count >= 2, rows[0].count >= 2 else { return nil }
+        // Empty lines above the first row and below the last are a box's
+        // padding; an empty row between two others is a row and stays.
+        func isEmpty(_ row: [String]) -> Bool { row.allSatisfy(\.isEmpty) }
+        rows = Array(rows.drop(while: isEmpty))
+        while let last = rows.last, isEmpty(last) { rows.removeLast() }
+        // Only rows with text count as evidence of a table.
+        guard rows.count(where: { !isEmpty($0) }) >= 2, rows[0].count >= 2 else { return nil }
 
         let width = rows.map(\.count).max() ?? 0
         // The indent the whole block shares stays in front of every row.

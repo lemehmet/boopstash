@@ -13,8 +13,9 @@ breaking changes may land in a minor release.
   agent's window: box-drawing and ASCII tables become Markdown tables, the
   indent every line shares and trailing spaces go, and so do ANSI colour
   and cursor codes. It works on the selection, or on the whole note when
-  nothing is selected, as one undo step. Code fences keep their contents,
-  and text with nothing to clean is left untouched.
+  nothing is selected, as one undo step. A table inside a code fence is
+  left as it is (the fence still loses the shared indent, trailing spaces
+  and escape codes), and text with nothing to clean is left untouched.
 - **Copy the text in an image (#243).** On the Mac, right-click an image
   in the editor (or select it and use the Edit menu) for Copy Text from
   Image, or Insert Text Below to put the text into the note under the
