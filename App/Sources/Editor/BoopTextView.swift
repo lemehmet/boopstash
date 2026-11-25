@@ -420,14 +420,20 @@ final class BoopTextView: NSTextView {
     /// edit named after the script; what the script posts goes to the
     /// banner. If the note changed while the script ran, the result is
     /// dropped rather than written over the newer text.
-    func run(_ script: BoopScript, with runner: LiveScriptRunner) async {
+    ///
+    /// With `preview` the result is not applied: it is shown as a diff
+    /// (#245), and applied only when Keep is chosen there.
+    func run(_ script: BoopScript, with runner: LiveScriptRunner, preview: Bool = false) async {
         // A built-in command (#244) is Swift in Core, not a script.
         if let command = script.builtIn {
-            await run(command).value
+            await run(command, preview: preview).value
             return
         }
         let fullText = string
         let selections = selectedRanges.map(\.rangeValue)
+        // Another note loaded while the script runs is another note even
+        // when its text is the same.
+        let generation = documentGeneration
         let request = ScriptRequest(scriptName: script.name, source: script.source,
                                     states: ScriptEdits.states(fullText: fullText, selections: selections))
         let started = Date()
@@ -450,12 +456,119 @@ final class BoopTextView: NSTextView {
             showMessage?("\(script.name) finished after its note was closed, so its result was not applied.")
             return
         }
-        guard string == fullText else {
+        guard documentGeneration == generation, string == fullText else {
             showMessage?("\(script.name) finished after the note changed, so its result was not applied.")
             return
         }
         guard let edits = ScriptEdits.replacements(fullText: fullText, selections: selections, response: response) else { return }
-        apply(edits, actionName: script.name)
+        if preview {
+            await review(edits, of: fullText, named: script.name, generation: generation).value
+        } else {
+            apply(edits, actionName: script.name)
+        }
+    }
+
+    // MARK: - Review before applying
+
+    /// Shows what `edits` would do to the note as a diff, on a sheet, and
+    /// applies them only if Keep is chosen (#245). The note is untouched
+    /// until then, and stays untouched on Discard. When the edits change
+    /// nothing there is nothing to review: no sheet, and the banner says
+    /// so. `snapshot` is the text the edits were made for.
+    ///
+    /// The diff is worked out off the main thread, as a long one takes a
+    /// moment. A sheet on its way out is waited for: the script picker
+    /// that started this is still closing when a fast result arrives.
+    /// The task ends when the sheet is up, or when it is known not to be.
+    ///
+    /// `generation` is the editor's document generation when the edits'
+    /// text was read, for a caller that waited on something since (a
+    /// script running in the service): another note loaded meanwhile is
+    /// another note even with the same text. Without it, now.
+    @discardableResult
+    func review(_ edits: [(NSRange, String)], of snapshot: String, named name: String, generation: Int? = nil) -> Task<Void, Never> {
+        let generation = generation ?? documentGeneration
+        guard documentGeneration == generation, string == snapshot else {
+            showMessage?("\(name) finished after the note changed, so its result was not shown.")
+            return Task {}
+        }
+        // One review at a time.
+        guard pendingReview == nil, !reviewStarting else {
+            NSSound.beep()
+            showMessage?("\(name) could not show its changes while another sheet is open.")
+            return Task {}
+        }
+        reviewStarting = true
+        let wait = reviewSheetWait
+        return Task { [weak self] in
+            let content = await Task.detached(priority: .userInitiated) {
+                DiffReviewContent.make(fullText: snapshot, edits: edits)
+            }.value
+            guard let self else { return }
+            defer { self.reviewStarting = false }
+            guard !content.isEmpty else {
+                self.showMessage?("\(name) would change nothing.")
+                return
+            }
+            let deadline = ContinuousClock.now + wait
+            while self.window?.attachedSheet != nil, ContinuousClock.now < deadline {
+                try? await Task.sleep(for: .milliseconds(25))
+            }
+            guard self.documentGeneration == generation, self.string == snapshot else {
+                self.showMessage?("\(name) finished after the note changed, so its result was not shown.")
+                return
+            }
+            // Never over a sheet that is staying.
+            guard let window = self.window, window.attachedSheet == nil else {
+                NSSound.beep()
+                self.showMessage?("\(name) could not show its changes while another sheet is open.")
+                return
+            }
+            let sheet = DiffReviewPresenter.present(
+                title: name, content: content, over: window,
+                keep: { [weak self] in self?.keepPendingReview() },
+                discard: { [weak self] in self?.discardPendingReview() })
+            self.pendingReview = PendingReview(name: name, edits: edits, snapshot: snapshot, generation: generation,
+                                               content: content, sheet: sheet)
+        }
+    }
+
+    /// Keep: closes the review and applies its edits as one undoable edit
+    /// named after what made them, unless the note is no longer the text
+    /// they were made for; then nothing is applied and the banner says so.
+    func keepPendingReview() {
+        guard let review = endPendingReview() else { return }
+        guard documentGeneration == review.generation, string == review.snapshot else {
+            NSSound.beep()
+            showMessage?("The note changed while \(review.name) was being reviewed, so nothing was applied.")
+            return
+        }
+        apply(review.edits, actionName: review.name)
+    }
+
+    /// Discard, or Escape: closes the review. The note and its undo stack
+    /// are as they were.
+    func discardPendingReview() {
+        endPendingReview()
+    }
+
+    @discardableResult
+    private func endPendingReview(refocus: Bool = true) -> PendingReview? {
+        guard let review = pendingReview else { return nil }
+        pendingReview = nil
+        if let sheet = review.sheet, let parent = sheet.sheetParent {
+            parent.endSheet(sheet)
+        }
+        review.sheet?.orderOut(nil)
+        if refocus { window?.makeFirstResponder(self) }
+        return review
+    }
+
+    /// An editor leaving its window takes its review with it: the sheet
+    /// would otherwise stay on a window whose note it no longer belongs to.
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        if newWindow !== window { endPendingReview(refocus: false) }
+        super.viewWillMove(toWindow: newWindow)
     }
 
     /// Edit ▸ Clean Up Pasted Text (#244), also in the script picker.
@@ -470,7 +583,7 @@ final class BoopTextView: NSTextView {
     /// nothing would change, nothing is applied (the undo stack stays as
     /// it is) and the banner says so.
     @discardableResult
-    func run(_ command: BuiltInCommand) -> Task<Void, Never> {
+    func run(_ command: BuiltInCommand, preview: Bool = false) -> Task<Void, Never> {
         guard isEditable else {
             NSSound.beep()
             return Task {}
@@ -493,7 +606,7 @@ final class BoopTextView: NSTextView {
                 return
             }
             let ns = snapshot as NSString
-            let changed = edits.contains { ns.substring(with: $0.0) != $0.1 }
+            let changed = edits.contains { !TextDiff.identical(ns.substring(with: $0.0), $0.1) }
             Log.editor.info("\(command.rawValue, privacy: .public): \(edits.count) ranges, \(changed ? "changed" : "unchanged", privacy: .public)")
             guard changed else {
                 switch command {
@@ -501,7 +614,11 @@ final class BoopTextView: NSTextView {
                 }
                 return
             }
-            self.apply(edits, actionName: command.name)
+            if preview {
+                await self.review(edits, of: snapshot, named: command.name, generation: generation).value
+            } else {
+                self.apply(edits, actionName: command.name)
+            }
         }
     }
 
@@ -512,7 +629,7 @@ final class BoopTextView: NSTextView {
     func apply(_ edits: [(NSRange, String)], actionName: String, selectingReplacements: Bool = true) {
         let ns = string as NSString
         let edits = edits.sorted { $0.0.location < $1.0.location }
-        let changed = edits.filter { ns.substring(with: $0.0) != $0.1 }
+        let changed = edits.filter { !TextDiff.identical(ns.substring(with: $0.0), $0.1) }
         guard !changed.isEmpty, let storage = textStorage else { return }
         let caret = selectedRange().location
         guard shouldChangeText(inRanges: changed.map { NSValue(range: $0.0) }, replacementStrings: changed.map(\.1)) else { return }
@@ -644,6 +761,24 @@ final class BoopTextView: NSTextView {
     /// Counts loaded documents, so work started for one is not applied to
     /// the next.
     private(set) var documentGeneration = 0
+
+    /// The change being reviewed on a sheet, if any (#245).
+    private(set) var pendingReview: PendingReview?
+    /// A review is on its way to its sheet.
+    private var reviewStarting = false
+    /// How long a review waits for a sheet that is closing before it
+    /// gives up: the picker's own sheet animates out. Tests shorten it.
+    var reviewSheetWait: Duration = .seconds(2)
+
+    struct PendingReview {
+        let name: String
+        let edits: [(NSRange, String)]
+        /// The text the edits were made for.
+        let snapshot: String
+        let generation: Int
+        let content: DiffReviewContent
+        weak var sheet: NSWindow?
+    }
 
     private func apply(_ result: Result<Formatted, FormatError>, range: NSRange, whole: Bool) {
         switch result {

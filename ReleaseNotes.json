@@ -1,6 +1,7 @@
 {
   "appStoreSince": { "mac": "0.3.0", "ios": "0.3.0" },
   "unreleased": [
+    { "on": "mac", "text": "Scripts ▸ Run Script with Preview… (⌥⌘B) shows what a script would change as a diff, to keep or discard." },
     { "on": "mac", "text": "Help ▸ BoopStash Help shows what the app does and how it treats your notes, without going online." },
     { "on": "ios", "text": "Settings ▸ Help shows what the app does and how it treats your notes, without going online." },
     { "on": "mac", "text": "What's New: after an update, BoopStash shows once what changed. The notes stay in Help ▸ What's New and in Settings, and can be copied or saved as a note." },

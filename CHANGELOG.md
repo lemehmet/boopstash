@@ -8,6 +8,16 @@ breaking changes may land in a minor release.
 
 ### New
 
+- **Mac: review a script's changes before keeping them (#245).** Scripts ▸
+  Run Script with Preview… (⌥⌘B) runs the script you pick and shows what
+  it would change as a diff: removed and added lines with a few lines of
+  context, and the words that differ inside a changed line marked. Keep
+  applies the result as one undo step; Discard, or Escape, leaves the note
+  exactly as it was. With a selection, only the selection is diffed. A
+  script that would change nothing shows no sheet and says so, and Keep
+  refuses over a note that changed while the sheet was open. Clean Up
+  Pasted Text can be previewed the same way from the picker. Run Script
+  (⌘B) applies at once, as before.
 - **Help in the app (#254).** Help ▸ BoopStash Help on the Mac, also in
   Settings, and Settings ▸ Help on iOS show the project's README, drawn
   by the note preview. It is the repository's own file, bundled at build
