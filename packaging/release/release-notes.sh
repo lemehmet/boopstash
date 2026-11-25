@@ -5,8 +5,9 @@
 #
 #   release-notes.sh check VERSION     the version has a well-formed, dated entry
 #   release-notes.sh verify            the whole store is well formed, the changelog's
-#                                      newest release has an entry, and fastlane's
-#                                      release_notes.txt files match the store
+#                                      newest release has an entry and is the store's
+#                                      newest, and fastlane's release_notes.txt files
+#                                      match the store
 #   release-notes.sh write             regenerate fastlane's release_notes.txt files
 #   release-notes.sh app-store mac|ios print a platform's App Store text
 #

@@ -55,15 +55,6 @@ struct ReleaseNotesFlowTests {
         }
     }
 
-    /// Tuist's manifest gives development builds 0.0.1; a release sets the
-    /// version from its tag, and must find its own notes.
-    @Test func aReleaseBuildFindsItsOwnVersion() throws {
-        let running = LiveReleaseNotes.runningVersion
-        guard running != "0.0.1" else { return }
-        let version = try #require(ReleaseVersion.running(running))
-        #expect(LiveReleaseNotes.notes.release(version) != nil)
-    }
-
     // MARK: Shown once
 
     @Test func aModelNotMadeByARealLaunchOffersNothing() {

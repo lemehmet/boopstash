@@ -12,8 +12,9 @@ func fail(_ message: String, status: Int32 = 1) -> Never {
 func usage() -> Never {
     fail("""
         usage: release-notes.sh check VERSION    the version has a well-formed entry with a date
-               release-notes.sh verify           every entry is well formed, the changelog's newest release has one,
-                                                 and fastlane's release_notes.txt files say what the store says
+               release-notes.sh verify           every entry is well formed, the changelog's newest release has one
+                                                 and is the store's newest, and fastlane's release_notes.txt files
+                                                 say what the store says
                release-notes.sh write            rewrite fastlane's release_notes.txt files from the store
                release-notes.sh app-store mac|ios  print the App Store's What's New for a platform
         """, status: 2)
@@ -40,7 +41,14 @@ func newestInChangelog(root: URL) -> (version: String, date: String?) {
     for line in text.split(separator: "\n") where line.hasPrefix("## v") {
         let heading = line.dropFirst("## v".count)
         let version = String(heading.prefix { $0.isASCII && ($0.isNumber || $0 == ".") })
-        guard ReleaseVersion(version) != nil else { continue }
+        // A heading that is not a version at all ("## verbose") is passed over.
+        guard version.first?.isNumber == true else { continue }
+        // Fastfile takes the first three numbers of "## v1.2.3.4" and would
+        // build 1.2.3: a heading that is nearly a version stops the check
+        // instead of sending it to an older one.
+        guard ReleaseVersion(version) != nil else {
+            fail("CHANGELOG.md's newest release heading, \"\(line)\", is not ## vMAJOR.MINOR.PATCH")
+        }
         // "## v0.4.6 — 2026-11-10": the date is the heading's last word.
         let date = heading.split(separator: " ").last.map(String.init).flatMap { $0 == version ? nil : $0 }
         return (version, date)
@@ -76,6 +84,13 @@ case ("verify", 0):
         }
     } else {
         failures.append("no well-formed entry for \(newest.version), the changelog's newest release, in \(storeName)")
+    }
+    // The App Store lanes build the changelog's newest version: an entry
+    // above it would put a version not yet released into the text they send.
+    if let building = ReleaseVersion(newest.version) {
+        for release in notes.releases where release.version > building {
+            failures.append("\(release.version) has an entry in \(storeName), but the changelog's newest release is \(building): keep its lines in unreleased until it is released")
+        }
     }
     for (platform, path) in appStoreFiles {
         let expected = notes.appStoreText(for: platform)

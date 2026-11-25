@@ -65,8 +65,16 @@ jobs:
           if [ ! -f packaging/release/release-notes.sh ]; then
             echo "::notice::$REF is older than ReleaseNotes.json: no release notes to check"; exit 0
           fi
-          packaging/release/release-notes.sh check "$VERSION" || {
-            echo "::error::ReleaseNotes.json has no well-formed entry for $VERSION. See CONTRIBUTING.md ▸ Releasing."; exit 1; }
+          # 1 is a failed check; anything else is the check itself failing
+          # (3: it did not compile), which is not the entry's fault.
+          status=0
+          packaging/release/release-notes.sh check "$VERSION" || status=$?
+          if [ "$status" -eq 1 ]; then
+            echo "::error::ReleaseNotes.json has no well-formed entry for $VERSION. See CONTRIBUTING.md ▸ Releasing."
+          elif [ "$status" -ne 0 ]; then
+            echo "::error::the release-notes check did not run (exit $status); the entry for $VERSION was not checked. See the output above."
+          fi
+          exit "$status"
 
       - name: Confirm the signing secrets are configured
         env:

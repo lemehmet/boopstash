@@ -118,11 +118,17 @@ end
 # packaging/release/release-notes.sh writes from ReleaseNotes.json (#253).
 # CI and the App Store workflow check the file against the store, and that
 # it fits in 4000 characters, so the App Store says what the app's own
-# What's New says.
+# What's New says. The file is empty when appStoreSince has reached the
+# newest release, which CI allows between releases: nothing is uploaded or
+# submitted with an empty What's New.
 def release_notes(metadata)
   file = File.join(metadata, "en-US", "release_notes.txt")
   UI.user_error!("#{file} is missing: run packaging/release/release-notes.sh write") unless File.exist?(file)
-  File.read(file).strip[0, 4000]
+  notes = File.read(file).strip[0, 4000]
+  if notes.empty?
+    UI.user_error!("#{file} is empty: appStoreSince in ReleaseNotes.json is already at the newest release, so there is nothing new to tell the App Store")
+  end
+  notes
 end
 
 # What the App Store build may claim: the same as the Developer ID release
@@ -195,6 +201,8 @@ platform :mac do
   desc "Build with App Store signing (no upload with upload:false)"
   lane :beta do |options|
     require_environment!
+    # Before the build, so an empty What's New stops the lane in its first second.
+    notes = options[:upload] == false ? nil : release_notes("metadata")
     setup_ci
     profile = signing("macos", readonly: true, additional_cert_types: ["mac_installer_distribution"])
     generate
@@ -213,19 +221,20 @@ platform :mac do
     next if options[:upload] == false
 
     upload_to_testflight(api_key: api_key, app_platform: "osx", skip_waiting_for_build_processing: true,
-                         changelog: release_notes("metadata"))
+                         changelog: notes)
   end
 
   desc "Submit the newest TestFlight build with the metadata for review"
   lane :release do
     require_environment!
+    notes = release_notes("metadata")
     require_review_notes!("metadata")
     require_review_attachment!(Spaceship::ConnectAPI::Platform::MAC_OS)
     deliver(api_key: api_key, platform: "osx", app_version: version, submit_for_review: true,
             metadata_path: "./fastlane/metadata",
             screenshots_path: "./fastlane/screenshots", overwrite_screenshots: true,
             skip_binary_upload: true, force: true, precheck_include_in_app_purchases: false,
-            release_notes: { "en-US" => release_notes("metadata") }, automatic_release: false,
+            release_notes: { "en-US" => notes }, automatic_release: false,
             submission_information: { add_id_info_uses_idfa: false, export_compliance_uses_encryption: false })
   end
 end
@@ -242,6 +251,8 @@ platform :ios do
   desc "Build with App Store signing (no upload with upload:false)"
   lane :beta do |options|
     require_environment!
+    # Before the build, so an empty What's New stops the lane in its first second.
+    notes = options[:upload] == false ? nil : release_notes("metadata-ios")
     setup_ci
     profile = signing("ios", readonly: true)
     share_profile = profile_for(SHARE_ID, "ios")
@@ -262,19 +273,20 @@ platform :ios do
     next if options[:upload] == false
 
     upload_to_testflight(api_key: api_key, app_platform: "ios", skip_waiting_for_build_processing: true,
-                         changelog: release_notes("metadata-ios"))
+                         changelog: notes)
   end
 
   desc "Submit the newest TestFlight build with the metadata for review"
   lane :release do
     require_environment!
+    notes = release_notes("metadata-ios")
     require_review_notes!("metadata-ios")
     require_review_attachment!(Spaceship::ConnectAPI::Platform::IOS)
     deliver(api_key: api_key, platform: "ios", app_version: version, submit_for_review: true,
             metadata_path: "./fastlane/metadata-ios",
             screenshots_path: "./fastlane/screenshots-ios", overwrite_screenshots: true,
             skip_binary_upload: true, force: true, precheck_include_in_app_purchases: false,
-            release_notes: { "en-US" => release_notes("metadata-ios") }, automatic_release: false,
+            release_notes: { "en-US" => notes }, automatic_release: false,
             submission_information: { add_id_info_uses_idfa: false, export_compliance_uses_encryption: false })
   end
 end

@@ -103,7 +103,7 @@ from it. `CHANGELOG.md` stays the detailed record for maintainers.
 (`Core/Sources/ReleaseNotes`), so it accepts exactly what the app does: an
 entry that is not well formed is absent to both. `verify` runs in CI and
 first in the App Store workflow: every entry is well formed, the changelog's
-newest release has an entry with the same date, and
+newest release has an entry with the same date and no entry is newer than it, and
 `fastlane/metadata*/en-US/release_notes.txt` are what `write` would produce,
 within App Store Connect's 4000 characters. `check VERSION` runs first in
 the release workflow and stops a tag whose version has no dated entry.

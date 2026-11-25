@@ -80,6 +80,33 @@ dated="$(tree dated 1.2.0 2026-01-06 < "$good/ReleaseNotes.json")"
 expect pass "$dated" "(write, to isolate the next check)" "" write
 expect fail "$dated" "the dates disagree" "2026-01-06" verify
 
+# The App Store lanes build the changelog's newest version: an entry above it
+# would send notes for a version not released yet.
+ahead="$(tree ahead 1.2.0 2026-01-05 <<'JSON'
+{
+  "appStoreSince": { "mac": "1.0.0", "ios": "1.0.0" },
+  "releases": [
+    { "version": "1.3.0", "date": "2026-02-01", "notes": [ { "text": "Not released yet." } ] },
+    { "version": "1.2.0", "date": "2026-01-05", "notes": [ { "text": "A line for both." } ] },
+    { "version": "1.0.0", "date": "2026-01-01", "notes": [ { "text": "The first release." } ] }
+  ]
+}
+JSON
+)"
+expect pass "$ahead" "(write, to isolate the next check)" "" write
+expect fail "$ahead" "the store is ahead of the changelog" "1.3.0 has an entry" verify
+
+# fastlane would read "## v1.2.0.1" as 1.2.0: the check stops there instead
+# of passing on to an older heading.
+four="$(tree four 1.1.0 2026-01-02 < "$good/ReleaseNotes.json")"
+printf '# Changelog\n\n## v1.2.0.1 — 2026-01-06\n\n## v1.1.0 — 2026-01-02\n' > "$four/CHANGELOG.md"
+expect pass "$four" "(write, to isolate the next check)" "" write
+expect fail "$four" "a changelog heading with four numbers" "v1.2.0.1" verify
+prose="$(tree prose 1.2.0 2026-01-05 < "$good/ReleaseNotes.json")"
+printf '# Changelog\n\n## verbose notes\n\n## v1.2.0 — 2026-01-05\n' > "$prose/CHANGELOG.md"
+expect pass "$prose" "(write, to isolate the next check)" "" write
+expect pass "$prose" "a heading that is not a version is passed over" "" verify
+
 # A malformed entry is absent: the check fails for it as for a missing one.
 malformed="$(tree malformed 1.2.0 2026-01-05 <<'JSON'
 {
