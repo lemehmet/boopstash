@@ -434,6 +434,18 @@ public final class NoteStore: Sendable {
                 t.add(column: "syncChangeTag", .text)
             }
         }
+        migrator.registerMigration("v12-sync-uploads") { db in
+            // The note records built for sending since the note was last in
+            // step, as `SyncRecord.contentDigest`s: a record coming back with one of
+            // them is this device's own upload, also when its acknowledgement
+            // never arrived (#229). Local only; the CloudKit schema is
+            // unchanged.
+            try db.create(table: "syncUpload") { t in
+                t.column("noteID", .blob).notNull().references("note", onDelete: .cascade)
+                t.column("digest", .text).notNull()
+                t.primaryKey(["noteID", "digest"])
+            }
+        }
         return migrator
     }
 

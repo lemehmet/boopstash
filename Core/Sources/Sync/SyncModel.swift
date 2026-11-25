@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// What iCloud sync exchanges (#63), free of CloudKit so it can be tested:
@@ -30,6 +31,26 @@ public struct SyncRecord: Equatable, Sendable {
         self.encrypted = encrypted
         self.parent = parent
         self.assetFile = assetFile
+    }
+}
+
+extension SyncRecord {
+    /// A digest of every field but the dates, which do not come back from
+    /// the server exactly as sent: the same for a record this device built
+    /// and that record coming back, different once another device changed
+    /// its text, title, settings or labels (#229).
+    public var contentDigest: String {
+        let parts: [[String]] = encrypted.keys.sorted().compactMap { key in
+            switch encrypted[key] {
+            case .string(let value)?: [key, "s", value]
+            case .bool(let value)?: [key, "b", value ? "1" : "0"]
+            case .int(let value)?: [key, "i", String(value)]
+            case .strings(let values)?: [key, "l"] + values.sorted()
+            case .date?, nil: nil
+            }
+        }
+        let data = (try? JSONEncoder().encode(parts)) ?? Data()
+        return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 }
 

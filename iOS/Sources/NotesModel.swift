@@ -147,6 +147,8 @@ final class NotesModel {
             let index = UserDefaults.standard.integer(forKey: "BoopStashDemoNote")
             model.initialSelection = UserDefaults.standard.object(forKey: "BoopStashDemoNote") == nil
                 ? nil : try model.store.notes(matching: NoteQuery()).dropFirst(index).first?.id
+            // A search already typed, for the search-by-meaning shot.
+            if let search = UserDefaults.standard.string(forKey: "BoopStashDemoSearch") { model.query.text = search }
             return model
         }
         #endif
