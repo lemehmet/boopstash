@@ -39,8 +39,9 @@ breaking changes may land in a minor release.
   stays usable while the workbench is open, so Keep over a note that was
   edited since the run applies nothing and says so; Refresh (⌘R) reads
   the selection, or the whole note, again and runs the script on it.
-  What Is Sent is read from the note when the workbench opens and again
-  only on Refresh or Check Again, so Generate still sends exactly what is
+  What Is Sent is read from the note when the workbench learns where a
+  request goes (shortly after it opens) and again only on Refresh or
+  Check Again, so Generate still sends exactly what is
   on show. Escape no longer closes the workbench: it is a window, closed
   with ⌘W, its close button or Discard. Run Script with Preview keeps its
   sheet, and can be up at the same time; whichever of the two is kept
