@@ -21,18 +21,17 @@ public enum TrackedRange {
         case found(NSRange)
         /// The new text has nothing like it.
         case gone
-        /// The new text has more than one place it could be.
+        /// Which place in the new text it is cannot be told.
         case ambiguous
     }
 
     /// A replaced text keeps no offsets, so the range is found again by
-    /// what it held: `candidates` are the places in the new text that hold
-    /// the same thing. Only a single one can be told to be it.
-    public static func reloaded(among candidates: [NSRange]) -> Reloaded {
-        switch candidates.count {
-        case 0: .gone
-        case 1: .found(candidates[0])
-        default: .ambiguous
-        }
+    /// what it held: `before` is how many places in the old text held the
+    /// same thing, `candidates` are the places in the new text that do.
+    /// Only one place before and one after can be told to be the same:
+    /// with several before, the one left may be another of them.
+    public static func reloaded(before: Int, among candidates: [NSRange]) -> Reloaded {
+        if candidates.isEmpty { return .gone }
+        return before == 1 && candidates.count == 1 ? .found(candidates[0]) : .ambiguous
     }
 }

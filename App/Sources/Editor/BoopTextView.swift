@@ -239,8 +239,9 @@ final class BoopTextView: NSTextView {
         // The references pending inserts still follow; replacing the text
         // loses every one of them.
         let followed = followedInsertAnchors()
+        let previous = followed.isEmpty ? "" : string
         syntax.replacingDocument { string = text }
-        followed.forEach { $0.documentReplaced(with: text, sameNote: sameNote) }
+        followed.forEach { $0.documentReplaced(from: previous, with: text, sameNote: sameNote) }
         // Folds are offsets into one note (ADR 0006).
         folding.load(text)
         find.documentReplaced()

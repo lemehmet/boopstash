@@ -287,9 +287,9 @@ extension BoopTextView {
     /// says so. The text never goes under another copy of the image.
     /// The same note reloaded meanwhile (an iCloud merge) keeps no
     /// offsets, so the reference is found again by its image: when the
-    /// merged text has the image once, the text goes under it; when it has
-    /// it more than once, which one was chosen cannot be told, and nothing
-    /// is inserted (#255).
+    /// note had the image once and the merged text has it once, the text
+    /// goes under it; with more than one copy before or after, which one
+    /// was chosen cannot be told, and nothing is inserted (#255).
     @discardableResult
     func insertImageText(of id: UUID) -> Task<Void, Never> {
         let selection = selectedRange()
@@ -321,7 +321,7 @@ extension BoopTextView {
             // Another note loaded meanwhile left the anchor without a range.
             guard self.window != nil, self.isEditable, let reference else {
                 self.showMessage?(anchor.ambiguous
-                    ? "The note changed in iCloud and now has this image more than once, so its text was not inserted."
+                    ? "The note changed in iCloud, and the image you chose cannot be told from its other copies, so its text was not inserted."
                     : "The image is no longer in this note, so its text was not inserted.")
                 return
             }
@@ -376,7 +376,8 @@ final class QuickLookSource: NSObject, QLPreviewPanelDataSource, Sendable {
 final class InsertAnchor {
     let id: UUID
     var range: NSRange?
-    /// The note was reloaded with the image more than once (#255).
+    /// The note was reloaded and had, or has, the image more than once,
+    /// so the chosen reference cannot be told from the others (#255).
     private(set) var ambiguous = false
     var observer: (any NSObjectProtocol)?
 
@@ -387,10 +388,11 @@ final class InsertAnchor {
 
     /// The whole text was replaced. Another note ends the insert; another
     /// version of the same note is searched for the image.
-    func documentReplaced(with text: String, sameNote: Bool) {
+    func documentReplaced(from previous: String, with text: String, sameNote: Bool) {
         range = nil
         guard sameNote else { return }
-        switch TrackedRange.reloaded(among: AttachmentReference.matches(in: text).filter { $0.id == id }.map(\.range)) {
+        let before = AttachmentReference.matches(in: previous).count { $0.id == id }
+        switch TrackedRange.reloaded(before: before, among: AttachmentReference.matches(in: text).filter { $0.id == id }.map(\.range)) {
         case .found(let found): range = found
         case .ambiguous: ambiguous = true
         case .gone: break

@@ -32,9 +32,13 @@ import Testing
     }
 
     @Test func aReloadedTextIsSearchedForTheOnePlace() {
-        #expect(TrackedRange.reloaded(among: [NSRange(location: 7, length: 5)]) == .found(NSRange(location: 7, length: 5)))
-        #expect(TrackedRange.reloaded(among: []) == .gone)
-        #expect(TrackedRange.reloaded(among: [NSRange(location: 0, length: 5), NSRange(location: 9, length: 5)]) == .ambiguous,
-                "which of two it was cannot be told")
+        let one = [NSRange(location: 7, length: 5)]
+        let two = [NSRange(location: 0, length: 5), NSRange(location: 9, length: 5)]
+        #expect(TrackedRange.reloaded(before: 1, among: one) == .found(NSRange(location: 7, length: 5)))
+        #expect(TrackedRange.reloaded(before: 1, among: []) == .gone)
+        #expect(TrackedRange.reloaded(before: 2, among: []) == .gone)
+        #expect(TrackedRange.reloaded(before: 1, among: two) == .ambiguous, "which of two it is cannot be told")
+        #expect(TrackedRange.reloaded(before: 2, among: one) == .ambiguous, "the one left may be the other of the two")
+        #expect(TrackedRange.reloaded(before: 2, among: two) == .ambiguous)
     }
 }

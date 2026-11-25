@@ -300,7 +300,23 @@ struct CopyImageTextTests {
         view.load(merged, sameNote: true)
         await task.value
         #expect(view.string == merged)
-        #expect(messages.all == ["The note changed in iCloud and now has this image more than once, so its text was not inserted."])
+        #expect(messages.all == ["The note changed in iCloud, and the image you chose cannot be told from its other copies, so its text was not inserted."])
+        window.close()
+    }
+
+    /// The image was in the note twice and the reload kept one: it may be
+    /// the other copy, so the text does not go under it.
+    @Test func insertIsDroppedWhenAReloadKeptOneOfTwoCopies() async throws {
+        let image = try image()
+        let markdown = AttachmentReference.markdown(for: image.id)
+        let (window, view) = host(markdown + "\nbetween\n" + markdown + "\nafter")
+        view.setSelectedRange(try #require(AttachmentReference.matches(in: view.string).last?.range))
+        let task = view.insertImageText(of: image.id)
+        let merged = markdown + "\nbetween\nafter"
+        view.load(merged, sameNote: true)
+        await task.value
+        #expect(view.string == merged)
+        #expect(messages.all == ["The note changed in iCloud, and the image you chose cannot be told from its other copies, so its text was not inserted."])
         window.close()
     }
 
