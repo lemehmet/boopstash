@@ -71,7 +71,7 @@ struct EditorView: NSViewRepresentable {
                 if view.string != initialText {
                     // Keep the caret where it was, as far as the new text goes.
                     let selection = view.selectedRange()
-                    view.load(initialText, syntax: syntax)
+                    view.load(initialText, syntax: syntax, sameNote: true)
                     let length = (view.string as NSString).length
                     view.setSelectedRange(NSRange(location: min(selection.location, length), length: 0))
                     view.undoManager?.removeAllActions()

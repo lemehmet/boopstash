@@ -30,4 +30,15 @@ import Testing
     @Test func aChangeOfAttributesOnlyLeavesTheRange() {
         #expect(TrackedRange.adjusted(range, editedRange: NSRange(location: 0, length: 0), delta: 0) == range)
     }
+
+    @Test func aReloadedTextIsSearchedForTheOnePlace() {
+        let one = [NSRange(location: 7, length: 5)]
+        let two = [NSRange(location: 0, length: 5), NSRange(location: 9, length: 5)]
+        #expect(TrackedRange.reloaded(before: 1, among: one) == .found(NSRange(location: 7, length: 5)))
+        #expect(TrackedRange.reloaded(before: 1, among: []) == .gone)
+        #expect(TrackedRange.reloaded(before: 2, among: []) == .gone)
+        #expect(TrackedRange.reloaded(before: 1, among: two) == .ambiguous, "which of two it is cannot be told")
+        #expect(TrackedRange.reloaded(before: 2, among: one) == .ambiguous, "the one left may be the other of the two")
+        #expect(TrackedRange.reloaded(before: 2, among: two) == .ambiguous)
+    }
 }

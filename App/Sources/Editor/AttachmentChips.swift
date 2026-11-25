@@ -285,12 +285,17 @@ extension BoopTextView {
     /// command was chosen on is followed through those edits; when it is
     /// gone, or another note was loaded, nothing is inserted and a message
     /// says so. The text never goes under another copy of the image.
+    /// The same note reloaded meanwhile (an iCloud merge) keeps no
+    /// offsets, so the reference is found again by its image: when the
+    /// note had the image once and the merged text has it once, the text
+    /// goes under it; with more than one copy before or after, which one
+    /// was chosen cannot be told, and nothing is inserted (#255).
     @discardableResult
     func insertImageText(of id: UUID) -> Task<Void, Never> {
-        let generation = documentGeneration
         let selection = selectedRange()
         let references = AttachmentReference.matches(in: string).filter { $0.id == id }
-        let anchor = InsertAnchor(range: (references.first { $0.range == selection } ?? references.first)?.range)
+        let anchor = InsertAnchor(id: id, range: (references.first { $0.range == selection } ?? references.first)?.range)
+        insertAnchors.add(anchor)
         if let storage = textStorage {
             anchor.observer = NotificationCenter.default.addObserver(
                 forName: NSTextStorage.didProcessEditingNotification, object: storage, queue: nil
@@ -313,8 +318,11 @@ extension BoopTextView {
             let reference = anchor.range.flatMap { range in
                 AttachmentReference.matches(in: self.string).first { $0.id == id && $0.range == range }
             }
-            guard self.documentGeneration == generation, self.window != nil, self.isEditable, let reference else {
-                self.showMessage?("The image is no longer in this note, so its text was not inserted.")
+            // Another note loaded meanwhile left the anchor without a range.
+            guard self.window != nil, self.isEditable, let reference else {
+                self.showMessage?(anchor.ambiguous
+                    ? "The note changed in iCloud, and the image you chose cannot be told from its other copies, so its text was not inserted."
+                    : "The image is no longer in this note, so its text was not inserted.")
                 return
             }
             anchor.stop()
@@ -363,13 +371,40 @@ final class QuickLookSource: NSObject, QLPreviewPanelDataSource, Sendable {
 }
 
 /// The reference Insert Text Below was chosen on, followed through edits
-/// made while the image is read.
+/// made while the image is read, and through a reload of the same note.
 @MainActor
-private final class InsertAnchor {
+final class InsertAnchor {
+    let id: UUID
     var range: NSRange?
+    /// The note was reloaded and had, or has, the image more than once,
+    /// so the chosen reference cannot be told from the others (#255).
+    private(set) var ambiguous = false
     var observer: (any NSObjectProtocol)?
 
-    init(range: NSRange?) { self.range = range }
+    init(id: UUID, range: NSRange?) {
+        self.id = id
+        self.range = range
+    }
+
+    /// Another note replaced the whole text, which ends the insert: also
+    /// one a reload had already left ambiguous, whose reason is now this.
+    func anotherNoteLoaded() {
+        range = nil
+        ambiguous = false
+    }
+
+    /// Another version of the same note replaced the whole text, `previous`,
+    /// in which the reference was still followed: `text` is searched for
+    /// the image.
+    func reloaded(from previous: String, to text: String) {
+        range = nil
+        let before = AttachmentReference.matches(in: previous).count { $0.id == id }
+        switch TrackedRange.reloaded(before: before, among: AttachmentReference.matches(in: text).filter { $0.id == id }.map(\.range)) {
+        case .found(let found): range = found
+        case .ambiguous: ambiguous = true
+        case .gone: break
+        }
+    }
 
     func stop() {
         if let observer { NotificationCenter.default.removeObserver(observer) }

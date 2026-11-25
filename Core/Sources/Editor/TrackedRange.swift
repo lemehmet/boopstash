@@ -14,4 +14,24 @@ public enum TrackedRange {
         if editedRange.location >= NSMaxRange(range) { return range }
         return nil
     }
+
+    /// Where a followed range is after the whole text was replaced by
+    /// another version of the same document (#255).
+    public enum Reloaded: Equatable, Sendable {
+        case found(NSRange)
+        /// The new text has nothing like it.
+        case gone
+        /// Which place in the new text it is cannot be told.
+        case ambiguous
+    }
+
+    /// A replaced text keeps no offsets, so the range is found again by
+    /// what it held: `before` is how many places in the old text held the
+    /// same thing, `candidates` are the places in the new text that do.
+    /// Only one place before and one after can be told to be the same:
+    /// with several before, the one left may be another of them.
+    public static func reloaded(before: Int, among candidates: [NSRange]) -> Reloaded {
+        if candidates.isEmpty { return .gone }
+        return before == 1 && candidates.count == 1 ? .found(candidates[0]) : .ambiguous
+    }
 }
