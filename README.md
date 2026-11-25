@@ -68,7 +68,7 @@ access and can't read files you name; it only reads what is piped in.
 
 - Your notes stay on your devices and in your own iCloud. There is no
   BoopStash server.
-- iCloud sync, when it arrives, is optional. Every note and image is
+- iCloud sync is optional. Every note and image is
   encrypted on your device before it is uploaded. With
   [Advanced Data Protection](https://support.apple.com/en-us/102651) turned on,
   that encryption is end to end: only your devices hold the keys, and Apple
