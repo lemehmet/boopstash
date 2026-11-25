@@ -433,6 +433,163 @@ struct ScriptWorkbenchFlowTests {
         close(window, view)
     }
 
+    // MARK: The editor's font and colour (#286)
+
+    /// Every character is in the editor's font and its text colour. The
+    /// highlighter paints rendering attributes over that and never writes
+    /// to the text, so any other colour here is one the text was given by
+    /// mistake.
+    func expectBaseAttributes(_ session: ScriptWorkbenchSession, _ when: String) {
+        let view = session.scriptView
+        guard let storage = view.textStorage, storage.length > 0 else {
+            Issue.record("no text to check \(when)")
+            return
+        }
+        var fonts: [NSFont?] = []
+        var colours: [NSColor?] = []
+        storage.enumerateAttributes(in: NSRange(location: 0, length: storage.length)) { attributes, _, _ in
+            fonts.append(attributes[.font] as? NSFont)
+            colours.append(attributes[.foregroundColor] as? NSColor)
+        }
+        #expect(fonts.allSatisfy { $0 == ScriptTextView.baseFont }, "the font \(when)")
+        #expect(colours.allSatisfy { $0 == ScriptTextView.baseColor }, "the colour \(when)")
+    }
+
+    /// What the next typed character gets.
+    func expectBaseTypingAttributes(_ session: ScriptWorkbenchSession, _ when: String) {
+        let typing = session.scriptView.typingAttributes
+        #expect(typing[.font] as? NSFont == ScriptTextView.baseFont, "the typing font \(when)")
+        #expect(typing[.foregroundColor] as? NSColor == ScriptTextView.baseColor, "the typing colour \(when)")
+    }
+
+    func type(_ text: String, in session: ScriptWorkbenchSession) {
+        let view = session.scriptView
+        view.insertText(text, replacementRange: view.selectedRange())
+    }
+
+    func deleteAll(_ session: ScriptWorkbenchSession) {
+        let view = session.scriptView
+        view.selectAll(nil)
+        view.deleteBackward(nil)
+        #expect(view.string.isEmpty)
+    }
+
+    func generate(_ session: ScriptWorkbenchSession) async {
+        session.instruction = "make links"
+        session.generate()
+        await session.generatingTask?.value
+        #expect(session.script == Self.prefixing, "the draft is in the editor")
+    }
+
+    @Test func aDraftAfterTheScriptWasDeletedHasTheEditorsFontAndColour() async {
+        let (window, view) = host(Self.numbers)
+        let session = await workbench(on: view, script: ScriptSkeleton.blank.source, generator: FakeGenerator())
+        expectBaseAttributes(session, "for the script the workbench opened with")
+        deleteAll(session)
+        await generate(session)
+        expectBaseAttributes(session, "for a draft in an emptied editor")
+        expectBaseTypingAttributes(session, "after the draft")
+
+        // A draft over a script, and over a draft.
+        await generate(session)
+        expectBaseAttributes(session, "for a draft over a script")
+        close(window, view)
+    }
+
+    @Test func typingInAnEmptiedEditorHasTheEditorsFontAndColour() async {
+        let (window, view) = host(Self.numbers)
+        let session = await workbench(on: view)
+        deleteAll(session)
+        expectBaseTypingAttributes(session, "in an emptied editor")
+        type("function main(state) {}", in: session)
+        expectBaseAttributes(session, "for text typed in an emptied editor")
+        type("\n// more", in: session)
+        expectBaseAttributes(session, "for text typed after it")
+        close(window, view)
+    }
+
+    @Test func aWorkbenchOpenedEmptyHasTheEditorsFontAndColour() async {
+        let (window, view) = host(Self.numbers)
+        let session = await workbench(on: view, script: "", generator: FakeGenerator())
+        expectBaseTypingAttributes(session, "in an editor that opened empty")
+        type("let a = 1", in: session)
+        expectBaseAttributes(session, "for text typed in an editor that opened empty")
+        close(window, view)
+
+        let (other, editor) = host(Self.numbers)
+        let drafted = await workbench(on: editor, script: "", generator: FakeGenerator())
+        await generate(drafted)
+        expectBaseAttributes(drafted, "for a draft in an editor that opened empty")
+        close(other, editor)
+    }
+
+    /// Cut is a copy and then this deletion; the copy is left out so the
+    /// tests do not write to the clipboard of whoever runs them.
+    @Test func afterTheDeletionOfACutTheEditorKeepsItsFontAndColour() async {
+        let (window, view) = host(Self.numbers)
+        let session = await workbench(on: view, generator: FakeGenerator())
+        session.scriptView.selectAll(nil)
+        session.scriptView.delete(nil)
+        #expect(session.script.isEmpty)
+        expectBaseTypingAttributes(session, "after everything was cut")
+        await generate(session)
+        expectBaseAttributes(session, "for a draft after everything was cut")
+
+        session.scriptView.selectAll(nil)
+        session.scriptView.delete(nil)
+        type("let a = 1", in: session)
+        expectBaseAttributes(session, "for text typed after everything was cut")
+        close(window, view)
+    }
+
+    @Test func afterUndoBackToEmptyTheEditorKeepsItsFontAndColour() async {
+        let (window, view) = host(Self.numbers)
+        let session = await workbench(on: view, script: "", generator: FakeGenerator())
+        type("let a = 1", in: session)
+        session.scriptView.undoManager?.undo()
+        #expect(session.script.isEmpty, "undo took the typing back")
+        expectBaseTypingAttributes(session, "after undo back to empty")
+        await generate(session)
+        expectBaseAttributes(session, "for a draft after undo back to empty")
+        close(window, view)
+
+        let (other, editor) = host(Self.numbers)
+        let typed = await workbench(on: editor, script: "")
+        type("let a = 1", in: typed)
+        typed.scriptView.undoManager?.undo()
+        #expect(typed.script.isEmpty)
+        type("let b = 2", in: typed)
+        expectBaseAttributes(typed, "for text typed after undo back to empty")
+        close(other, editor)
+    }
+
+    @Test func aStartingPointHasTheEditorsFontAndColour() async throws {
+        let (window, view) = host(Self.numbers)
+        let session = await workbench(on: view, scripts: [try library("Shout", bundled: false)])
+        deleteAll(session)
+        session.start(from: .blank)
+        #expect(session.script == ScriptSkeleton.blank.source)
+        expectBaseAttributes(session, "for Start From ▸ Blank in an emptied editor")
+        type("// a note\n", in: session)
+        expectBaseAttributes(session, "for text typed into the blank script")
+
+        deleteAll(session)
+        session.start(from: .lineByLine)
+        expectBaseAttributes(session, "for a skeleton in an emptied editor")
+        session.start(from: .blank)
+        expectBaseAttributes(session, "for Start From ▸ Blank over a script")
+
+        deleteAll(session)
+        session.start(from: try #require(session.libraryScripts.first))
+        expectBaseAttributes(session, "for a library script in an emptied editor")
+
+        // Undo takes the edits back (in a hosted test, all of them at once).
+        session.scriptView.undoManager?.undo()
+        type("let a = 1", in: session)
+        expectBaseAttributes(session, "for text typed after an undo")
+        close(window, view)
+    }
+
     static let registerTable = """
     Name Bit Description
     ENABLE 0 Enables the block. Writing 0 holds

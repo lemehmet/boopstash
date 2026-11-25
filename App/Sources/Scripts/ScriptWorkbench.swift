@@ -523,6 +523,18 @@ final class ScriptTextView: NSTextView {
     /// Escape.
     var onCancel: (() -> Void)?
 
+    /// The font of every character in the editor. A font is immutable;
+    /// AppKit does not mark it Sendable, and the storage delegate, which is
+    /// not isolated, reads it.
+    nonisolated(unsafe) static let baseFont = NSFont.monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
+    /// The colour of text the highlighter does not colour. The workbench
+    /// has the system's colours, not a theme's, so this is the system's
+    /// text colour, which follows light and dark appearance by itself.
+    nonisolated static let baseColor = NSColor.textColor
+    nonisolated static var baseAttributes: [NSAttributedString.Key: Any] {
+        [.font: baseFont, .foregroundColor: baseColor]
+    }
+
     static func makeScrollable() -> (NSScrollView, ScriptTextView) {
         let scroll = NSScrollView()
         scroll.hasVerticalScroller = true
@@ -538,10 +550,10 @@ final class ScriptTextView: NSTextView {
         view.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude)
         view.textContainer?.widthTracksTextView = true
         view.textContainerInset = NSSize(width: 8, height: 8)
-        let font = NSFont.monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
-        view.font = font
-        view.textColor = .textColor
-        view.typingAttributes = [.font: font, .foregroundColor: NSColor.textColor]
+        view.font = baseFont
+        view.textColor = baseColor
+        view.typingAttributes = baseAttributes
+        view.textStorage?.delegate = view
         view.drawsBackground = false
         view.allowsUndo = true
         view.isRichText = false
@@ -593,8 +605,30 @@ final class ScriptTextView: NSTextView {
         return super.validateUserInterfaceItem(item)
     }
 
+    /// What is typed next is in the base font and colour too, so the
+    /// insertion point in an emptied editor is the height of its text.
+    override func didChangeText() {
+        super.didChangeText()
+        typingAttributes = Self.baseAttributes
+    }
+
     /// Escape closes the sheet; a text view would offer completions.
     override func cancelOperation(_ sender: Any?) {
         if let onCancel { onCancel() } else { super.cancelOperation(sender) }
+    }
+}
+
+/// Text that enters the editor takes the base font and colour, however it
+/// arrives (#286). The font and colour set when the view was made were not
+/// enough: a string that replaces the text of an emptied editor (a draft
+/// from Generate, a starting point) has no character to take its
+/// attributes from, and came out in the text system's default font and
+/// black, whatever the appearance. The painter colours with rendering
+/// attributes over this and never writes to the text.
+extension ScriptTextView: NSTextStorageDelegate {
+    nonisolated func textStorage(_ textStorage: NSTextStorage, willProcessEditing editedMask: NSTextStorageEditActions,
+                     range editedRange: NSRange, changeInLength delta: Int) {
+        guard editedMask.contains(.editedCharacters), editedRange.length > 0 else { return }
+        textStorage.addAttributes(Self.baseAttributes, range: editedRange)
     }
 }
