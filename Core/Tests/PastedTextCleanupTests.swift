@@ -42,6 +42,11 @@ import Testing
         #expect(PastedTextCleanup.removingEscapeCodes("\u{1B}]0;never closed\nnext line") == "0;never closed\nnext line")
     }
 
+    @Test(arguments: ["\n", "\r", "\u{85}", "\u{2028}", "\u{2029}"])
+    func anUnfinishedTitleStopsAtEveryLineEnding(_ ending: String) {
+        #expect(PastedTextCleanup.removingEscapeCodes("\u{1B}]0;open\(ending)keep\u{07}") == "0;open\(ending)keep\u{07}")
+    }
+
     @Test func bracketsThatAreNotEscapesStay() {
         let text = "array[0m] and [31m are text\r\nso is this"
         #expect(PastedTextCleanup.removingEscapeCodes(text) == text)
@@ -137,6 +142,10 @@ import Testing
               |    22
         """
         #expect(clean(table) == "| Name | Count |\n| --- | --- |\n| ant | 1 |\n|  | 22 |")
+    }
+
+    @Test func aBoxTableWithoutOuterBorders() {
+        #expect(clean(" Name │ Count\n──────┼───────\n ant  │     1\n bee  │    22\n") == Self.markdownTable + "\n")
     }
 
     @Test func aTableWithoutAHeaderRuleTakesItsFirstRowAsTheHeader() {
@@ -273,6 +282,23 @@ import Testing
         #expect(clean(long) == long)
     }
 
+    /// A selection knows whether it starts inside a fence.
+    @Test func aSelectionInsideACodeFenceKeepsItsTables() {
+        let before = "intro\n```text\n"
+        let note = before + Self.boxTable + "\n```\n" + Self.boxTable + "\n"
+        let ns = note as NSString
+        let inside = NSRange(location: (before as NSString).length, length: (Self.boxTable as NSString).length)
+        #expect(PastedTextCleanup.outputs(fullText: note, selections: [inside]) == [Self.boxTable])
+        // From inside the fence to the end: only the table after it.
+        let toEnd = NSRange(location: inside.location, length: ns.length - inside.location)
+        #expect(PastedTextCleanup.outputs(fullText: note, selections: [toEnd]) == [Self.boxTable + "\n```\n" + Self.markdownTable + "\n"])
+        // After the fence has closed, and with no selection.
+        let after = ns.range(of: Self.boxTable, options: .backwards)
+        #expect(PastedTextCleanup.outputs(fullText: note, selections: [NSRange(location: 3, length: 0), after]) == [Self.markdownTable])
+        #expect(PastedTextCleanup.outputs(fullText: note, selections: [NSRange(location: 3, length: 0)]) == [PastedTextCleanup.clean(note)])
+        #expect(PastedTextCleanup.clean(note) == before + Self.boxTable + "\n```\n" + Self.markdownTable + "\n")
+    }
+
     @Test func aTableAfterAClosedFenceIsConverted() {
         let text = "```\ncode\n```\n\(Self.boxTable)"
         #expect(clean(text) == "```\ncode\n```\n\(Self.markdownTable)")
@@ -301,6 +327,10 @@ import Testing
         "++---+---+\n+| a | b |\n+| c | d |\n++---+---+\n",
         "-+---+---+\n-| a | b |\n-| c | d |\n-+---+---+\n",
         "+ a | b\n+---+---\n+ c | d\n",
+        // A commit graph (jj log) where a branch merges back, and rows
+        // open at the ends under a closed border.
+        "│ ○  abc\n│ │  desc\n├─╯\n○  root\n",
+        "┌───┬───┐\n a │ b\n c │ d\n└───┴───┘\n",
         // A line with a pipe straight above a table's border.
         "see a | b | c\n----+----\n c | d\n e | f\n",
     ])

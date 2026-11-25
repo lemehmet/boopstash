@@ -480,10 +480,8 @@ final class BoopTextView: NSTextView {
         let generation = documentGeneration
         return Task { [weak self] in
             let edits = await Task.detached(priority: .userInitiated) { () -> [(NSRange, String)]? in
-                let outputs = ScriptEdits.states(fullText: snapshot, selections: selections).map { state -> String in
-                    switch command {
-                    case .cleanUpPastedText: PastedTextCleanup.clean(state.text ?? "")
-                    }
+                let outputs = switch command {
+                case .cleanUpPastedText: PastedTextCleanup.outputs(fullText: snapshot, selections: selections)
                 }
                 return ScriptEdits.replacements(fullText: snapshot, selections: selections, response: ScriptResponse(outputs: outputs))
             }.value

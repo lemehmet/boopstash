@@ -51,6 +51,22 @@ struct CleanUpPastedTextTests {
         window.close()
     }
 
+    /// A table selected inside a code fence is as safe as it is when the
+    /// whole note is cleaned.
+    @Test func aSelectionInsideACodeFenceKeepsItsTable() async {
+        let before = "```text\n"
+        let table = "┌───┬───┐\n│ a │ b │\n│ c │ d │\n└───┴───┘\n"
+        let source = before + table + "```\n"
+        let (window, view) = host(source)
+        var message: String?
+        view.showMessage = { message = $0 }
+        view.setSelectedRange(NSRange(location: (before as NSString).length, length: (table as NSString).length))
+        await view.run(.cleanUpPastedText).value
+        #expect(view.string == source)
+        #expect(message == "Nothing to clean up.")
+        window.close()
+    }
+
     @Test func aNoteWithNothingToCleanIsUntouchedAndSaysSo() async {
         let source = "# Title\n\nClean already.\n\n" + Self.cleaned
         let (window, view) = host(source)

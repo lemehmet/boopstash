@@ -29,8 +29,23 @@ public enum PastedTextCleanup {
     }
 
     /// Every pass, in order. Cleaning clean text returns it unchanged.
-    public static func clean(_ text: String) -> String {
-        Pass.allCases.reduce(text) { $1.apply($0) }
+    /// `preceding` is the text in front of `text` when it is a part of
+    /// something longer (a selection): a code fence left open there is
+    /// still open where `text` starts.
+    public static func clean(_ text: String, after preceding: String = "") -> String {
+        let fence = openFence(atEndOf: preceding)
+        return Pass.allCases.reduce(text) { $1 == .tables ? convertingTables($0, in: fence) : $1.apply($0) }
+    }
+
+    /// What a run on a note puts in place of each non-empty selected range,
+    /// or of the whole text when nothing is selected, in the order
+    /// `ScriptEdits.replacements` takes them. Each selection is cleaned on
+    /// its own, knowing only whether it starts inside a code fence.
+    public static func outputs(fullText: String, selections: [NSRange]) -> [String] {
+        let ns = fullText as NSString
+        let ranges = selections.filter { $0.length > 0 }
+        guard !ranges.isEmpty else { return [clean(fullText)] }
+        return ranges.map { clean(ns.substring(with: $0), after: ns.substring(to: $0.location)) }
     }
 
     // MARK: - Lines
@@ -82,7 +97,7 @@ public enum PastedTextCleanup {
     /// left in place it could become a sequence once a later pass writes
     /// after it (a table's ` |`), so cleaning twice would differ.
     static let escapeCodes = try! NSRegularExpression(pattern: [
-        #"\x1B\][^\x07\x1B\r\n]*(?:\x07|\x1B\\)"#,
+        #"\x1B\][^\x07\x1B\r\n\u0085\u2028\u2029]*(?:\x07|\x1B\\)"#,
         #"\x1B\[[0-?]*[ -/]*[@-~]"#,
         #"\u009B[0-?]*[ -/]*[@-~]"#,
         #"\x1B[ -/]*[0-~]"#,
@@ -152,6 +167,8 @@ public enum PastedTextCleanup {
     }
 
     static let boxVerticals: Set<Character> = ["│", "┃", "║", "╎", "╏", "┆", "┇", "┊", "┋"]
+    /// What a border is drawn with between its corners and junctions.
+    static let boxHorizontals: Set<Character> = ["─", "━", "═", "╌", "╍", "┄", "┅", "┈", "┉", "╴", "╶", "╸", "╺", "╼", "╾"]
 
     static func isBoxDrawing(_ character: Character) -> Bool {
         guard character.unicodeScalars.count == 1, let scalar = character.unicodeScalars.first else { return false }
@@ -190,6 +207,19 @@ public enum PastedTextCleanup {
         return text.count >= fence.length && text.allSatisfy { $0 == fence.marker }
     }
 
+    /// The code fence still open after the last line of `text`, if any.
+    static func openFence(atEndOf text: String) -> (marker: Character, length: Int)? {
+        var fence: (marker: Character, length: Int)?
+        for line in lines(text) {
+            if let open = fence {
+                if closesFence(line.content, open) { fence = nil }
+            } else {
+                fence = fenceOpening(line.content)
+            }
+        }
+        return fence
+    }
+
     /// Turns box-drawing tables (`┌─┬─┐`, `│`) and ASCII tables (`+---+`,
     /// `|`) into Markdown tables. A wrong guess damages text, so a block of
     /// lines is a table only when it has a border line, at least two rows,
@@ -197,10 +227,15 @@ public enum PastedTextCleanup {
     /// box around prose, `tree` output and anything inside a code fence
     /// are left alone.
     public static func convertingTables(_ text: String) -> String {
+        convertingTables(text, in: nil)
+    }
+
+    /// `fence` is the code fence the text starts inside, if any.
+    static func convertingTables(_ text: String, in fence: (marker: Character, length: Int)?) -> String {
         let all = lines(text)
         var result: [Line] = []
         result.reserveCapacity(all.count)
-        var fence: (marker: Character, length: Int)?
+        var fence = fence
         var index = 0
         while index < all.count {
             let content = all[index].content
@@ -260,17 +295,17 @@ public enum PastedTextCleanup {
             if closed { pieces = Array(pieces.dropFirst().dropLast()) }
             return pieces.map { $0.trimmingCharacters(in: .whitespaces) }
         }
-        if !box {
-            // An ASCII border has a `+` wherever the rows have a `|`. Rows
-            // open at the ends (psql) go with a border open at the ends,
-            // `----+----`; under `+---+` a row that is not closed is a
-            // line of something else, such as a diff's `+| a | b |`, and
-            // so is a first row whose `|` do not match the border's `+`.
-            let openBorders = borderTexts.allSatisfy { $0.first != "+" && $0.last != "+" }
-            guard closed || openBorders else { return nil }
-            let columns = rowTexts.compactMap { $0 }.first?.count(where: { $0 == "|" })
-            guard borderTexts.allSatisfy({ $0.count(where: { $0 == "+" }) == columns }) else { return nil }
-        }
+        // A border has a corner or a junction (`+`, `┼`) wherever the rows
+        // have a separator. Rows open at the ends (psql) go with a border
+        // open at the ends, `----+----`; under `+---+` a row that is not
+        // closed is a line of something else, such as a diff's
+        // `+| a | b |`, and so is a first row whose separators do not match
+        // the borders' junctions: a commit graph's `│ ○ abc` over `├─╯`.
+        func isJoint(_ character: Character) -> Bool { box ? !boxHorizontals.contains(character) : character == "+" }
+        let openBorders = borderTexts.allSatisfy { !isJoint($0.first!) && !isJoint($0.last!) }
+        guard closed || openBorders else { return nil }
+        let columns = rowTexts.compactMap { $0 }.first?.count(where: { separators.contains($0) })
+        guard borderTexts.allSatisfy({ $0.count(where: isJoint) == columns }) else { return nil }
         // The rows between one border and the next.
         var segments: [[[String]]] = [[]]
         for row in rowTexts {
