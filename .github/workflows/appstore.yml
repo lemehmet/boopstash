@@ -52,6 +52,20 @@ jobs:
           ref: ${{ inputs.ref }}
           persist-credentials: false
 
+      # Before anything is built or submitted (#253): the version the lanes
+      # take from the changelog has its entry in ReleaseNotes.json, and the
+      # What's New text sent to the App Store is the store's. `bootstrap`
+      # only makes certificates.
+      - name: Check the release notes
+        if: inputs.lane != 'bootstrap'
+        env:
+          REF: ${{ inputs.ref }}
+        run: |
+          if [ ! -f packaging/release/release-notes.sh ]; then
+            echo "::notice::$REF is older than ReleaseNotes.json: no release notes to check"; exit 0
+          fi
+          packaging/release/release-notes.sh verify
+
       - uses: jdx/mise-action@v4
         with:
           install: true

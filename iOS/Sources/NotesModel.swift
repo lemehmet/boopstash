@@ -74,6 +74,9 @@ final class NotesModel {
     var isSyncing: Bool { syncEngine != nil }
     /// Screenshots' demo mode (debug builds) shows sync on, without an engine.
     @ObservationIgnored var demoSync = false
+    /// This launch's What's New (#253). Only a real launch makes one: demo
+    /// mode and the screenshots never show the sheet.
+    @ObservationIgnored var whatsNew: ReleaseNotesOffer?
     /// Whether Settings offers sync, and shows it running.
     var canSync: Bool { LiveSyncEngine.isAvailable || demoSync }
     var showsSyncing: Bool { isSyncing || demoSync }
@@ -167,6 +170,9 @@ final class NotesModel {
         // the clean-up a delete leaves when a draft would not save.
         _ = try? store.removeUnreferencedAttachments()
         let model = NotesModel(store: store)
+        // Asked before anything is written: notes already here mean an
+        // update, none a first install, which is shown nothing (#253).
+        model.whatsNew = LiveReleaseNotes.offer(existingInstall: (try? store.notes(matching: NoteQuery(limit: 1)))?.isEmpty == false)
         if merged > 0 {
             model.banner = "\(merged) notes from an earlier copy of BoopStash on this device were added to your notes."
         } else if SharedStore.folder != nil, !shared {

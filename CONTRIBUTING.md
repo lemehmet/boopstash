@@ -54,7 +54,8 @@ refused, what breaks if it changes.
    round become follow-up issues rather than more fix commits, and the PR is
    labelled `review-capped`, which stops further rounds.
 4. Add a line to `CHANGELOG.md` under **Unreleased** for anything a user would
-   notice.
+   notice, and a short plain sentence to `unreleased` in `ReleaseNotes.json`
+   (see Release notes below).
 
 ## Releasing
 
@@ -77,7 +78,35 @@ It needs, in this repository's Actions settings:
 | `MACOS_DEVELOPER_ID_PROFILE_BASE64` | secret | The Developer ID provisioning profile for `com.lemehmet.boopstash`, made after the App ID has iCloud with the container `iCloud.com.lemehmet.boopstash` (ADR 0008), then `base64 -i profile.provisionprofile`. Changing the App ID's capabilities invalidates it: make a new one and replace the secret |
 
 To cut a release: move **Unreleased** in `CHANGELOG.md` under the new version,
-merge that, then `git tag vX.Y.Z && git push origin vX.Y.Z`.
+move `unreleased` in `ReleaseNotes.json` into an entry for that version with
+its date, run `packaging/release/release-notes.sh write`, merge that, then
+`git tag vX.Y.Z && git push origin vX.Y.Z`.
+
+### Release notes
+
+`ReleaseNotes.json` is what users are told about a release (ADR 0012). It is
+bundled in both apps, which show it once after an update and keep it in
+Help ▸ What's New and Settings, and the App Store's What's New is written
+from it. `CHANGELOG.md` stays the detailed record for maintainers.
+
+- `releases` has an entry per released version: `version` (`MAJOR.MINOR.PATCH`),
+  `date` (`YYYY-MM-DD`) and `notes`, a few lines of `{ "on": "mac" | "ios" |
+  "both", "text": … }`. Lines are prose for users: short, one sentence or
+  two, no issue numbers and no Markdown.
+- `unreleased` holds the lines for work on `main` that is not released; the
+  app never shows them.
+- `appStoreSince` is, per platform, the newest version whose notes the App
+  Store already carries. The App Store text is every line after it, newest
+  first; move it forward when a version goes live there.
+
+`packaging/release/release-notes.sh` reads the file with the app's own parser
+(`Core/Sources/ReleaseNotes`), so it accepts exactly what the app does: an
+entry that is not well formed is absent to both. `verify` runs in CI and
+first in the App Store workflow: every entry is well formed, the changelog's
+newest release has an entry with the same date, and
+`fastlane/metadata*/en-US/release_notes.txt` are what `write` would produce,
+within App Store Connect's 4000 characters. `check VERSION` runs first in
+the release workflow and stops a tag whose version has no dated entry.
 
 ## iCloud schema
 
@@ -112,9 +141,9 @@ The Mac App Store and TestFlight builds go through fastlane (`fastlane/Fastfile`
 - `release` submits the newest TestFlight build for review with the metadata
   in `fastlane/metadata/` (Mac) or `fastlane/metadata-ios/` (iOS, which says
   only what the iOS app does). What's New is the platform's
-  `en-US/release_notes.txt` there, or, without one, the changelog's
-  section for the version. The files outlive a version: update or delete
-  them with each release. It never releases automatically. App Review's
+  `en-US/release_notes.txt` there, written from `ReleaseNotes.json` by
+  `packaging/release/release-notes.sh write` and never edited by hand (see
+  Release notes above). It never releases automatically. App Review's
   screen recording is attached by hand first, on the version's App Review
   Information ▸ Attachment in App Store Connect; `release` stops if it is
   missing, and leaves it in place.

@@ -114,15 +114,15 @@ def build_number(platform)
                                  version: version, initial_build_number: 0) + 1
 end
 
-# What's new for a platform: its metadata folder's release_notes.txt when
-# there is one (the iOS app has fewer features than the changelog lists),
-# otherwise the changelog section for this version, as plain text.
+# What's new for a platform: its metadata folder's release_notes.txt, which
+# packaging/release/release-notes.sh writes from ReleaseNotes.json (#253).
+# CI and the App Store workflow check the file against the store, and that
+# it fits in 4000 characters, so the App Store says what the app's own
+# What's New says.
 def release_notes(metadata)
   file = File.join(metadata, "en-US", "release_notes.txt")
-  return File.read(file).strip[0, 4000] if File.exist?(file)
-
-  section = File.read("../CHANGELOG.md")[/^## v#{Regexp.escape(version)}.*?\n(.*?)(?=^## |\z)/m, 1].to_s
-  section.gsub(/^### /, "").gsub(/\*\*(.+?)\*\*/, '\1').gsub(/`([^`]*)`/, '\1').strip[0, 4000]
+  UI.user_error!("#{file} is missing: run packaging/release/release-notes.sh write") unless File.exist?(file)
+  File.read(file).strip[0, 4000]
 end
 
 # What the App Store build may claim: the same as the Developer ID release

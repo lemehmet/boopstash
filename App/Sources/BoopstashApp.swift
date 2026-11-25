@@ -117,6 +117,7 @@ struct BoopstashApp: App {
                 }
                 .disabled(!(delegate.model?.editorHasFocus ?? false))
             }
+            WhatsNewCommands()
             // A local note for bug reports (#185); nothing is sent anywhere.
             CommandGroup(after: .help) {
                 Divider()
@@ -128,6 +129,14 @@ struct BoopstashApp: App {
                     .disabled(delegate.model?.selection == nil)
             }
         }
+
+        // Help ▸ What's New (#253): every version's notes, from the bundle.
+        Window("What's New", id: WhatsNew.windowID) {
+            WhatsNewWindow(model: delegate.model)
+        }
+        .windowResizability(.contentMinSize)
+        // Opened only when asked for, never back by itself at launch.
+        .restorationBehavior(.disabled)
 
         Settings {
             SettingsView(model: delegate.model, preset: $preset, linuxHabits: $linuxHabits)
@@ -283,6 +292,8 @@ struct MainWindow: View {
     @Bindable var model: AppModel
     /// This window's script picker; every window has its own.
     @State private var scriptPicker: PickerTarget?
+    /// What's New, once after an update (#253).
+    @State private var whatsNew: WhatsNewItem?
     let keymap: Keymap
     let appearance: EditorAppearance
 
@@ -307,6 +318,19 @@ struct MainWindow: View {
             ScriptPicker(model: model, target: target)
         }
         .focusedSceneValue(\.scriptPicker, $scriptPicker)
+        // Dismissing it is what records the version as seen.
+        .sheet(item: $whatsNew, onDismiss: { model.whatsNew?.dismissed() }) { item in
+            WhatsNewSheet(model: model, releases: item.releases)
+        }
+        .task {
+            // Once the window is up, and after anything launch itself put
+            // over it; if something is in the way the notes wait for the
+            // next launch.
+            try? await Task.sleep(for: .milliseconds(800))
+            let free = scriptPicker == nil && WhatsNew.canPresent(over: WhatsNew.mainWindow)
+            let releases = model.whatsNew?.take(canPresent: free) ?? []
+            if !releases.isEmpty { whatsNew = WhatsNewItem(releases: releases) }
+        }
         .safeAreaInset(edge: .bottom) {
             if let banner = model.banner {
                 HStack {

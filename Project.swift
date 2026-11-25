@@ -163,6 +163,8 @@ let project = Project(
             resources: [
                 "Vendor/MiniLM/vocab.txt",
                 "App/Resources/**",
+                // What's New (#253): the one curated store, in both apps.
+                "ReleaseNotes.json",
                 // Boop's scripts (ADR 0005); the app lists and sends them.
                 .folderReference(path: "Vendor/Boop/scripts"),
             ],
@@ -233,7 +235,7 @@ let project = Project(
                 "UIBackgroundModes": ["remote-notification"],
             ]),
             sources: ["iOS/Sources/**", "iOS/Shared/**", "App/Adapters/**", "App/SharedViews/**", "Vendor/MiniLM/MiniLM.mlpackage"],
-            resources: ["iOS/Resources/**", "Vendor/MiniLM/vocab.txt"],
+            resources: ["iOS/Resources/**", "Vendor/MiniLM/vocab.txt", "ReleaseNotes.json"],
             dependencies: [.target(name: "BoopstashCore"), .target(name: "BoopStashShare")],
             settings: .settings(base: [
                 "PRODUCT_MODULE_NAME": "BoopStashMobile",

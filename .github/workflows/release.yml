@@ -51,6 +51,23 @@ jobs:
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
+      # Before anything is built or signed (#253): the app shows its users
+      # the notes of the version they update to, so a version without a
+      # dated entry in ReleaseNotes.json is not released. A dry run of a
+      # branch has no version, and a ref older than the store has no check.
+      - name: Check the release notes
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if [ "$VERSION" = 0.0.0-dryrun ]; then
+            echo "::notice::a dry run of a branch: there is no version to have release notes"; exit 0
+          fi
+          if [ ! -f packaging/release/release-notes.sh ]; then
+            echo "::notice::$REF is older than ReleaseNotes.json: no release notes to check"; exit 0
+          fi
+          packaging/release/release-notes.sh check "$VERSION" || {
+            echo "::error::ReleaseNotes.json has no well-formed entry for $VERSION. See CONTRIBUTING.md ▸ Releasing."; exit 1; }
+
       - name: Confirm the signing secrets are configured
         env:
           DEVELOPER_ID_P12_BASE64: ${{ secrets.DEVELOPER_ID_P12_BASE64 }}

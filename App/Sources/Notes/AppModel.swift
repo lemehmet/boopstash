@@ -70,6 +70,9 @@ final class AppModel {
     var isSyncing: Bool { syncEngine != nil }
     /// Screenshots' demo mode (debug builds) shows sync on, without an engine.
     @ObservationIgnored var demoSync = false
+    /// This launch's What's New (#253). Only a real launch makes one: demo
+    /// mode, the screenshots and tests never show the sheet.
+    @ObservationIgnored var whatsNew: ReleaseNotesOffer?
     /// Whether Settings offers sync, and shows it running.
     var canSync: Bool { syncAvailable() || demoSync }
     /// Whether this build was signed for iCloud; replaceable for tests.
@@ -311,6 +314,9 @@ final class AppModel {
         _ = try? store.removeUnreferencedAttachments()
         Log.store.info("store opened: in the App Group \(shared), \(merged) notes merged")
         let model = AppModel(store: store)
+        // Asked before anything is written: notes already here mean an
+        // update, none a first install, which is shown nothing (#253).
+        model.whatsNew = LiveReleaseNotes.offer(existingInstall: (try? store.notes(matching: NoteQuery(limit: 1)))?.isEmpty == false)
         if merged > 0 {
             model.banner = "\(merged) notes from an earlier copy of BoopStash on this Mac were added to your notes."
         } else if SharedStore.folder != nil, !shared {

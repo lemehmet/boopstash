@@ -1,14 +1,15 @@
+• Window ▸ BoopStash (⌘0) brings the main window back after it is closed; New Note opens it too.
+• Find and replace in a note, as in VS Code: ⌘F opens a widget with Match Case, Whole Word and Regular Expression toggles and the match count; ⌥⌘F unfolds the replace row; Enter and ⇧Enter step through the matches; $1 works in regular expression replacements.
+• With iCloud sync on, a note edited soon after its first sync is no longer emptied into a "(conflict)" copy.
+• The note list no longer stays on an old filter when the filter changes twice in quick succession.
+• BoopStash ▸ Install Command Line Tool… puts the boopstash command on your PATH, for copies not installed with Homebrew.
+• The preview beside the editor keeps the size you drag it to, across notes and relaunches.
 • Labels: put coloured labels on notes, see them as chips in the list, and filter by them. Settings ▸ Labels makes, renames and recolours them.
 • Report a Problem in the Help menu makes a note describing the app and what is on screen, with an optional screenshot of the window, ready to copy into an issue.
+• The editor shows its text again: the folding gutter no longer paints over the note.
 • Search by meaning: a search also finds notes that say the same thing in other words, using a small language model on your Mac. Show Similar Notes lists a note's closest neighbours.
 • Folding: fold code blocks, JSON, XML and HTML elements and Markdown sections from the gutter or the Edit menu.
 • A boopstash command for the terminal: pipe output into a note, and list, search and show notes, with JSON output.
 • Format Document for Python, Go, shell, C, C++ and Java.
 • The language menu shows the language in use; the toolbar has Paste as Markdown, Run Script and the previews.
 • The preview is for Markdown notes; XML formatting keeps text exactly; long notes with many images scroll smoothly.
-• The preview beside the editor keeps the size you drag it to, across notes and relaunches.
-• BoopStash ▸ Install Command Line Tool… puts the boopstash command on your PATH, for copies not installed with Homebrew.
-• Find and replace in a note, as in VS Code: ⌘F opens a widget with Match Case, Whole Word and Regular Expression toggles and the match count; ⌥⌘F unfolds the replace row; Enter and ⇧Enter step through the matches; $1 works in regular expression replacements.
-• With iCloud sync on, a note edited soon after its first sync is no longer emptied into a "(conflict)" copy.
-• The note list no longer stays on an old filter when the filter changes twice in quick succession.
-• Window ▸ BoopStash (⌘0) brings the main window back after it is closed; New Note opens it too.

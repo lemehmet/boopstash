@@ -8,6 +8,16 @@ breaking changes may land in a minor release.
 
 ### New
 
+- **What's New (#253).** On the first launch after an update, BoopStash
+  shows once what changed since the version last run on that device: the
+  notes of every version in between, newest first, with only the lines
+  for that platform. A first install is shown nothing. The same notes
+  are always in Help ▸ What's New and Settings on the Mac and in
+  Settings ▸ What's New on iOS, and can be copied as Markdown or saved as
+  a note. They are bundled with the app (`ReleaseNotes.json`), never
+  fetched, and which version was seen is kept per device. The App Store's
+  What's New text is now written from the same file, and a release or an
+  App Store build stops when its version has no entry there.
 - **Mac: Clean Up Pasted Text (#244).** Edit ▸ Clean Up Pasted Text, also
   in the script picker (⌘B), tidies text copied from a terminal or an
   agent's window: box-drawing and ASCII tables become Markdown tables, the

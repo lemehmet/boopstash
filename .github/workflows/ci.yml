@@ -31,6 +31,14 @@ jobs:
       - name: Release script tests
         run: bash packaging/release/test-tap-is-newer.sh
 
+      # What's New (#253): the guard's own tests, then the real store: every
+      # entry well formed, the changelog's newest release among them, and
+      # fastlane's App Store text saying what the store says.
+      - name: Release notes
+        run: |
+          bash packaging/release/test-release-notes.sh
+          packaging/release/release-notes.sh verify
+
       - name: Xcode
         run: |
           xcodebuild -version

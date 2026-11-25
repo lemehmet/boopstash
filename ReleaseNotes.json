@@ -1,0 +1,114 @@
+{
+  "appStoreSince": { "mac": "0.3.0", "ios": "0.3.0" },
+  "unreleased": [
+    { "on": "mac", "text": "What's New: after an update, BoopStash shows once what changed. The notes stay in Help ▸ What's New and in Settings, and can be copied or saved as a note." },
+    { "on": "ios", "text": "What's New: after an update, BoopStash shows once what changed. The notes stay in Settings ▸ What's New, and can be copied or saved as a note." },
+    { "on": "mac", "text": "Clean Up Pasted Text in the Edit menu tidies text copied from a terminal: tables become Markdown tables, and shared indentation, trailing spaces and colour codes go." },
+    { "on": "mac", "text": "Copy Text from Image: right-click an image in the editor to copy the text in it, or to insert that text below the image." },
+    { "on": "ios", "text": "Touch and hold an image in a note's preview to copy the text in it." },
+    { "on": "both", "text": "Text read from images keeps its rows, so a screenshot of a table pastes into a spreadsheet as a table." }
+  ],
+  "releases": [
+    {
+      "version": "0.4.6",
+      "date": "2026-11-10",
+      "notes": [
+        { "on": "mac", "text": "Window ▸ BoopStash (⌘0) brings the main window back after it is closed; New Note opens it too." }
+      ]
+    },
+    {
+      "version": "0.4.5",
+      "date": "2026-11-06",
+      "notes": [
+        { "on": "mac", "text": "Find and replace in a note, as in VS Code: ⌘F opens a widget with Match Case, Whole Word and Regular Expression toggles and the match count; ⌥⌘F unfolds the replace row; Enter and ⇧Enter step through the matches; $1 works in regular expression replacements." },
+        { "on": "mac", "text": "With iCloud sync on, a note edited soon after its first sync is no longer emptied into a \"(conflict)\" copy." },
+        { "on": "ios", "text": "With iCloud sync on, an edit made soon after a note first synced could end up in a \"(conflict)\" copy; it now stays in the note." },
+        { "on": "both", "text": "The note list no longer stays on an old filter when the filter changes twice in quick succession." }
+      ]
+    },
+    {
+      "version": "0.4.4",
+      "date": "2026-11-01",
+      "notes": [
+        { "on": "mac", "text": "BoopStash ▸ Install Command Line Tool… puts the boopstash command on your PATH, for copies not installed with Homebrew." }
+      ]
+    },
+    {
+      "version": "0.4.3",
+      "date": "2026-10-31",
+      "notes": [
+        { "on": "mac", "text": "The preview beside the editor keeps the size you drag it to, across notes and relaunches." },
+        { "on": "ios", "text": "With the preview on, every note you open renders, not just the first." }
+      ]
+    },
+    {
+      "version": "0.4.2",
+      "date": "2026-10-31",
+      "notes": [
+        { "on": "mac", "text": "Labels: put coloured labels on notes, see them as chips in the list, and filter by them. Settings ▸ Labels makes, renames and recolours them." },
+        { "on": "ios", "text": "Labels made on your Mac show as coloured chips, and the Filter menu lists only the notes carrying the labels you check." },
+        { "on": "mac", "text": "Report a Problem in the Help menu makes a note describing the app and what is on screen, with an optional screenshot of the window, ready to copy into an issue." }
+      ]
+    },
+    {
+      "version": "0.4.1",
+      "date": "2026-10-30",
+      "notes": [
+        { "on": "mac", "text": "The editor shows its text again: the folding gutter no longer paints over the note." }
+      ]
+    },
+    {
+      "version": "0.4.0",
+      "date": "2026-10-30",
+      "notes": [
+        { "on": "mac", "text": "Search by meaning: a search also finds notes that say the same thing in other words, using a small language model on your Mac. Show Similar Notes lists a note's closest neighbours." },
+        { "on": "ios", "text": "Search by meaning: a search also finds notes that say the same thing in other words, using a small language model on your device. Show Similar Notes lists a note's closest neighbours." },
+        { "on": "ios", "text": "Notes shared from other apps are found by meaning too." },
+        { "on": "mac", "text": "Folding: fold code blocks, JSON, XML and HTML elements and Markdown sections from the gutter or the Edit menu." },
+        { "on": "mac", "text": "A boopstash command for the terminal: pipe output into a note, and list, search and show notes, with JSON output." },
+        { "on": "mac", "text": "Format Document for Python, Go, shell, C, C++ and Java." },
+        { "on": "mac", "text": "The language menu shows the language in use; the toolbar has Paste as Markdown, Run Script and the previews." },
+        { "on": "mac", "text": "The preview is for Markdown notes; XML formatting keeps text exactly; long notes with many images scroll smoothly." }
+      ]
+    },
+    {
+      "version": "0.3.0",
+      "date": "2026-10-29",
+      "notes": [
+        { "on": "both", "text": "iCloud sync, off until you turn it on in Settings: your notes and images stay the same on every Mac, iPhone and iPad signed in to your Apple Account, encrypted on your device before they are uploaded." },
+        { "on": "both", "text": "BoopStash for iPhone and iPad: the same notes and search, syntax highlighting, light editing and the Markdown preview." },
+        { "on": "ios", "text": "Share to BoopStash: share text, a link or up to ten images from any app and they become a note." },
+        { "on": "mac", "text": "BoopStash is on the Mac App Store as well as Homebrew." }
+      ]
+    },
+    {
+      "version": "0.2.0",
+      "date": "2026-10-29",
+      "notes": [
+        { "on": "mac", "text": "Images: paste or drop an image into a note. Each shows as a chip with a thumbnail, and export writes images beside the notes." },
+        { "on": "mac", "text": "Text in images is searchable, read on your Mac by Apple's text recognition." },
+        { "on": "mac", "text": "Markdown preview: View ▸ Show Preview (⌥⌘P) renders the note beside the editor or in its place, and never loads anything." },
+        { "on": "mac", "text": "Format Document for JSON, XML, JavaScript, TypeScript, CSS, HTML, YAML, Markdown and SQL." },
+        { "on": "mac", "text": "Boop scripts: Scripts ▸ Run Script… (⌘B) runs Boop's scripts on the selection or the whole note, and your own from the Scripts folder." }
+      ]
+    },
+    {
+      "version": "0.1.1",
+      "date": "2026-10-28",
+      "notes": [
+        { "on": "mac", "text": "The app is now spelled BoopStash and has its own icon; your notes and settings carry over." },
+        { "on": "mac", "text": "Settings ▸ Editor: the editor's font and size, and a theme each for light and dark appearance." },
+        { "on": "mac", "text": "Fixes for line commands on Windows line endings, links in Paste as Markdown, dropped files and titles." }
+      ]
+    },
+    {
+      "version": "0.1.0",
+      "date": "2026-10-28",
+      "notes": [
+        { "on": "mac", "text": "The first release: a scratch pad for macOS that keeps what you paste, with notes that name themselves and a filter that matches inside words." },
+        { "on": "mac", "text": "An editor that leaves your text alone, with VS Code, JetBrains or Emacs key bindings and syntax highlighting for twenty languages." },
+        { "on": "mac", "text": "Capture from the clipboard with ⌥⌘N, with ⌃⌥⌘V from any app, or with Services ▸ Save to BoopStash." }
+      ]
+    }
+  ]
+}
