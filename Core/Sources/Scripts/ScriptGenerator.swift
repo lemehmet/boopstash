@@ -8,6 +8,11 @@ import Foundation
 /// The draft is untrusted text. It goes into the workbench's script editor
 /// and nowhere else: it runs only when the user chooses Run, in the script
 /// service (ADR 0007), and reaches the note only through Keep.
+///
+/// A generator runs on this device: the instruction and the sample stay
+/// on it (ADR 0001, ADR 0013). One that sends them anywhere else needs
+/// its own ADR first, and with it whatever the workbench must then show
+/// about where they go.
 public protocol ScriptGenerator: Sendable {
     /// Whether a request can be made now and, if so, where it would go.
     /// The workbench asks each time its sheet opens, so this should answer
@@ -41,22 +46,18 @@ public enum ScriptGeneratorAvailability: Sendable, Hashable {
     case unavailable(reason: String)
 }
 
-/// Where a request goes, for the user to see before sending one.
+/// What a request is given to, for the user to see before sending one.
 public struct ScriptGeneratorDestination: Sendable, Hashable {
-    /// A few words: "the model on this Mac", "the model at 127.0.0.1:8080".
+    /// A few words: "the model on this Mac".
     public var summary: String
-    /// The instruction and the sample leave this device.
-    public var leavesDevice: Bool
 
-    public init(summary: String, leavesDevice: Bool) {
+    public init(summary: String) {
         self.summary = summary
-        self.leavesDevice = leavesDevice
     }
 
     /// The line under the prompt field.
     public var notice: String {
-        let what = "Your instruction and a sample of the text go to \(summary)."
-        return leavesDevice ? what + " That is outside this device." : what
+        "Your instruction and a sample of the text go to \(summary)."
     }
 }
 

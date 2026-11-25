@@ -496,7 +496,7 @@ struct ScriptWorkbenchFlowTests {
         var slowToSay: Bool
 
         init(answer: Result<String, ScriptGenerationFailure> = .success(ScriptWorkbenchFlowTests.prefixing),
-             state: ScriptGeneratorAvailability = .available(ScriptGeneratorDestination(summary: "a fake model", leavesDevice: false)),
+             state: ScriptGeneratorAvailability = .available(ScriptGeneratorDestination(summary: "a fake model")),
              waits: Bool = false, slowToSay: Bool = false) {
             self.answer = answer
             self.state = state
@@ -553,7 +553,7 @@ struct ScriptWorkbenchFlowTests {
         #expect(session.canKeep, "the workbench is usable meanwhile")
         await fake.say()
         await session.availabilityCheck?.value
-        #expect(session.destination == ScriptGeneratorDestination(summary: "a fake model", leavesDevice: false))
+        #expect(session.destination == ScriptGeneratorDestination(summary: "a fake model"))
 
         // An answer that comes after the sheet closed is dropped, and the editor is free at once.
         let late = FakeGenerator(slowToSay: true)
@@ -571,7 +571,7 @@ struct ScriptWorkbenchFlowTests {
         let (window, view) = host(Self.numbers)
         let fake = FakeGenerator()
         let session = await workbench(on: view, script: ScriptSkeleton.blank.source, generator: fake)
-        #expect(session.destination == ScriptGeneratorDestination(summary: "a fake model", leavesDevice: false))
+        #expect(session.destination == ScriptGeneratorDestination(summary: "a fake model"))
         session.instruction = " turn each number into a tracker link "
         session.generate()
         #expect(session.isGenerating)

@@ -247,7 +247,7 @@ import Testing
         let waits: Bool
 
         init(answer: Result<String, ScriptGenerationFailure> = .success("function main(state) {}"),
-             state: ScriptGeneratorAvailability = .available(ScriptGeneratorDestination(summary: "a fake", leavesDevice: false)),
+             state: ScriptGeneratorAvailability = .available(ScriptGeneratorDestination(summary: "a fake")),
              waits: Bool = false) {
             self.answer = answer
             self.state = state
@@ -304,12 +304,10 @@ import Testing
     }
 
     @Test func theSheetOffersGenerateOnlyForAnAvailableGenerator() async {
-        let here = ScriptGeneratorDestination(summary: "the model on this Mac", leavesDevice: false)
-        let away = ScriptGeneratorDestination(summary: "the model at models.example.test", leavesDevice: true)
+        let here = ScriptGeneratorDestination(summary: "the model on this Mac")
         #expect(ScriptGeneration.destination(nil) == nil, "no generator: no prompt field, no Generate")
         #expect(ScriptGeneration.destination(.unavailable(reason: "No model is set up.")) == nil)
         #expect(ScriptGeneration.destination(await FakeGenerator(state: .available(here)).availability()) == here)
         #expect(here.notice == "Your instruction and a sample of the text go to the model on this Mac.")
-        #expect(away.notice == "Your instruction and a sample of the text go to the model at models.example.test. That is outside this device.")
     }
 }
