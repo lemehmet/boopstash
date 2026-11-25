@@ -205,6 +205,20 @@ import Testing
         #expect(launch(running: "unknown", lastSeen: "1.0.0") == .nothing)
     }
 
+    @Test func aDevelopmentBuildOlderThanEveryReleaseLeavesNoTrace() {
+        // Development builds report 0.0.1 and share the installed app's
+        // defaults: they neither show notes nor move the record.
+        #expect(launch(running: "0.0.1", lastSeen: nil) == .nothing)
+        #expect(launch(running: "0.0.1", lastSeen: nil, existing: false) == .nothing)
+        #expect(launch(running: "0.0.1", lastSeen: "1.2.0") == .nothing)
+        #expect(ReleaseNotes().launch(running: version("1.0.0"), lastSeen: nil, existingInstall: false, platform: .mac) == .nothing)
+        let store = defaults()
+        var development = offer(running: "0.0.1", in: store, existing: false)
+        #expect(development.take(canPresent: true).isEmpty)
+        development.dismissed()
+        #expect(ReleaseNotesLedger(defaults: store).lastSeen == nil)
+    }
+
     @Test func aPreReleaseBuildShowsItsVersionsNotes() {
         #expect(shown(launch(running: "1.2.0-rc.1", lastSeen: "1.1.0")) == ["1.2.0"])
     }

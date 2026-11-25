@@ -264,7 +264,10 @@ public struct ReleaseNotes: Equatable, Sendable {
     /// from a version older than this feature (notes already here) from a
     /// first install.
     public func launch(running: ReleaseVersion?, lastSeen: ReleaseVersion?, existingInstall: Bool, platform: Platform) -> Launch {
-        guard let running else { return .nothing }
+        // A build older than every release is a development build (0.0.1):
+        // recording it would make the next real release look many versions
+        // away and show them all.
+        guard let running, let oldest = releases.last?.version, running >= oldest else { return .nothing }
         let candidates = releases(for: platform)
         let shown: [Release]
         if let lastSeen {
@@ -349,6 +352,9 @@ public struct ReleaseNotesOffer {
     public let running: ReleaseVersion?
     let ledger: ReleaseNotesLedger
     private var pending: [ReleaseNotes.Release]
+    /// Set only when there were notes to show: a launch that offered
+    /// nothing has nothing to record on dismissal.
+    private let shownVersion: ReleaseVersion?
 
     /// `suppressed` is demo mode, screenshots and tests: nothing is shown
     /// and nothing is recorded.
@@ -357,12 +363,22 @@ public struct ReleaseNotesOffer {
         let version = ReleaseVersion.running(running)
         self.running = version
         self.ledger = ledger
-        pending = []
-        guard !suppressed, let version else { return }
+        guard !suppressed, let version else {
+            pending = []
+            shownVersion = nil
+            return
+        }
         switch notes.launch(running: version, lastSeen: ledger.lastSeen, existingInstall: existingInstall, platform: platform) {
-        case .nothing: break
-        case .record: ledger.record(version)
-        case .show(let releases): pending = releases
+        case .nothing:
+            pending = []
+            shownVersion = nil
+        case .record:
+            ledger.record(version)
+            pending = []
+            shownVersion = nil
+        case .show(let releases):
+            pending = releases
+            shownVersion = version
         }
     }
 
@@ -376,6 +392,6 @@ public struct ReleaseNotesOffer {
 
     /// The sheet was dismissed: this version is the one last run.
     public func dismissed() {
-        if let running { ledger.record(running) }
+        if let shownVersion { ledger.record(shownVersion) }
     }
 }

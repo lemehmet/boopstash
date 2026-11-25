@@ -14,6 +14,9 @@ extension NotesModel {
                         body: ReleaseNotes.markdown(releases), createdAt: now)
         do {
             try store.save(note)
+            // As for any new note: a filter that would hide it is cleared.
+            if query.text != "" || query.days != nil || !query.labels.isEmpty { query = NoteQuery(scope: query.scope) }
+            similarTo = nil
             return true
         } catch {
             banner = "Could not save: \(error.localizedDescription)"
