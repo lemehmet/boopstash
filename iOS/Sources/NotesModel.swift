@@ -172,7 +172,7 @@ final class NotesModel {
         let model = NotesModel(store: store)
         // Asked before anything is written: notes already here mean an
         // update, none a first install, which is shown nothing (#253).
-        model.whatsNew = LiveReleaseNotes.offer(existingInstall: (try? store.notes(matching: NoteQuery(limit: 1)))?.isEmpty == false)
+        model.whatsNew = LiveReleaseNotes.offer(for: store)
         if merged > 0 {
             model.banner = "\(merged) notes from an earlier copy of BoopStash on this device were added to your notes."
         } else if SharedStore.folder != nil, !shared {

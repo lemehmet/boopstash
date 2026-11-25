@@ -10,11 +10,6 @@ import SwiftUI
 enum WhatsNew {
     static let windowID = "whats-new"
 
-    /// The main window the sheet would hang on.
-    static var mainWindow: NSWindow? {
-        NSApp.windows.first { MainWindowRegistry.contains($0) && $0.isVisible }
-    }
-
     /// Never over another sheet or an alert, and only on a window in view:
     /// otherwise the notes wait for the next launch.
     static func canPresent(over window: NSWindow?, modal: NSWindow? = NSApp.modalWindow) -> Bool {
@@ -38,6 +33,37 @@ extension AppModel {
         let note = Note(title: ReleaseNotes.title(for: releases), titleIsUserSet: true,
                         body: ReleaseNotes.markdown(releases), createdAt: now)
         return insert(note) ? note : nil
+    }
+}
+
+/// The window a main scene's content is in: the one its sheet hangs on.
+/// There can be several main windows; each asks about its own.
+struct HostWindowReader: NSViewRepresentable {
+    /// Held by the view; written here without redrawing anything.
+    final class Host {
+        weak var window: NSWindow?
+    }
+
+    final class Probe: NSView {
+        var host: Host?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            host?.window = window
+        }
+    }
+
+    let host: Host
+
+    func makeNSView(context: Context) -> Probe {
+        let probe = Probe()
+        probe.host = host
+        return probe
+    }
+
+    func updateNSView(_ view: Probe, context: Context) {
+        view.host = host
+        host.window = view.window
     }
 }
 

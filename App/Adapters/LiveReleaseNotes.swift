@@ -27,6 +27,15 @@ enum LiveReleaseNotes {
     /// Every version with something to say on this platform, newest first.
     static var all: [ReleaseNotes.Release] { notes.releases(for: platform) }
 
+    /// This launch's offer, asked of the store before anything is written:
+    /// notes already here mean an update, none a first install. A query
+    /// that fails says neither, so there is no offer: nothing is shown or
+    /// recorded until a launch can tell.
+    static func offer(for store: NoteStore, defaults: UserDefaults = .standard) -> ReleaseNotesOffer? {
+        guard let notes = try? store.notes(matching: NoteQuery(limit: 1)) else { return nil }
+        return offer(existingInstall: !notes.isEmpty, defaults: defaults)
+    }
+
     /// This launch's offer. `existingInstall` is whether notes were here
     /// before this launch: an update from a version older than What's New
     /// has them, a first install does not.

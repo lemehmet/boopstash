@@ -294,6 +294,8 @@ struct MainWindow: View {
     @State private var scriptPicker: PickerTarget?
     /// What's New, once after an update (#253).
     @State private var whatsNew: WhatsNewItem?
+    /// The window this view is in, which its sheets hang on.
+    @State private var host = HostWindowReader.Host()
     let keymap: Keymap
     let appearance: EditorAppearance
 
@@ -322,12 +324,14 @@ struct MainWindow: View {
         .sheet(item: $whatsNew, onDismiss: { model.whatsNew?.dismissed() }) { item in
             WhatsNewSheet(model: model, releases: item.releases)
         }
+        .background(HostWindowReader(host: host))
         .task {
             // Once the window is up, and after anything launch itself put
             // over it; if something is in the way the notes wait for the
             // next launch.
             try? await Task.sleep(for: .milliseconds(800))
-            let free = scriptPicker == nil && WhatsNew.canPresent(over: WhatsNew.mainWindow)
+            // This window, not any main window: the sheet hangs on it.
+            let free = scriptPicker == nil && WhatsNew.canPresent(over: host.window)
             let releases = model.whatsNew?.take(canPresent: free) ?? []
             if !releases.isEmpty { whatsNew = WhatsNewItem(releases: releases) }
         }

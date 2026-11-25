@@ -1,5 +1,6 @@
 import AppKit
 import BoopstashCore
+import SwiftUI
 import Testing
 @testable import Boopstash
 
@@ -87,6 +88,19 @@ struct ReleaseNotesFlowTests {
         #expect(WhatsNew.canPresent(over: open, modal: nil))
         // An alert run modally is in the way too.
         #expect(!WhatsNew.canPresent(over: open, modal: window()))
+    }
+
+    @Test func aViewLearnsTheWindowItIsIn() {
+        // With several main windows, each asks about its own.
+        let host = HostWindowReader.Host()
+        let hosting = NSHostingView(rootView: Color.clear.background(HostWindowReader(host: host)))
+        #expect(host.window == nil)
+        let open = window()
+        open.contentView = hosting
+        hosting.layoutSubtreeIfNeeded()
+        #expect(host.window === open)
+        open.contentView = nil
+        #expect(host.window == nil)
     }
 
     @Test func theSheetNeverGoesOverAnotherSheet() async throws {
