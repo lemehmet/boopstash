@@ -135,4 +135,26 @@ import Testing
         #expect(share == 0.5)
         #expect(ScriptWorkbenchLayout.scriptWidth(split: ScriptWorkbenchLayout.split(stored: share), total: 2000) == 1000)
     }
+
+    @Test func theShareShownIsTheOneOnScreenWhenTheWindowIsNarrowerThanTheShareWasSetIn() {
+        #expect(ScriptWorkbenchLayout.shownSplit(split: 0.5, total: 1000) == 0.5)
+        // 0.8 set in a wide window; at 800 the script is held to 480.
+        #expect(ScriptWorkbenchLayout.shownSplit(split: 0.8, total: 800) == 0.6)
+        #expect(ScriptWorkbenchLayout.shownSplit(split: 0.1, total: 800) == 0.4)
+        #expect(ScriptWorkbenchLayout.shownSplit(split: 0.9, total: 500) == 0.5, "no room for two minimums: half each")
+        #expect(ScriptWorkbenchLayout.shownSplit(split: 0.3, total: 0) == 0.3, "nothing shown: the share as stored")
+        #expect(ScriptWorkbenchLayout.shownSplit(split: .nan, total: 0) == ScriptWorkbenchLayout.defaultSplit)
+    }
+
+    @Test func aStepOfTheDividerIsFromWhereItIsShown() {
+        #expect(ScriptWorkbenchLayout.scriptWidth(split: 0.5, steppedBy: 0.05, total: 1000) == 550)
+        #expect(ScriptWorkbenchLayout.scriptWidth(split: 0.5, steppedBy: -0.05, total: 1000) == 450)
+        // Shown at 480 of 800, though 0.8 is stored: one step down is 440, not 600.
+        let down = ScriptWorkbenchLayout.scriptWidth(split: 0.8, steppedBy: -0.05, total: 800)
+        #expect(down == 440)
+        #expect(ScriptWorkbenchLayout.split(draggedTo: down, total: 800) == 0.55)
+        // A step up from the most the script can have stays there.
+        let up = ScriptWorkbenchLayout.scriptWidth(split: 0.8, steppedBy: 0.05, total: 800)
+        #expect(ScriptWorkbenchLayout.split(draggedTo: up, total: 800) == 0.6)
+    }
 }

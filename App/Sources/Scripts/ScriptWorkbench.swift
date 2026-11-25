@@ -315,6 +315,12 @@ final class ScriptWorkbenchSession {
         layout.split = share
     }
 
+    /// The divider moved one step (a share of `total`) with the
+    /// accessibility increment or decrement, from where it is on screen.
+    func stepDivider(by step: Double, of total: Double) {
+        moveDivider(toScriptWidth: ScriptWorkbenchLayout.scriptWidth(split: split, steppedBy: step, total: total), of: total)
+    }
+
     // MARK: Save as Script
 
     /// Writes the script, with a Boop header for `name`, into the Scripts

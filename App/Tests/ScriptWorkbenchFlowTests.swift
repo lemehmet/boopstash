@@ -346,6 +346,15 @@ struct ScriptWorkbenchFlowTests {
         #expect(first.split == 0.5 && layout.split == 0.5)
         first.moveDivider(toScriptWidth: 200, of: 500)
         #expect(first.split == 0.5, "with no room to choose in, a drag changes nothing")
+        // A step with the accessibility action is from where the divider is
+        // shown: 0.68 of 1000 is shown as 380 of 700 in a narrower window.
+        first.moveDivider(toScriptWidth: 680, of: 1000)
+        first.stepDivider(by: -0.05, of: 700)
+        #expect(first.split == 345.0 / 700.0, "one step down from the 380 shown")
+        first.moveDivider(toScriptWidth: 500, of: 1000)
+        first.stepDivider(by: 0.05, of: 1000)
+        #expect(first.split == 0.55)
+        first.moveDivider(toScriptWidth: 500, of: 1000)
         first.discard()
 
         let second = await workbench(on: view)

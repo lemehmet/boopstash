@@ -349,11 +349,16 @@ private struct WorkbenchDivider: View {
             .help("Drag to give the script or the diff more room")
             .accessibilityElement()
             .accessibilityLabel("Divider between the script and the diff")
-            .accessibilityValue("\(Int((session.split * 100).rounded())) percent for the script")
+            .accessibilityValue("\(shownPercent) percent for the script")
             .accessibilityAdjustableAction { (direction: AccessibilityAdjustmentDirection) in
-                let step: Double = direction == .increment ? 0.05 : -0.05
-                session.moveDivider(toScriptWidth: (session.split + step) * total, of: total)
+                session.stepDivider(by: direction == .increment ? 0.05 : -0.05, of: total)
             }
+    }
+
+    /// The script's share as it is on screen, which in a narrow window is
+    /// not the remembered one.
+    private var shownPercent: Int {
+        Int((ScriptWorkbenchLayout.shownSplit(split: session.split, total: total) * 100).rounded())
     }
 
     private var drag: some Gesture {

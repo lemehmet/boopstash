@@ -394,6 +394,22 @@ public enum ScriptWorkbenchLayout {
         return min(max((total * Self.split(stored: split)).rounded(), minimum), total - minimum)
     }
 
+    /// The share of `total` the script pane has on screen: the stored share
+    /// as `scriptWidth` holds it for this width. It differs from the stored
+    /// one in a window narrower than the one the divider was dragged in.
+    public static func shownSplit(split: Double, total: Double, minimum: Double = minimumPaneWidth) -> Double {
+        guard total.isFinite, total > 0 else { return Self.split(stored: split) }
+        return scriptWidth(split: split, total: total, minimum: minimum) / total
+    }
+
+    /// The width to move the divider to for one step of `step` (a share of
+    /// `total`) from where the script pane is on screen, not from the
+    /// stored share, so that a step is always from what is shown.
+    public static func scriptWidth(split: Double, steppedBy step: Double, total: Double,
+                                   minimum: Double = minimumPaneWidth) -> Double {
+        scriptWidth(split: split, total: total, minimum: minimum) + step * total
+    }
+
     /// The script's share after the divider was dragged to make its pane
     /// `width` wide: the width is held to what leaves both panes their
     /// minimum. Nil when there is no room to choose in.
