@@ -249,4 +249,89 @@ struct CopyImageTextTests {
         #expect(messages.all.count == 1)
         window.close()
     }
+
+    /// The open note is reloaded in place (an iCloud merge) while the image
+    /// is read: the reference is found again in the merged text (#255).
+    @Test func insertSurvivesAReloadOfTheSameNote() async throws {
+        let image = try image()
+        let markdown = AttachmentReference.markdown(for: image.id)
+        let (window, view) = host("mine\n" + markdown + "\nafter")
+        view.setSelectedRange(reference(image.id, in: view))
+        let task = view.insertImageText(of: image.id)
+        view.load("a line from another Mac\nmine\n" + markdown + "\nafter", sameNote: true)
+        await task.value
+        #expect(view.string == "a line from another Mac\nmine\n" + markdown + "\nName\tQty\nBolt\t12\nafter")
+        #expect(messages.all.isEmpty)
+        window.close()
+    }
+
+    /// Edits made after the reload are followed as before it.
+    @Test func insertFollowsEditsMadeAfterAReload() async throws {
+        let image = try image()
+        let markdown = AttachmentReference.markdown(for: image.id)
+        let (window, view) = host(markdown + "\nafter")
+        let task = view.insertImageText(of: image.id)
+        view.load("merged\n" + markdown + "\nafter", sameNote: true)
+        view.insertText(markdown + "\nabove\n", replacementRange: NSRange(location: 0, length: 0))
+        await task.value
+        #expect(view.string == markdown + "\nabove\nmerged\n" + markdown + "\nName\tQty\nBolt\t12\nafter")
+        #expect(messages.all.isEmpty)
+        window.close()
+    }
+
+    @Test func insertIsDroppedWhenAReloadRemovedTheReference() async throws {
+        let image = try image()
+        let (window, view) = host(AttachmentReference.markdown(for: image.id) + "\nafter")
+        let task = view.insertImageText(of: image.id)
+        view.load("the image was removed on another Mac\nafter", sameNote: true)
+        await task.value
+        #expect(view.string == "the image was removed on another Mac\nafter")
+        #expect(messages.all == ["The image is no longer in this note, so its text was not inserted."])
+        window.close()
+    }
+
+    /// Which of two references was chosen cannot be told after a reload.
+    @Test func insertIsDroppedWhenAReloadHasTheImageTwice() async throws {
+        let image = try image()
+        let markdown = AttachmentReference.markdown(for: image.id)
+        let (window, view) = host(markdown + "\nafter")
+        let task = view.insertImageText(of: image.id)
+        let merged = markdown + "\nbetween\n" + markdown + "\nafter"
+        view.load(merged, sameNote: true)
+        await task.value
+        #expect(view.string == merged)
+        #expect(messages.all == ["The note changed in iCloud and now has this image more than once, so its text was not inserted."])
+        window.close()
+    }
+
+    /// A reference deleted before the reload stays lost: the text does not
+    /// go under the copy of the image the merged text still has.
+    @Test func aReloadDoesNotBringBackADeletedReference() async throws {
+        let image = try image()
+        let markdown = AttachmentReference.markdown(for: image.id)
+        let (window, view) = host(markdown + "\nbetween\n" + markdown + "\nafter")
+        let first = try #require(AttachmentReference.matches(in: view.string).first?.range)
+        view.setSelectedRange(first)
+        let task = view.insertImageText(of: image.id)
+        view.insertText("", replacementRange: first)
+        view.load("merged\nbetween\n" + markdown + "\nafter", sameNote: true)
+        await task.value
+        #expect(view.string == "merged\nbetween\n" + markdown + "\nafter")
+        #expect(messages.all == ["The image is no longer in this note, so its text was not inserted."])
+        window.close()
+    }
+
+    /// A note reloaded and then replaced by another is another note.
+    @Test func insertIsDroppedWhenAnotherNoteFollowsAReload() async throws {
+        let image = try image()
+        let markdown = AttachmentReference.markdown(for: image.id)
+        let (window, view) = host(markdown)
+        let task = view.insertImageText(of: image.id)
+        view.load("merged\n" + markdown, sameNote: true)
+        view.load("another note with " + markdown)
+        await task.value
+        #expect(view.string == "another note with " + markdown)
+        #expect(messages.all == ["The image is no longer in this note, so its text was not inserted."])
+        window.close()
+    }
 }

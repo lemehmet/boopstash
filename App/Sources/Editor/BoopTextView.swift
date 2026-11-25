@@ -33,6 +33,9 @@ final class BoopTextView: NSTextView {
     /// can be copied: the Edit menu's items follow it.
     var onImageSelectionChange: (() -> Void)?
     var hadSelectedImage = false
+    /// The references pending Insert Text Below commands follow (#255).
+    /// Weak: an insert owns its anchor, and is gone when it finishes.
+    let insertAnchors = NSHashTable<InsertAnchor>.weakObjects()
     /// Chips are rebuilt as the view scrolls: only visible references get
     /// one (#95).
     var chipScrollObserver: NSObjectProtocol?
@@ -225,11 +228,19 @@ final class BoopTextView: NSTextView {
     }
 
     /// Replaces the whole text with another note's, and highlights it.
-    func load(_ text: String, syntax choice: SyntaxChoice = .automatic) {
+    /// `sameNote` says the text is another version of the note already
+    /// shown (an iCloud merge, #255). It is a load like any other, and
+    /// `documentGeneration` counts it: only a pending Insert Text Below
+    /// tells the two apart, to find its image again in the merged text.
+    func load(_ text: String, syntax choice: SyntaxChoice = .automatic, sameNote: Bool = false) {
         // A format still running belongs to the previous note.
         formatting?.cancel()
         documentGeneration += 1
+        // The references pending inserts still follow; replacing the text
+        // loses every one of them.
+        let followed = followedInsertAnchors()
         syntax.replacingDocument { string = text }
+        followed.forEach { $0.documentReplaced(with: text, sameNote: sameNote) }
         // Folds are offsets into one note (ADR 0006).
         folding.load(text)
         find.documentReplaced()

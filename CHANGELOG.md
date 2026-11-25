@@ -108,6 +108,12 @@ breaking changes may land in a minor release.
   stored the narrowest width over the size you had set, so a wider window
   later split differently (#226). A VoiceOver decrement at the narrowest
   width no longer does either.
+- **Mac: Insert Text Below still inserts when the note is merged from
+  iCloud while the image is being read.** The text was dropped with "The
+  image is no longer in this note" although the image was still there. It
+  now goes under the image in the merged note; when the merged note has
+  the image more than once, nothing is inserted and the message says so
+  (#255).
 
 ## v0.4.6 — 2026-11-10
 
