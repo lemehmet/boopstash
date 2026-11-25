@@ -176,6 +176,29 @@ final class AppModel {
         Task { await editor.run(script, with: scriptRunner, preview: preview) }
     }
 
+    /// What writes a first draft in the script workbench (#247). Nothing
+    /// does yet (#269), and with none the workbench has no prompt field.
+    @ObservationIgnored var scriptGenerator: (any ScriptGenerator)?
+    /// The script the workbench held when it last closed, in memory only,
+    /// so that closing the sheet does not lose a script half written.
+    @ObservationIgnored var workbenchDraft: String?
+
+    /// Scripts ▸ Script Workbench…: opens the workbench on `editor`, with
+    /// the script it last held, or the line-by-line skeleton.
+    @discardableResult
+    func openWorkbench(in editor: BoopTextView) -> Task<Void, Never> {
+        reloadScripts()
+        let draft = workbenchDraft.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
+        let session = ScriptWorkbenchSession(
+            editor: editor, script: draft ?? ScriptSkeleton.lineByLine.source,
+            scripts: scriptLibrary.scripts, folder: scriptsFolder,
+            runner: { [scriptRunner] request in await scriptRunner.run(request) },
+            generator: scriptGenerator,
+            onSaved: { [weak self] in self?.reloadScripts() },
+            onClose: { [weak self] script in self?.workbenchDraft = script })
+        return ScriptWorkbenchSession.open(session)
+    }
+
     func runLastScript() {
         guard let script = lastScript, let editor = keyEditor() else { return }
         run(script, in: editor)

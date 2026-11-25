@@ -8,6 +8,24 @@ breaking changes may land in a minor release.
 
 ### New
 
+- **Mac: a script workbench (#247).** Scripts ▸ Script Workbench… (⌃⌘B)
+  opens a sheet with a script on the left, highlighted as JavaScript, and
+  on the right the diff of what it would change in the selection, or in
+  the whole note when nothing is selected. Run (⌘↩) runs it in the script
+  service and touches nothing; errors, what the script posted and the
+  two-second limit are shown under the script. Edit and run again until
+  the diff is right, then Keep (⇧⌘↩) applies it as one undo step, through
+  the same check as the review: over a note that changed since the run it
+  refuses, and Run makes the diff again. Discard, or Escape, leaves the
+  note as it was, and the script is offered again the next time the
+  workbench opens. Start From offers a blank script, a line-by-line
+  skeleton, one for rows whose descriptions wrap over several lines, and
+  any script in the library as a base to adapt. Save as Script writes the
+  script with a Boop header into your Scripts folder, where the picker
+  finds it; a name that one of your scripts or a bundled one already has
+  is asked about first. There is no model in it (ADR 0013): the place
+  where one that writes a first draft would plug in is there, and with
+  none the sheet has no prompt field.
 - **Mac: review a script's changes before keeping them (#245).** Scripts ▸
   Run Script with Preview… (⌥⌘B) runs the script you pick and shows what
   it would change as a diff: removed and added lines with a few lines of
