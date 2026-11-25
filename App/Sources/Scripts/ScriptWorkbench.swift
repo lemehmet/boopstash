@@ -43,10 +43,13 @@ final class ScriptWorkbenchSession {
     private(set) var notice: Notice?
     /// The name Save as Script saves under.
     var name = "" {
-        didSet { if name != oldValue { saveQuestion = nil } }
+        didSet { if name != oldValue { ask(nil) } }
     }
     /// A save that needs a yes first: the name is taken.
     private(set) var saveQuestion: String?
+    /// The save `saveQuestion` asks about. A yes is a yes to this plan
+    /// and to no other the folder may have turned it into since.
+    @ObservationIgnored private var askedPlan: ScriptSave.Plan?
     /// Where Generate would send a request. Nil, as it always is until a
     /// generator exists, means no prompt field and no Generate button.
     private(set) var destination: ScriptGeneratorDestination?
@@ -74,6 +77,7 @@ final class ScriptWorkbenchSession {
     @ObservationIgnored var timeLimit: Double = 2
     @ObservationIgnored private var snapshot: Snapshot?
     @ObservationIgnored private var generating: Task<Void, Never>?
+    @ObservationIgnored private var checking: Task<Void, Never>?
     @ObservationIgnored private var textObserver: NSObjectProtocol?
     @ObservationIgnored private(set) var isClosed = false
     /// The script it started from, whose description and tags a save keeps.
@@ -222,6 +226,7 @@ final class ScriptWorkbenchSession {
         guard !isClosed else { return }
         isClosed = true
         generating?.cancel()
+        checking?.cancel()
         onClose(script)
         if let sheet {
             if let parent = sheet.sheetParent { parent.endSheet(sheet) }
@@ -237,7 +242,9 @@ final class ScriptWorkbenchSession {
 
     /// Writes the script, with a Boop header for `name`, into the Scripts
     /// folder. A name something else has is asked about first; nothing is
-    /// written over until `confirmed`.
+    /// written over until `confirmed`, and a yes counts only for the save
+    /// that was asked about: if the folder changed since, so that saving
+    /// would now do something else, the new question is asked instead.
     func save(confirmed: Bool = false) {
         guard let folder else {
             notice = Notice(isError: true, text: "The Scripts folder is not available.")
@@ -255,14 +262,14 @@ final class ScriptWorkbenchSession {
         case .write(let name):
             fileName = name
         case .clash(let clash, let name):
-            guard confirmed, saveQuestion != nil else {
-                saveQuestion = plan.question(name: clean)
+            guard confirmed, saveQuestion != nil, askedPlan == plan else {
+                ask(plan, name: clean)
                 return
             }
             fileName = name
             if case .yours = clash { replacing = true }
         }
-        saveQuestion = nil
+        ask(nil)
         let file = ScriptHeader.file(name: clean, description: base?.description ?? "", author: base?.isBundled == false ? base?.author : nil,
                                      icon: base?.icon, tags: base?.tags ?? [], script: script)
         do {
@@ -277,16 +284,33 @@ final class ScriptWorkbenchSession {
     }
 
     func cancelSave() {
-        saveQuestion = nil
+        ask(nil)
+    }
+
+    /// Shows the question for `plan` and remembers which save it is
+    /// about; nil takes the question away.
+    private func ask(_ plan: ScriptSave.Plan?, name: String = "") {
+        askedPlan = plan
+        saveQuestion = plan?.question(name: name)
     }
 
     // MARK: Generate (the seam; no generator ships, #269)
 
-    /// Asks the generator, if there is one, whether it can be used.
-    func refreshAvailability() async {
-        let availability = await generator?.availability()
-        destination = ScriptGeneration.destination(availability)
+    /// Asks the generator, if there is one, whether it can be used,
+    /// without waiting for the answer: a generator that is slow to say
+    /// delays the prompt row and nothing else. An answer that comes after
+    /// the sheet closed is dropped.
+    private func checkAvailability() {
+        guard let generator, checking == nil, !isClosed else { return }
+        checking = Task { [weak self] in
+            let availability = await generator.availability()
+            guard let self, !self.isClosed else { return }
+            self.destination = ScriptGeneration.destination(availability)
+        }
     }
+
+    /// The availability check in flight or done, for tests to wait on.
+    var availabilityCheck: Task<Void, Never>? { checking }
 
     /// Asks the generator for a draft from the instruction and a bounded
     /// sample of what the script would run on. The draft replaces the
@@ -326,7 +350,9 @@ final class ScriptWorkbenchSession {
     /// Opens a workbench on `editor`'s window. One sheet at a time: not
     /// over a review, not twice, and a sheet that is closing (the script
     /// picker's) is waited for, as the review waits. The task ends when
-    /// the sheet is up, or when it is known not to be.
+    /// the sheet is up, or when it is known not to be. It does not wait
+    /// for the generator to say whether it is available: the editor is
+    /// held for the workbench only while a sheet is on its way or up.
     @discardableResult
     static func open(_ session: ScriptWorkbenchSession) -> Task<Void, Never> {
         // A note that cannot be edited has nothing to keep a result in.
@@ -341,8 +367,8 @@ final class ScriptWorkbenchSession {
         }
         editor.workbench = session
         let wait = editor.reviewSheetWait
+        session.checkAvailability()
         return Task { [weak editor] in
-            await session.refreshAvailability()
             let deadline = ContinuousClock.now + wait
             while editor?.window?.attachedSheet != nil, ContinuousClock.now < deadline {
                 try? await Task.sleep(for: .milliseconds(25))
@@ -425,9 +451,40 @@ final class ScriptTextView: NSTextView {
         view.isContinuousSpellCheckingEnabled = false
         view.isGrammarCheckingEnabled = false
         view.inlinePredictionType = .no
+        view.mathExpressionCompletionType = .no
+        // Privacy (ADR 0001, ADR 0006): Writing Tools may leave the device.
+        view.writingToolsBehavior = .none
         view.setAccessibilityLabel("Script")
         scroll.documentView = view
         return (scroll, view)
+    }
+
+    // As in the note editor (ADR 0003): Edit ▸ Substitutions would turn
+    // these back on and rewrite the JavaScript as it is typed. Refuse and
+    // grey them out.
+    override func toggleAutomaticQuoteSubstitution(_ sender: Any?) {}
+    override func toggleAutomaticDashSubstitution(_ sender: Any?) {}
+    override func toggleAutomaticTextReplacement(_ sender: Any?) {}
+    override func toggleAutomaticSpellingCorrection(_ sender: Any?) {}
+    override func toggleAutomaticLinkDetection(_ sender: Any?) {}
+    override func toggleAutomaticDataDetection(_ sender: Any?) {}
+    override func toggleSmartInsertDelete(_ sender: Any?) {}
+    override func toggleAutomaticTextCompletion(_ sender: Any?) {}
+
+    static let refusedToggles: Set<Selector> = [
+        #selector(toggleAutomaticQuoteSubstitution(_:)),
+        #selector(toggleAutomaticDashSubstitution(_:)),
+        #selector(toggleAutomaticTextReplacement(_:)),
+        #selector(toggleAutomaticSpellingCorrection(_:)),
+        #selector(toggleAutomaticLinkDetection(_:)),
+        #selector(toggleAutomaticDataDetection(_:)),
+        #selector(toggleSmartInsertDelete(_:)),
+        #selector(toggleAutomaticTextCompletion(_:)),
+    ]
+
+    override func validateUserInterfaceItem(_ item: any NSValidatedUserInterfaceItem) -> Bool {
+        if let action = item.action, Self.refusedToggles.contains(action) { return false }
+        return super.validateUserInterfaceItem(item)
     }
 
     /// Escape closes the sheet; a text view would offer completions.

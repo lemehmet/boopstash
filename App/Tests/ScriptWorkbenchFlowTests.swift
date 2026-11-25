@@ -40,7 +40,7 @@ struct ScriptWorkbenchFlowTests {
     }
 
     func workbench(on view: BoopTextView, script: String = Self.prefixing, scripts: [BoopScript] = [],
-                   generator: (any ScriptGenerator)? = nil) async -> ScriptWorkbenchSession {
+                   generator: (any ScriptGenerator)? = nil, awaitingGenerator: Bool = true) async -> ScriptWorkbenchSession {
         let session = ScriptWorkbenchSession(
             editor: view, script: script, scripts: scripts, folder: folder,
             runner: { [runner] request in await runner.run(request) },
@@ -48,6 +48,8 @@ struct ScriptWorkbenchFlowTests {
             onSaved: { [seen] in seen.saves += 1 },
             onClose: { [seen] script in seen.closedWith.append(script) })
         await ScriptWorkbenchSession.open(session).value
+        // The sheet does not wait for the generator's answer; most tests do.
+        if awaitingGenerator { await session.availabilityCheck?.value }
         return session
     }
 
@@ -326,6 +328,46 @@ struct ScriptWorkbenchFlowTests {
         close(window, view)
     }
 
+    @Test func aYesIsOnlyForTheSaveThatWasAskedAbout() async throws {
+        let (window, view) = host(Self.numbers)
+        let session = await workbench(on: view, scripts: [try library("Sort Lines", bundled: true)])
+        session.name = "Sort Lines"
+        session.save()
+        #expect(session.saveQuestion?.contains("comes with BoopStash") == true)
+        // Meanwhile something else, another window's workbench say, saves a script of that name.
+        let other = ScriptHeader.file(name: "Sort Lines", script: "function main(state) { state.text = 'theirs' }")
+        try UserScriptFiles.write(other, as: "SortLines.js", in: folder, replacing: false)
+        let file = folder.appendingPathComponent("SortLines.js")
+
+        // The yes was to adding a file, not to replacing that one.
+        session.save(confirmed: true)
+        #expect(session.saveQuestion == "You already have a script named Sort Lines. Replace it?")
+        #expect(try String(contentsOf: file, encoding: .utf8) == other, "not written over")
+        #expect(seen.saves == 0)
+        // A yes to the new question is a yes to replacing it.
+        session.save(confirmed: true)
+        #expect(session.saveQuestion == nil && seen.saves == 1)
+        #expect(try String(contentsOf: file, encoding: .utf8) == ScriptHeader.file(name: "Sort Lines", script: Self.prefixing))
+        #expect(try FileManager.default.contentsOfDirectory(atPath: folder.path) == ["SortLines.js"])
+        close(window, view)
+    }
+
+    @Test func aSaveUnderABundledNameInAnotherCaseTakesItsPlaceInTheLibrary() async throws {
+        let bundled = try library("Sort Lines", bundled: true)
+        let (window, view) = host(Self.numbers)
+        let session = await workbench(on: view, scripts: [bundled])
+        session.name = "sort lines"
+        session.save()
+        #expect(session.saveQuestion == "A script that comes with BoopStash is named sort lines. Yours will take its place in the picker. Save it?")
+        session.save(confirmed: true)
+        #expect(seen.saves == 1)
+        // The library as it is read again after a save: one script of that name, the user's.
+        let mine = ScriptLibrary.load(from: folder, prefix: "user", bundled: false).scripts
+        let merged = ScriptCatalog.all(bundled: [bundled], user: mine).filter { $0.name.lowercased() == "sort lines" }
+        #expect(merged.map(\.name) == ["sort lines"] && merged.first?.isBundled == false)
+        close(window, view)
+    }
+
     @Test func aNewFileNeverReplacesAnotherScriptsFile() async throws {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let other = "/**\n{\"api\":1,\"name\":\"Something Else\"}\n**/\nfunction main(state) {}\n"
@@ -342,6 +384,26 @@ struct ScriptWorkbenchFlowTests {
             try UserScriptFiles.write("new", as: "NumbersToLinks.js", in: folder, replacing: false)
         }
         #expect(try String(contentsOf: folder.appendingPathComponent("NumbersToLinks.js"), encoding: .utf8) == other)
+        close(window, view)
+    }
+
+    // MARK: The script's text view
+
+    @Test func theScriptEditorKeepsSubstitutionsAndWritingToolsOff() async {
+        let (window, view) = host(Self.numbers)
+        let session = await workbench(on: view)
+        let script = session.scriptView
+        #expect(script.writingToolsBehavior == .none, "nothing in the script goes to Writing Tools")
+        // Edit ▸ Substitutions is greyed out, and choosing an item anyway changes nothing.
+        for action in ScriptTextView.refusedToggles {
+            let item = NSMenuItem(title: "", action: action, keyEquivalent: "")
+            #expect(!script.validateUserInterfaceItem(item), "\(action)")
+            script.perform(action, with: nil)
+        }
+        #expect(!script.isAutomaticQuoteSubstitutionEnabled && !script.isAutomaticDashSubstitutionEnabled)
+        #expect(!script.isAutomaticTextReplacementEnabled && !script.isAutomaticSpellingCorrectionEnabled)
+        #expect(!script.isAutomaticLinkDetectionEnabled && !script.isAutomaticDataDetectionEnabled)
+        #expect(!script.smartInsertDeleteEnabled && !script.isAutomaticTextCompletionEnabled)
         close(window, view)
     }
 
@@ -430,16 +492,24 @@ struct ScriptWorkbenchFlowTests {
         let answer: Result<String, ScriptGenerationFailure>
         let state: ScriptGeneratorAvailability
         let waits: Bool
+        /// Availability is not answered until `say()`.
+        var slowToSay: Bool
 
         init(answer: Result<String, ScriptGenerationFailure> = .success(ScriptWorkbenchFlowTests.prefixing),
              state: ScriptGeneratorAvailability = .available(ScriptGeneratorDestination(summary: "a fake model", leavesDevice: false)),
-             waits: Bool = false) {
+             waits: Bool = false, slowToSay: Bool = false) {
             self.answer = answer
             self.state = state
             self.waits = waits
+            self.slowToSay = slowToSay
         }
 
-        func availability() async -> ScriptGeneratorAvailability { state }
+        func say() { slowToSay = false }
+
+        func availability() async -> ScriptGeneratorAvailability {
+            while slowToSay { try? await Task.sleep(for: .milliseconds(5)) }
+            return state
+        }
 
         func generate(_ request: ScriptGenerationRequest) async -> Result<String, ScriptGenerationFailure> {
             requests.append(request)
@@ -471,6 +541,30 @@ struct ScriptWorkbenchFlowTests {
         #expect(idle.generatingTask == nil)
         #expect(await fake.requests.isEmpty)
         close(other, editor)
+    }
+
+    @Test func aGeneratorThatIsSlowToSayItIsAvailableDoesNotHoldTheSheetBack() async throws {
+        let (window, view) = host(Self.numbers)
+        let fake = FakeGenerator(slowToSay: true)
+        let session = await workbench(on: view, generator: fake, awaitingGenerator: false)
+        #expect(session.sheet != nil && window.attachedSheet === session.sheet, "the sheet is up without the answer")
+        #expect(session.destination == nil, "and has no prompt row yet")
+        await session.run()
+        #expect(session.canKeep, "the workbench is usable meanwhile")
+        await fake.say()
+        await session.availabilityCheck?.value
+        #expect(session.destination == ScriptGeneratorDestination(summary: "a fake model", leavesDevice: false))
+
+        // An answer that comes after the sheet closed is dropped, and the editor is free at once.
+        let late = FakeGenerator(slowToSay: true)
+        session.discard()
+        let closed = await workbench(on: view, generator: late, awaitingGenerator: false)
+        closed.discard()
+        #expect(view.workbench == nil)
+        await late.say()
+        await closed.availabilityCheck?.value
+        #expect(closed.destination == nil)
+        close(window, view)
     }
 
     @Test func aGeneratorsDraftGoesIntoTheEditorAndDoesNotRun() async throws {

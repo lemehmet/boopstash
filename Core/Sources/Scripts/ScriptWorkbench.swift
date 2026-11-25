@@ -196,17 +196,18 @@ public enum ScriptSave {
     }
 
     /// What saving a script as `name` would do. Names clash without regard
-    /// to case, as file names do on a Mac; a new file's name never matches
+    /// to case, as file names do on a Mac and as the catalog shadows a
+    /// bundled script (`ScriptCatalog.merge`); a new file's name never matches
     /// an existing file's, whatever that file holds.
     public static func plan(name: String, existing: [Existing], bundledNames: [String]) -> Plan {
         let name = ScriptHeader.cleanName(name)
         guard !name.isEmpty else { return .refused("Give the script a name.") }
-        let key = name.lowercased()
-        if let mine = existing.first(where: { $0.scriptName.map(ScriptHeader.cleanName)?.lowercased() == key }) {
+        let key = ScriptCatalog.nameKey(name)
+        if let mine = existing.first(where: { $0.scriptName.map(ScriptCatalog.nameKey) == key }) {
             return .clash(.yours(fileName: mine.fileName), fileName: mine.fileName)
         }
         let fileName = freeFileName(for: name, taken: existing.map(\.fileName))
-        if bundledNames.contains(where: { $0.lowercased() == key }) {
+        if bundledNames.contains(where: { ScriptCatalog.nameKey($0) == key }) {
             return .clash(.bundled, fileName: fileName)
         }
         return .write(fileName: fileName)

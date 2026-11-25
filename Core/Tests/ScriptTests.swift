@@ -57,6 +57,18 @@ import Testing
         #expect(merged.last?.description == "my way" && merged.last?.isBundled == false)
     }
 
+    @Test func aUserScriptReplacesTheBundledOneWhateverTheCase() {
+        var mine = script("sort LINES", description: "my way")
+        mine.isBundled = false
+        let merged = ScriptCatalog.merge(bundled: [script("Base64 Encode"), script("Sort Lines")], user: [mine])
+        #expect(merged.map(\.name) == ["Base64 Encode", "sort LINES"])
+        #expect(ScriptCatalog.nameKey(" Sort Lines\n") == "sort lines")
+        // A built-in command is shadowed the same way.
+        var clean = script("clean up pasted text")
+        clean.isBundled = false
+        #expect(ScriptCatalog.all(bundled: [], user: [clean]).map(\.name) == ["clean up pasted text"])
+    }
+
     @Test func theCatalogStartsWithTheBuiltInCommands() {
         let all = ScriptCatalog.all(bundled: [script("Base64 Encode")], user: [])
         #expect(all.map(\.name) == ["Clean Up Pasted Text", "Base64 Encode"])
