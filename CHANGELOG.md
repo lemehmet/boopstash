@@ -8,6 +8,16 @@ breaking changes may land in a minor release.
 
 ### New
 
+- **What's New (#253).** On the first launch after an update, BoopStash
+  shows once what changed since the version last run on that device: the
+  notes of every version in between, newest first, with only the lines
+  for that platform. A first install is shown nothing. The same notes
+  are always in Help ▸ What's New and Settings on the Mac and in
+  Settings ▸ What's New on iOS, and can be copied as Markdown or saved as
+  a note. They are bundled with the app (`ReleaseNotes.json`), never
+  fetched, and which version was seen is kept per device. The App Store's
+  What's New text is now written from the same file, and a release or an
+  App Store build stops when its version has no entry there.
 - **Mac: Clean Up Pasted Text (#244).** Edit ▸ Clean Up Pasted Text, also
   in the script picker (⌘B), tidies text copied from a terminal or an
   agent's window: box-drawing and ASCII tables become Markdown tables, the
@@ -28,6 +38,14 @@ breaking changes may land in a minor release.
   apart, so a screenshot of a table pastes into a spreadsheet as a
   table. This applies to images added from now on; text already read is
   kept as it is.
+
+### Fixed
+
+- **Mac: letting go of the preview divider where you grabbed it no longer
+  changes the split.** With the editor at its narrowest, such a drag
+  stored the narrowest width over the size you had set, so a wider window
+  later split differently (#226). A VoiceOver decrement at the narrowest
+  width no longer does either.
 
 ## v0.4.6 — 2026-11-10
 
@@ -62,11 +80,6 @@ breaking changes may land in a minor release.
   made on another device (#215, #216). The same could happen when iCloud
   saved an upload but the reply never reached the device, for example on a
   dropped connection (#229).
-- **Mac: letting go of the preview divider where you grabbed it no longer
-  changes the split.** With the editor at its narrowest, such a drag
-  stored the narrowest width over the size you had set, so a wider window
-  later split differently (#226). A VoiceOver decrement at the narrowest
-  width no longer does either.
 - **The note list could stay on an old filter.** Changing the filter
   twice in quick succession, as New Note does when it clears a label
   filter, could leave the list showing the first filter's notes until the

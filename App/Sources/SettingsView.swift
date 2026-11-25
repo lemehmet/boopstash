@@ -30,6 +30,7 @@ struct GeneralSettings: View {
     /// Whether `linkPath` still runs this app's command; nil when the
     /// sandbox no longer lets the app look.
     @State private var linkStatus: Bool? = false
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         Form {
@@ -86,6 +87,12 @@ struct GeneralSettings: View {
                 Text("BoopStash never watches the clipboard. For a history of what you copied, macOS has one: turn on System Settings ▸ Spotlight ▸ Clipboard, then press ⌘Space and ⌘4.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
+            }
+            // Also Help ▸ What's New (#253).
+            Section("About") {
+                LabeledContent("BoopStash \(LiveReleaseNotes.runningVersion)") {
+                    Button("What's New…") { openWindow(id: WhatsNew.windowID) }
+                }
             }
         }
         .formStyle(.grouped)

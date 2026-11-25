@@ -19,7 +19,23 @@ struct NotesView: View {
         }
     }
     @State private var selection: UUID?
-    @State private var settingsShown = false
+    /// One sheet at a time: Settings, or What's New once after an update
+    /// (#253), which never goes over Settings.
+    private enum Sheet: Identifiable {
+        case settings
+        case whatsNew([ReleaseNotes.Release])
+
+        var id: String {
+            switch self {
+            case .settings: "settings"
+            case .whatsNew: "whatsNew"
+            }
+        }
+    }
+
+    @State private var sheet: Sheet?
+    /// Whether the sheet up is What's New, for when it is dismissed.
+    @State private var whatsNewShown = false
 
     var body: some View {
         NavigationSplitView {
@@ -80,7 +96,7 @@ struct NotesView: View {
                     }
                 }
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("Settings", systemImage: "gearshape") { settingsShown = true }
+                    Button("Settings", systemImage: "gearshape") { sheet = .settings }
                 }
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     Button("From Clipboard", systemImage: "doc.on.clipboard") {
@@ -103,12 +119,30 @@ struct NotesView: View {
         .onChange(of: selection) { old, _ in
             if let old { model.drafts.flush(old) }
         }
-        .sheet(isPresented: $settingsShown) { SettingsView(model: model) }
+        .sheet(item: $sheet, onDismiss: {
+            // Dismissing What's New is what records the version as seen.
+            if whatsNewShown { model.whatsNew?.dismissed() }
+            whatsNewShown = false
+        }) { sheet in
+            switch sheet {
+            case .settings: SettingsView(model: model)
+            case .whatsNew(let releases): WhatsNewSheet(model: model, releases: releases)
+            }
+        }
+        .task {
+            // Once the list is up; with Settings already over it the notes
+            // wait for the next launch.
+            try? await Task.sleep(for: .milliseconds(800))
+            let releases = model.whatsNew?.take(canPresent: sheet == nil) ?? []
+            guard !releases.isEmpty else { return }
+            whatsNewShown = true
+            sheet = .whatsNew(releases)
+        }
         .onAppear {
             if selection == nil { selection = model.initialSelection }
             #if DEBUG
             // A shot of Settings (screenshots' demo mode).
-            if model.demoSync, UserDefaults.standard.bool(forKey: "BoopStashDemoSettings") { settingsShown = true }
+            if model.demoSync, UserDefaults.standard.bool(forKey: "BoopStashDemoSettings") { sheet = .settings }
             #endif
         }
         .safeAreaInset(edge: .bottom) {
@@ -211,6 +245,12 @@ struct SettingsView: View {
                     Text("iCloud")
                 } footer: {
                     Text("Notes and images go to your own iCloud, in fields encrypted on this device. With Advanced Data Protection they are end-to-end encrypted; without it, Apple holds the keys, as for most iCloud data.")
+                }
+                // Every version's notes, from the bundle (#253).
+                Section {
+                    NavigationLink("What's New") { WhatsNewList(model: model, releases: LiveReleaseNotes.all) }
+                } footer: {
+                    Text("BoopStash \(LiveReleaseNotes.runningVersion)")
                 }
             }
             .navigationTitle("Settings")
