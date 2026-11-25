@@ -35,7 +35,7 @@ enum Outcome {
     case noScript(reply: String)
     case scriptError(String)
     case timedOut
-    case wrong(line: Int, expected: String, actual: String, matching: Int, of: Int, head: String)
+    case wrong(line: Int, expected: String?, actual: String?, matching: Int, of: Int, head: String)
     case modelError(String)
 
     var passed: Bool { if case .pass = self { true } else { false } }
@@ -58,7 +58,7 @@ enum Outcome {
         case .scriptError(let message): Self.short(message)
         case .timedOut: "killed after \(Int(ScriptRunner.timeLimit)) s"
         case .wrong(let line, let expected, let actual, let matching, let of, _):
-            "\(matching) of \(of) lines right; line \(line) was `\(Self.short(actual))`, expected `\(Self.short(expected))`"
+            "\(matching) of \(of) lines right; line \(line) was \(Self.quoted(actual)), expected \(Self.quoted(expected))"
         case .modelError(let name): name
         }
     }
@@ -67,6 +67,11 @@ enum Outcome {
     static func short(_ text: String) -> String {
         let line = text.replacingOccurrences(of: "\n", with: "⏎")
         return line.count > 120 ? line.prefix(120) + "…" : line
+    }
+
+    /// A line in backticks, or the words for a line past the end.
+    static func quoted(_ line: String?) -> String {
+        line.map { "`\(short($0))`" } ?? "nothing (past the end)"
     }
 
     var retryProblem: RetryProblem? {
@@ -104,6 +109,8 @@ struct Run {
     var firstSeconds: Double
     var retry: Outcome?
     var retrySeconds: Double?
+    /// The retry sent back the script of the first try, unchanged.
+    var retryRepeated = false
     var passedInTheEnd: Bool { first.passed || retry?.passed == true }
 }
 
@@ -176,6 +183,16 @@ func attempt(_ chat: ModelChat, _ prompt: String, _ fixture: Fixture) async -> (
     }
 }
 
+/// Whether two replies carry the same script: the scripts when both have
+/// one, otherwise the replies themselves. A failed call has no reply and
+/// repeats nothing.
+func sameScript(_ first: String, _ second: String) -> Bool {
+    func body(_ reply: String) -> String {
+        (ScriptReply.extract(reply) ?? reply).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    return !second.isEmpty && body(first) == body(second)
+}
+
 var results: [String: [Run]] = [:]
 let started = Date()
 for fixture in fixtures {
@@ -196,6 +213,7 @@ for fixture in fixtures {
                 let (second, secondReply, secondSeconds) = await attempt(chat, again, fixture)
                 run.retry = second
                 run.retrySeconds = secondSeconds
+                run.retryRepeated = sameScript(firstReply, secondReply)
                 log += "\n## retry prompt\n\(again)\n\n## retry reply (\(String(format: "%.1f", secondSeconds)) s)\n\(secondReply)\n\n## retry outcome\n\(second.kind) \(second.detail)\n"
             }
             results[key, default: []].append(run)
@@ -234,7 +252,7 @@ var report = """
 - Seconds are the model's time from the request to the complete reply, without running the script
 - Total time: \(String(format: "%.1f", minutes)) minutes
 
-| Fixture | Variation | First try | After one retry | Median s to first script | Slowest s | First-try failures |
+| Fixture | Variation | First try | After one retry | Median s to first reply | Slowest s | First-try failures |
 |---|---|---|---|---|---|---|
 
 """
@@ -248,12 +266,24 @@ for fixture in fixtures {
     }
 }
 
-report += "\n## Per fixture, all variations together\n\n| Fixture | First try | After one retry | Retries that fixed it |\n|---|---|---|---|\n"
+report += "\n## Per fixture, all variations together\n\n| Fixture | First try | After one retry | Retries that fixed it | Retries with the same script again |\n|---|---|---|---|---|\n"
 for fixture in fixtures {
     let runs = variations.flatMap { results["\(fixture.id)|\($0.id)"] ?? [] }
     let retried = runs.filter { $0.retry != nil }
-    report += "| \(fixture.id) | \(runs.filter(\.first.passed).count)/\(runs.count) | \(runs.filter(\.passedInTheEnd).count)/\(runs.count) | \(retried.filter(\.passedInTheEnd).count)/\(retried.count) |\n"
+    report += "| \(fixture.id) | \(runs.filter(\.first.passed).count)/\(runs.count) | \(runs.filter(\.passedInTheEnd).count)/\(runs.count) | \(retried.filter(\.passedInTheEnd).count)/\(retried.count) | \(retried.filter(\.retryRepeated).count)/\(retried.count) |\n"
 }
+
+let everyRun = fixtures.flatMap { fixture in variations.flatMap { results["\(fixture.id)|\($0.id)"] ?? [] } }
+let everyRetry = everyRun.filter { $0.retry != nil }
+report += """
+
+## Totals
+
+- First tries: \(everyRun.filter(\.first.passed).count) of \(everyRun.count) pass. Failures: \(tally(everyRun.map(\.first))).
+- Retries: \(everyRetry.count) (a model error is not retried). Fixed: \(everyRetry.filter(\.passedInTheEnd).count). The same script again: \(everyRetry.filter(\.retryRepeated).count).
+- Seconds are to the complete first reply, whether or not it held a script.
+
+"""
 
 report += "\n## How failures look\n\nUp to three different first-try failures of each kind per fixture.\n"
 for fixture in fixtures {

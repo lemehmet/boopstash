@@ -27,7 +27,8 @@ struct ModelChat {
 
     init(variation: Variation) {
         session = LanguageModelSession(model: SystemLanguageModel.default,
-                                       instructions: Prompts.instructions(variation.wording, guided: variation.guided))
+                                       instructions: Prompts.instructions(variation.wording, guided: variation.guided,
+                                                                          wholeText: variation.fullSample))
         guided = variation.guided
     }
 

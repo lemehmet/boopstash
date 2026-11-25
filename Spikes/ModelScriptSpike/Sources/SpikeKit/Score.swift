@@ -5,8 +5,9 @@ import Foundation
 public enum Score: Equatable, Sendable {
     case pass
     /// The first line that differs (1-based), what was expected there and
-    /// what the script wrote ("" past the end), and how many lines matched.
-    case wrong(line: Int, expected: String, actual: String, matching: Int, of: Int)
+    /// what the script wrote, and how many lines matched. Nil is a line
+    /// past the end of that text, which is not the same as an empty line.
+    case wrong(line: Int, expected: String?, actual: String?, matching: Int, of: Int)
 
     public static func compare(actual: String, expected: String) -> Score {
         let got = lines(actual), want = lines(expected)
@@ -14,8 +15,8 @@ public enum Score: Equatable, Sendable {
         let matching = zip(got, want).filter { $0 == $1 }.count
         let first = zip(got, want).enumerated().first { $0.element.0 != $0.element.1 }?.offset ?? min(got.count, want.count)
         return .wrong(line: first + 1,
-                      expected: first < want.count ? want[first] : "",
-                      actual: first < got.count ? got[first] : "",
+                      expected: first < want.count ? want[first] : nil,
+                      actual: first < got.count ? got[first] : nil,
                       matching: matching, of: want.count)
     }
 

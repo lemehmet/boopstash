@@ -30,7 +30,12 @@ public struct Variation: Sendable, Codable, Hashable {
 }
 
 public enum Prompts {
-    public static func instructions(_ wording: Wording, guided: Bool) -> String {
+    /// `wholeText` says whether the request will show all of the text or
+    /// only a sample, so the instructions never contradict the request.
+    public static func instructions(_ wording: Wording, guided: Bool, wholeText: Bool = false) -> String {
+        let scope = wholeText
+            ? "You are shown the whole text. Still write general rules, never a list of its values."
+            : "The script runs on the whole text, which is longer than the sample you are shown, so write general rules, never the sample's values."
         let reply = guided
             ? "Give the complete script and nothing else."
             : "Reply with the complete script in one ```js code block and nothing else."
@@ -42,7 +47,7 @@ public enum Prompts {
             You write small scripts for a text editor. A script is plain JavaScript that defines one function, main(state).
             - state.text is the text to transform, a string with lines separated by "\\n". Assign the result to state.text.
             - Use only the JavaScript language itself: strings, arrays, regular expressions. There is no require, no console, no files and no network.
-            - The script runs on the whole text, which is longer than the sample you are shown, so write general rules, never the sample's values.
+            - \(scope)
             - If the text cannot be transformed, call state.postError("why") and leave state.text alone.
             \(reply)
 
@@ -76,9 +81,9 @@ public enum Prompts {
         case .wrongOutput(let line, let expected, let actual, let head):
             return """
             The script ran, but its output is wrong. Line \(line) of the output was:
-            \(actual.isEmpty ? "(missing)" : actual)
+            \(shown(actual, pastEnd: "(nothing: the output ended before this line)"))
             It should be:
-            \(expected.isEmpty ? "(nothing: the output should have ended)" : expected)
+            \(shown(expected, pastEnd: "(nothing: the output should have ended before this line)"))
             The output began:
             \(head)
             \(ask)
@@ -87,9 +92,18 @@ public enum Prompts {
     }
 }
 
+extension Prompts {
+    /// A line as the retry quotes it, so that a line past the end and an
+    /// empty line read differently.
+    static func shown(_ line: String?, pastEnd: String) -> String {
+        guard let line else { return pastEnd }
+        return line.isEmpty ? "(an empty line)" : line
+    }
+}
+
 public enum RetryProblem: Sendable {
     case noScript
     case error(String)
     case timedOut
-    case wrongOutput(line: Int, expected: String, actual: String, head: String)
+    case wrongOutput(line: Int, expected: String?, actual: String?, head: String)
 }

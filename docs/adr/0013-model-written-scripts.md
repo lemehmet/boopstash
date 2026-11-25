@@ -63,43 +63,51 @@ keep a run near twenty minutes; the runs per cell were not cut.
 macOS 26.7.4 (25G422), Apple silicon, on 2026-11-25. FoundationModels has no
 call that reports the model's version, so the OS build is the record of it.
 Default sampling; replies capped at 1500 tokens. The seconds are the model's
-alone, from the request to the complete reply.
+alone, from the request to the complete first reply, whether or not that
+reply held a script.
 
-| Fixture | Variation | First try | After one retry | Median s to first script | Slowest s |
+| Fixture | Variation | First try | After one retry | Median s to first reply | Slowest s |
 |---|---|---|---|---|---|
-| urls | baseline | 0/10 | 0/10 | 1.5 | 2.7 |
-| urls | terse | 0/10 | 0/10 | 1.2 | 2.0 |
-| urls | full-sample | 0/10 | 0/10 | 1.5 | 2.3 |
-| urls | guided | 0/10 | 0/10 | 9.6 | 16.8 |
-| urls | with-output | 1/10 | 1/10 | 1.7 | 2.1 |
-| defines | baseline | 0/10 | 0/10 | 2.0 | 16.7 |
-| defines | terse | 0/10 | 0/10 | 1.4 | 2.3 |
-| defines | full-sample | 0/10 | 0/10 | 3.0 | 5.1 |
-| defines | guided | 0/10 | 0/10 | 2.3 | 17.4 |
-| defines | with-output | 0/10 | 0/10 | 2.6 | 4.7 |
-| defines+comment | baseline | 0/10 | 0/10 | 4.0 | 6.3 |
-| defines+comment | terse | 0/10 | 0/10 | 2.5 | 16.5 |
-| defines+comment | full-sample | 0/10 | 0/10 | 3.4 | 5.8 |
-| defines+comment | guided | 0/10 | 0/10 | 3.4 | 5.7 |
-| defines+comment | with-output | 0/10 | 0/10 | 3.6 | 4.7 |
-| string-table | baseline | 0/10 | 0/10 | 17.0 | 17.3 |
-| string-table | terse | 0/10 | 0/10 | 9.8 | 17.2 |
-| string-table | full-sample | 0/10 | 0/10 | 1.6 | 2.1 |
-| string-table | guided | 0/10 | 0/10 | 1.0 | 3.0 |
-| string-table | with-output | 0/10 | 0/10 | 1.2 | 1.9 |
+| urls | baseline | 0/10 | 0/10 | 1.8 | 2.1 |
+| urls | terse | 0/10 | 0/10 | 1.0 | 2.7 |
+| urls | full-sample | 1/10 | 1/10 | 1.3 | 2.3 |
+| urls | guided | 0/10 | 0/10 | 16.9 | 17.0 |
+| urls | with-output | 0/10 | 0/10 | 1.9 | 2.6 |
+| defines | baseline | 0/10 | 0/10 | 1.9 | 4.6 |
+| defines | terse | 0/10 | 0/10 | 1.0 | 4.4 |
+| defines | full-sample | 0/10 | 0/10 | 2.5 | 5.1 |
+| defines | guided | 0/10 | 0/10 | 2.5 | 4.5 |
+| defines | with-output | 0/10 | 0/10 | 3.0 | 4.8 |
+| defines+comment | baseline | 0/10 | 0/10 | 3.4 | 4.9 |
+| defines+comment | terse | 0/10 | 0/10 | 1.9 | 3.0 |
+| defines+comment | full-sample | 0/10 | 0/10 | 3.0 | 4.6 |
+| defines+comment | guided | 0/10 | 0/10 | 3.1 | 4.8 |
+| defines+comment | with-output | 0/10 | 0/10 | 4.0 | 4.6 |
+| string-table | baseline | 0/10 | 0/10 | 9.2 | 16.9 |
+| string-table | terse | 0/10 | 0/10 | 1.5 | 17.0 |
+| string-table | full-sample | 0/10 | 0/10 | 1.7 | 3.1 |
+| string-table | guided | 0/10 | 0/10 | 1.2 | 1.5 |
+| string-table | with-output | 0/10 | 0/10 | 1.2 | 1.2 |
 
-| Fixture | First try | After one retry | Retries that fixed it |
-|---|---|---|---|
-| urls | 1/50 | 1/50 | 0/44 |
-| defines | 0/50 | 0/50 | 0/49 |
-| defines+comment | 0/50 | 0/50 | 0/50 |
-| string-table | 0/50 | 0/50 | 0/50 |
+| Fixture | First try | After one retry | Retries that fixed it | Retries with the same script again |
+|---|---|---|---|---|
+| urls | 1/50 | 1/50 | 0/41 | 30/41 |
+| defines | 0/50 | 0/50 | 0/50 | 39/50 |
+| defines+comment | 0/50 | 0/50 | 0/50 | 42/50 |
+| string-table | 0/50 | 0/50 | 0/50 | 15/50 |
 
-Two earlier runs the same day, before the runner was sandboxed and the
-seconds were narrowed to the model's own, agree: 0 of 160 first tries
-without `with-output`, then 2 of 200 (3 after the retry), all on `urls`.
-The model samples, so a rerun moves a cell by a run or two; it does not
-move the picture.
+In all: 1 of 200 first tries passes. Of the 199 failures, 80 are a wrong
+output, 71 a script error, 39 no script in the reply, 8 a model error and 1
+a script that ran past the time limit. 191 were retried (a model error is
+not), none was fixed, and 126 retries sent the same script again. These
+figures are the Totals section of `RESULTS.md`.
+
+Four earlier runs the same day, made while review corrected the harness
+(the runner sandboxed, the seconds narrowed to the model's own, the retry
+wording and the reply extraction fixed), agree: 0 of 160 first tries without
+`with-output`, then 2, 1 and 1 of 200. One retry in all of them fixed a
+script. The model samples, so a rerun moves a cell by a run or two; it does
+not move the picture.
 
 Reproduce with, from the repository root (twenty to twenty-five minutes, on
 a Mac with Apple Intelligence on):
@@ -113,32 +121,34 @@ swift run -c release --package-path Spikes/ModelScriptSpike ModelScriptSpike --o
 The spike's own checks pass (each fixture's hand-written reference script
 scores as a pass; a loop, a syntax error, a thrown error, a posted error and
 a reply without a script are each reported as that; the runner's sandbox
-refuses a file read and a connection), so the failures are the model's. `RESULTS.md` lists examples per fixture. In short:
+refuses a file read and a connection), so the failures are the model's.
+`RESULTS.md` lists examples per fixture. In short:
 
-- **Speed is not the problem.** A reply that is a script arrives in one to
-  four seconds. The 17-second runs are replies that ran into the token
-  cap, most of them `string-table` replies listing invented error names
-  until cut off, which is why that fixture's baseline median is 17.
-- **The script runs and writes the wrong text** (73 of 200 first tries). It
+- **Speed is not the problem.** The median first reply takes one to four
+  seconds in every cell but two, and the slowest reply that ended on its
+  own took 5.1 seconds. The 17-second replies, 16 of the 200, ran into the
+  token cap: eight guided `urls` replies, and eight `string-table` replies
+  that list error names until cut off. Those are the two slow medians, `urls` guided and `string-table` baseline.
+- **The script runs and writes the wrong text** (80 of 200 first tries). It
   keeps only lines that are a bare number, strips the stray text and
   forgets the prefix, hard-codes the sample's three registers, or returns
   the input unchanged. A frequent near miss assigns an array to
   `state.text` without joining it, which arrives as one comma-separated
   line.
-- **The script fails** (78 of 200): JavaScript that does not parse, methods
+- **The script fails** (71 of 200): JavaScript that does not parse, methods
   that do not exist (`"\n".join(list)`, from Python), `const` reassigned,
   or a `postError` on the first line that does not fit the shape the
   script assumed, most often a wrapped description line taken for a
-  register.
-- **No script at all** (42 of 200, all `string-table`): the model answers
+  register. One script looped until it was killed.
+- **No script at all** (39 of 200, all `string-table`): the model answers
   the task instead of writing a program for it. It replies with a
   JavaScript array of the names, or with statements and no `main`.
 - **Guided generation is worse, not better.** The `script` string comes
   back with the JSON escapes resolved, so `split("\n")` holds a real line
-  break and does not parse; six guided runs ended in `decodingFailure`
+  break and does not parse; eight guided runs ended in `decodingFailure`
   after 17 seconds.
-- **The retry does not help.** It fixed none of 193 failures. In 125 of
-  them the model sent the same script back, character for character.
+- **The retry does not help.** It fixed none of 191 failures, and in 126 of
+  them the model sent the same script back.
 - **Nothing varied enough to matter.** Wording, the whole text as the
   sample, and showing the wanted output for the sample all stayed within
   one pass in ten of each other.
@@ -203,8 +213,12 @@ These hold now, and for any later Generate:
   string by the JavaScriptCore bridge, in the spike and in the script
   service alike. A hand-written script can make the same slip; the
   workbench's diff will show it.
+- `const main = …` and `let main = …` are not a `main` the script service
+  can find: it looks on the global object, where only a function
+  declaration, `var` or a bare assignment puts one.
 - The reply clean-up (`ScriptReply`: take the last fenced block that
-  defines `main`, else bare code, else nothing) and the scoring (`Score`)
+  defines such a `main`, closed or cut off, else bare code, else nothing)
+  and the scoring (`Score`)
   are pure and tested in the spike's own package. They are **not** moved to
   `BoopstashCore`: with Generate deferred, nothing in the app would call
   them, and their shape should follow the workbench when it needs them.

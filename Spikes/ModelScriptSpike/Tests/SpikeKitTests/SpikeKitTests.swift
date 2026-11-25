@@ -26,10 +26,26 @@ import Testing
         #expect(ScriptReply.extract("") == nil)
     }
 
+    @Test func takesAnOpenBlockAfterAClosedOne() {
+        let reply = "```text\nexample\n```\n```js\nfunction main(state) { state.text = 'x'; }"
+        #expect(ScriptReply.extract(reply) == "function main(state) { state.text = 'x'; }")
+        #expect(ScriptReply.extract("```js\nfunction main(state) {}\n```\n```\nnotes") == "function main(state) {}")
+    }
+
     @Test func recognisesWaysToDefineMain() {
-        #expect(ScriptReply.definesMain("const main = function (state) {}"))
-        #expect(ScriptReply.definesMain("let main = state => {}"))
         #expect(ScriptReply.definesMain("var main = async (state) => {}"))
+        #expect(ScriptReply.definesMain("main = function (state) {}"))
+        #expect(ScriptReply.definesMain("const helper = 1;\nmain = state => {}"))
+        #expect(ScriptReply.definesMain("async function main(state) {}"))
+    }
+
+    /// The script service finds `main` on the global object, where `const`
+    /// and `let` put nothing.
+    @Test func aConstOrLetMainIsNotAMain() {
+        #expect(!ScriptReply.definesMain("const main = function (state) {}"))
+        #expect(!ScriptReply.definesMain("let main = state => {}"))
+        #expect(!ScriptReply.definesMain("exports.main = (state) => {}"))
+        #expect(ScriptReply.extract("```js\nconst main = (state) => {}\n```") == nil)
         #expect(!ScriptReply.definesMain("domain = 3"))
         #expect(!ScriptReply.definesMain("// call main(state)"))
     }
@@ -45,8 +61,22 @@ import Testing
     }
 
     @Test func reportsMissingAndExtraLines() {
-        #expect(Score.compare(actual: "a", expected: "a\nb") == .wrong(line: 2, expected: "b", actual: "", matching: 1, of: 2))
-        #expect(Score.compare(actual: "a\nb", expected: "a") == .wrong(line: 2, expected: "", actual: "b", matching: 1, of: 1))
+        #expect(Score.compare(actual: "a", expected: "a\nb") == .wrong(line: 2, expected: "b", actual: nil, matching: 1, of: 2))
+        #expect(Score.compare(actual: "a\nb", expected: "a") == .wrong(line: 2, expected: nil, actual: "b", matching: 1, of: 1))
+    }
+
+    @Test func anEmptyLineIsNotAMissingLine() {
+        #expect(Score.compare(actual: "\nb", expected: "a\nb") == .wrong(line: 1, expected: "a", actual: "", matching: 1, of: 2))
+        #expect(Score.compare(actual: "", expected: "a") == .wrong(line: 1, expected: "a", actual: nil, matching: 0, of: 1))
+    }
+
+    @Test func theRetrySaysWhetherALineIsEmptyOrMissing() {
+        let empty = Prompts.retry(.wrongOutput(line: 1, expected: "a", actual: "", head: ""))
+        let missing = Prompts.retry(.wrongOutput(line: 2, expected: "b", actual: nil, head: "a"))
+        let extra = Prompts.retry(.wrongOutput(line: 2, expected: nil, actual: "b", head: "a\nb"))
+        #expect(empty.contains("(an empty line)") && !empty.contains("(nothing"))
+        #expect(missing.contains("the output ended before this line"))
+        #expect(extra.contains("the output should have ended before this line"))
     }
 
     @Test func leadingSpaceCounts() {
@@ -71,6 +101,17 @@ import Testing
             #expect(fixture.expected.hasPrefix(body.joined(separator: "\n")))
         }
         #expect(Prompts.request(instruction: "do", sample: "a", isWholeText: false, sampleOutput: "b").hasSuffix("exactly:\nb"))
+    }
+
+    @Test func instructionsAgreeWithTheRequestAboutTheSample() {
+        for guided in [false, true] {
+            let sample = Prompts.instructions(.detailed, guided: guided, wholeText: false)
+            let whole = Prompts.instructions(.detailed, guided: guided, wholeText: true)
+            #expect(sample.contains("longer than the sample"))
+            #expect(!whole.contains("longer than the sample") && !whole.contains("sample"))
+            #expect(whole.contains("the whole text"))
+        }
+        #expect(!Prompts.instructions(.terse, guided: false, wholeText: true).contains("sample"))
     }
 
     @Test func promptsNameTheSampleHonestly() {
