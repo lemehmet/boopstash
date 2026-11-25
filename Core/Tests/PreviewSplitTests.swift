@@ -64,6 +64,30 @@ import Testing
         // No steps: a share that renders clamped (0.10 shows as 240 of 1000)
         // is kept, not replaced by the clamped one (#210).
         #expect(PreviewSplit.adjusted(fraction: 0.1, by: 0, total: 1000, divider: 0) == 0.1)
+        // A decrement it is already held at the minimum against keeps it
+        // too; an increment moves it from what is shown (#226).
+        #expect(PreviewSplit.adjusted(fraction: 0.1, by: -1, total: 1000, divider: 1) == 0.1)
+        #expect(abs(PreviewSplit.adjusted(fraction: 0.1, by: 1, total: 1000, divider: 1) - (240 + 49.95) / 999) < 0.0001)
+    }
+
+    /// A drag that ends where it began keeps the stored share, also one
+    /// that renders clamped at a pane's minimum (#226).
+    @Test func aDragBackToItsStartKeepsTheStoredShare() throws {
+        let clamped = PreviewSplit.leadingWidth(total: 1000, fraction: 0.1, divider: 1)
+        #expect(clamped == 240)
+        #expect(PreviewSplit.dragged(from: 0.1, startWidth: clamped, startTotal: 1000, by: 0, total: 1000, divider: 1) == 0.1)
+        // Toward the minimum it is already at: held there, still kept.
+        #expect(PreviewSplit.dragged(from: 0.1, startWidth: clamped, startTotal: 1000, by: -30, total: 1000, divider: 1) == 0.1)
+        // A real move stores what is shown.
+        let moved = try #require(PreviewSplit.dragged(from: 0.1, startWidth: clamped, startTotal: 1000, by: 30, total: 1000, divider: 1))
+        #expect(abs(moved - 270.0 / 999) < 0.0001)
+        #expect(PreviewSplit.dragged(from: 0.5, startWidth: 499.5, startTotal: 1000, by: 0, total: 1000, divider: 1) == 0.5)
+        // No room to move: nothing to store.
+        #expect(PreviewSplit.dragged(from: 0.3, startWidth: 200, startTotal: 400, by: 10, total: 400, divider: 0) == nil)
+        // Resized mid-drag: the stored 0.10 would now render at 499.9, so
+        // the divider stays at the width under the pointer instead.
+        let resized = try #require(PreviewSplit.dragged(from: 0.1, startWidth: clamped, startTotal: 1000, by: 0, total: 5000, divider: 1))
+        #expect(abs(PreviewSplit.leadingWidth(total: 5000, fraction: resized, divider: 1) - 240) < 0.0001)
     }
 
     @Test func theEditorsShareIsReadAsTheWidthItActuallyHas() {

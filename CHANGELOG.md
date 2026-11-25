@@ -62,6 +62,11 @@ breaking changes may land in a minor release.
   made on another device (#215, #216). The same could happen when iCloud
   saved an upload but the reply never reached the device, for example on a
   dropped connection (#229).
+- **Mac: letting go of the preview divider where you grabbed it no longer
+  changes the split.** With the editor at its narrowest, such a drag
+  stored the narrowest width over the size you had set, so a wider window
+  later split differently (#226). A VoiceOver decrement at the narrowest
+  width no longer does either.
 - **The note list could stay on an old filter.** Changing the filter
   twice in quick succession, as New Note does when it clears a label
   filter, could leave the list showing the first filter's notes until the
