@@ -304,6 +304,39 @@ struct ModelEndpointFlowTests {
         #expect(report.body.contains("## Environment"))
     }
 
+    @Test func aTestIsOfTheSettingsShownAndGoesWhenTheyChange() async throws {
+        defer { cleanUp() }
+        let store = configured()
+        await store.test()?.value
+        #expect(store.testResult?.passed == true)
+        // Each change takes the verdict away: it was on other settings.
+        store.enter("0.9", in: .temperature)
+        #expect(store.testResult == nil)
+        await store.test()?.value
+        store.enter("0.9", in: .temperature)
+        #expect(store.testResult?.passed == true, "typing the same value changes nothing")
+        #expect(store.setExtraFields(#"{"seed":1}"#) && store.testResult == nil)
+        await store.test()?.value
+        store.resetGeneration()
+        #expect(store.testResult == nil)
+        await store.test()?.value
+        store.setModel("flash")
+        #expect(store.testResult == nil)
+
+        // A test in flight is cancelled by a change, and never reports.
+        await helper.setHangs()
+        let running = try #require(store.test())
+        #expect(store.isTesting)
+        let deadline = ContinuousClock.now + .seconds(10)
+        while await helper.requests.last?.call != .chat || store.testResult != nil, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        store.setModel("tiny")
+        #expect(!store.isTesting && store.testResult == nil, "and another test can start at once")
+        await running.value
+        #expect(store.testResult == nil && !store.isTesting)
+    }
+
     // MARK: The workbench
 
     @Test func withNoEndpointTheWorkbenchHasNoPromptAndTheHelperIsNeverAsked() async {
@@ -400,9 +433,16 @@ struct ModelEndpointFlowTests {
         #expect(content == ModelScriptPrompt.request(instruction: "make defines", examples: [ScriptExample(line: 2, text: "REG_B 2")], sample: shown))
         let sent = String(decoding: try #require(request.body), as: UTF8.self)
         #expect(!sent.contains("PRIVATE") && !sent.contains("NEVER SHOWN") && !sent.contains("MORE 7"), "nothing that was not shown")
-        // Touching the instruction takes the sample again, and shows it.
+        // Sizing the sample again does not read the note either.
         session.instruction = "make defines again"
-        #expect(session.sampleToSend?.text == "PRIVATE 9\nNEVER SHOWN 8\nMORE 7")
+        #expect(session.sampleToSend == shown && session.examples.map(\.text) == ["REG_B 2"])
+        session.markExample(line: 1)
+        #expect(session.examples.map(\.text) == ["REG_A 1", "REG_B 2"], "examples are lines of the text that was shown")
+        // Check Again reads the note, and shows what it read: the marked
+        // lines are no longer in it, so they go.
+        session.checkAgain()
+        await session.availabilityCheck?.value
+        #expect(session.sampleToSend?.text == "PRIVATE 9\nNEVER SHOWN 8\nMORE 7" && session.examples.isEmpty)
         flows.close(window, view)
     }
 

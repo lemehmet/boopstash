@@ -267,6 +267,15 @@ public enum ScriptSampleAllowance: Sendable, Hashable {
 
     public static let standard = ScriptSampleAllowance.characters(ScriptSampling.defaultBudget, maxLines: ScriptSampling.defaultMaxLines)
 
+    /// More characters than any sample under this allowance can hold: a
+    /// character is never less than a third of a token.
+    var mostCharacters: Int {
+        switch self {
+        case .characters(let budget, _): max(0, budget) + 1
+        case .tokens(let context, _): max(0, context) * 3 + 1
+        }
+    }
+
     /// The sample of `target` a request with this instruction and these
     /// examples carries. The workbench shows exactly this before Generate
     /// is pressed, and `ScriptGeneration.run` sends exactly this.
@@ -279,6 +288,49 @@ public enum ScriptSampleAllowance: Sendable, Hashable {
             let tokens = ModelSampleBudget.sampleTokens(context: context, reply: reply, instruction: instruction, examples: examples)
             return ScriptSampling.sample(of: target, budget: tokens, maxLines: .max, measure: { ModelSampleBudget.tokens(in: $0) })
         }
+    }
+}
+
+/// The text a sample is taken from, read from the note once: only as
+/// much of its start as a sample could ever hold, so that sizing the
+/// sample again (the instruction grew, an example was marked) costs
+/// nothing in the length of the note.
+public struct ScriptSampleSource: Sendable, Hashable {
+    /// The start of the text, in whole lines unless the text is one line.
+    public let head: String
+    /// `head` is all of the text.
+    public let isWhole: Bool
+    /// How many lines the whole text has.
+    public let totalLines: Int
+    public let allowance: ScriptSampleAllowance
+
+    public init(target: String, allowance: ScriptSampleAllowance) {
+        self.allowance = allowance
+        // A line feed ends a line alone or after a carriage return, and
+        // either way it is one line feed byte.
+        totalLines = target.utf8.reduce(1) { $1 == 0x0A ? $0 + 1 : $0 }
+        let most = allowance.mostCharacters
+        guard let cut = target.index(target.startIndex, offsetBy: most, limitedBy: target.endIndex), cut < target.endIndex else {
+            head = target
+            isWhole = true
+            return
+        }
+        isWhole = false
+        // Whole lines only: the line the cut fell in is left out, unless
+        // it is the first, which a sample may show the start of.
+        let start = target[..<cut]
+        if let lastBreak = start.lastIndex(where: { $0 == "\n" || $0 == "\r\n" }) {
+            head = String(start[..<lastBreak])
+        } else {
+            head = String(start)
+        }
+    }
+
+    /// The sample a request with this instruction and these examples
+    /// carries: the same as `allowance.sample` of the whole text.
+    public func sample(instruction: String, examples: [ScriptExample]) -> ScriptSample {
+        let taken = allowance.sample(of: head, instruction: instruction, examples: examples)
+        return ScriptSample(text: taken.text, isWholeText: taken.isWholeText && isWhole, totalLines: totalLines)
     }
 }
 

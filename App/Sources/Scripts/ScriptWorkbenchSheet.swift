@@ -190,9 +190,15 @@ private struct WorkbenchExamples: View {
     var body: some View {
         if !session.examples.isEmpty {
             Text("Examples, sent ahead of the sample:").foregroundStyle(.secondary)
-            ForEach(session.examples) { (example: ScriptExample) in
-                WorkbenchExampleRow(session: session, example: example)
+            // Scrolls when the examples are long, so each is shown whole.
+            ScrollView {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(session.examples) { (example: ScriptExample) in
+                        WorkbenchExampleRow(session: session, example: example)
+                    }
+                }
             }
+            .frame(maxHeight: 150)
         }
     }
 }
@@ -201,16 +207,26 @@ private struct WorkbenchExampleRow: View {
     let session: ScriptWorkbenchSession
     let example: ScriptExample
 
+    /// The line is shown whole, wrapped, however long it is: it is sent
+    /// whole, and nothing is sent that was not shown.
     var body: some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text("\(example.line)").monospacedDigit().foregroundStyle(.secondary)
-            Text(example.text).font(.system(.caption, design: .monospaced)).lineLimit(1).truncationMode(.tail)
-            TextField("Should become (optional)", text: Binding(
-                get: { example.expected },
-                set: { session.setExpected($0, forExampleAt: example.line) }))
-                .textFieldStyle(.roundedBorder)
-                .font(.system(.caption, design: .monospaced))
-            Button("Remove") { session.unmarkExample(line: example.line) }
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("\(example.line)").monospacedDigit().foregroundStyle(.secondary)
+                Text(example.text)
+                    .font(.system(.caption, design: .monospaced))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            HStack {
+                TextField("Should become (optional)", text: Binding(
+                    get: { example.expected },
+                    set: { session.setExpected($0, forExampleAt: example.line) }), axis: .vertical)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(.caption, design: .monospaced))
+                Button("Remove") { session.unmarkExample(line: example.line) }
+            }
         }
     }
 }
@@ -250,7 +266,10 @@ private struct WorkbenchSampleLine: View {
             .help(marked ? "Line \(number) is an example. Click to unmark it." : "Mark line \(number) as an example.")
             .accessibilityLabel(marked ? "Unmark line \(number) as an example" : "Mark line \(number) as an example")
             Text("\(number)").monospacedDigit().foregroundStyle(.secondary)
-            Text(line).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
+            Text(line)
+                .font(.system(.caption, design: .monospaced))
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
         }
     }
 }

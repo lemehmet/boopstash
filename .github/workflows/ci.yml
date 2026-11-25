@@ -42,7 +42,8 @@ jobs:
       # ADR 0014: only the model helper may reach the network. The check's
       # own tests, then the repository: no other entitlements file has a
       # network key, the helper's has the sandbox and the outgoing one and
-      # nothing else, and no code outside the helper makes a request.
+      # nothing else, and no code outside the helper names a networking
+      # API (a text search, behind the entitlements, not instead of them).
       - name: Network boundary
         run: |
           bash packaging/release/test-check-network-boundary.sh

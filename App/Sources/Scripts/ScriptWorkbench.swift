@@ -60,12 +60,16 @@ final class ScriptWorkbenchSession {
     var instruction = "" {
         didSet { if instruction != oldValue { refreshSample() } }
     }
-    /// The sample Generate sends: taken from the note when the sheet
-    /// learns where a request goes, and again when the instruction or the
-    /// examples change (they take room from it). The sheet shows this
-    /// under What Is Sent, and `generate` sends this and nothing read
-    /// from the note later.
+    /// The sample Generate sends. The text is read from the note once,
+    /// when the sheet learns where a request goes (and on Check Again);
+    /// the sample is sized again from that reading when the instruction
+    /// or the examples change, as they take room from it. The sheet shows
+    /// this under What Is Sent, and `generate` sends this and nothing
+    /// read from the note later.
     private(set) var sampleToSend: ScriptSample?
+    /// The reading of the note the sample and the examples come from.
+    @ObservationIgnored private var shownTarget = ""
+    @ObservationIgnored private var sampleSource: ScriptSampleSource?
     /// Lines of the text the user marked as examples for the generator.
     private(set) var examples: [ScriptExample] = []
     /// Why a line could not be marked.
@@ -323,7 +327,7 @@ final class ScriptWorkbenchSession {
             guard let self, !self.isClosed else { return }
             self.destination = ScriptGeneration.destination(availability)
             self.unavailableReason = ScriptGeneration.unavailableReason(availability)
-            self.refreshSample()
+            self.readTarget()
         }
     }
 
@@ -347,19 +351,37 @@ final class ScriptWorkbenchSession {
         return states.first?.text ?? ""
     }
 
-    /// Takes the sample again from the note as it is now, for this
-    /// instruction and these examples. Not while a request is out.
+    /// Reads the note, once, for what the sheet shows and Generate sends:
+    /// when the sheet learns where a request goes. Examples marked on an
+    /// earlier reading whose lines are no longer there go, and the sheet
+    /// shows the ones that stay.
+    private func readTarget() {
+        guard let destination else {
+            sampleSource = nil
+            sampleToSend = nil
+            return
+        }
+        shownTarget = generationTarget
+        sampleSource = ScriptSampleSource(target: shownTarget, allowance: destination.allowance)
+        if !examples.isEmpty {
+            let lines = ScriptExamples.lines(of: shownTarget)
+            examples.removeAll { $0.line > lines.count || lines[$0.line - 1] != $0.text }
+        }
+        refreshSample()
+    }
+
+    /// Sizes the sample again for this instruction and these examples,
+    /// from the reading the sheet already has: the note is not read, and
+    /// the cost does not grow with it. Not while a request is out.
     private func refreshSample() {
         guard !isGenerating else { return }
-        sampleToSend = destination.map {
-            $0.allowance.sample(of: generationTarget, instruction: instruction, examples: examples)
-        }
+        sampleToSend = sampleSource?.sample(instruction: instruction, examples: examples)
     }
 
     /// Marks line `line` of the text as an example.
     func markExample(line: Int) {
-        guard !isGenerating else { return }
-        switch ScriptExamples.marking(line: line, of: generationTarget, in: examples) {
+        guard !isGenerating, sampleSource != nil else { return }
+        switch ScriptExamples.marking(line: line, of: shownTarget, in: examples) {
         case .success(let marked):
             examples = marked
             exampleProblem = nil
@@ -415,6 +437,7 @@ final class ScriptWorkbenchSession {
                 if case .unavailable(let reason) = failure {
                     self.destination = nil
                     self.unavailableReason = reason
+                    self.sampleSource = nil
                     self.sampleToSend = nil
                 }
             }

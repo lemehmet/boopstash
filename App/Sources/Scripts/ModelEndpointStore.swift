@@ -130,13 +130,11 @@ final class ModelEndpointStore {
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard text != settings.baseURL else { return false }
         listing?.cancel()
-        testing?.cancel()
         isListing = false
-        isTesting = false
+        forgetTest()
         settings.baseURL = text
         listed = nil
         listProblem = nil
-        testResult = nil
         defaults.removeObject(forKey: Self.listKey)
         save()
         refreshKeyState()
@@ -147,8 +145,19 @@ final class ModelEndpointStore {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard name != settings.model else { return }
         settings.model = name
-        testResult = nil
+        forgetTest()
         save()
+    }
+
+    /// A test is of the settings it was made with: when any of them
+    /// changes, a test in flight is cancelled and a result shown is taken
+    /// away, so the pane never shows a verdict on settings it no longer
+    /// shows.
+    private func forgetTest() {
+        testing?.cancel()
+        testing = nil
+        isTesting = false
+        testResult = nil
     }
 
     /// Saves `key` in the Keychain for this endpoint; an empty key
@@ -164,7 +173,7 @@ final class ModelEndpointStore {
         } catch {
             keyProblem = "The key could not be saved in the Keychain. \(error.localizedDescription)"
         }
-        testResult = nil
+        forgetTest()
         refreshKeyState(keepingProblem: true)
     }
 
@@ -191,6 +200,7 @@ final class ModelEndpointStore {
         // Another field may have moved with it (the reply limit follows
         // the context length), and then has a note of its own.
         let (settled, said) = settings.generation.entering(text, in: field)
+        if settled != settings.generation { forgetTest() }
         settings.generation = settled
         notes = said
         save()
@@ -205,12 +215,15 @@ final class ModelEndpointStore {
             return false
         }
         extraFieldsProblem = nil
-        settings.generation.extraFields = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let fields = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if fields != settings.generation.extraFields { forgetTest() }
+        settings.generation.extraFields = fields
         save()
         return true
     }
 
     func resetGeneration() {
+        if settings.generation != .defaults { forgetTest() }
         settings.generation = .defaults
         notes = [:]
         extraFieldsProblem = nil
@@ -267,9 +280,10 @@ final class ModelEndpointStore {
         let generator = generator
         let task = Task { [weak self] in
             let result = await generator.generate(ModelEndpointGenerator.testRequest)
-            guard let self else { return }
+            // Cancelled: the settings changed, and whoever changed them
+            // already took this test away.
+            guard let self, !Task.isCancelled else { return }
             self.isTesting = false
-            guard !Task.isCancelled else { return }
             let verdict = ModelEndpointGenerator.testVerdict(result)
             self.testResult = TestResult(passed: verdict.passed, text: verdict.text)
         }

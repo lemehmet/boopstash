@@ -246,6 +246,31 @@ struct ModelEndpointTests {
         #expect(standard.text.count <= 2_000 && standard.text.split(separator: "\n").count <= 40)
     }
 
+    @Test func aSampleSizedFromOneReadingOfTheNoteIsTheSameSample() {
+        let long = (1...40_000).map { "ticket \($0)" }.joined(separator: "\n")
+        let texts = ["", "a", "a\nb", "one line " + String(repeating: "x", count: 9_000), long, "a\r\nb\r\n" + long,
+                     String(repeating: "word ", count: 3_000) + "\n" + long]
+        let allowances: [ScriptSampleAllowance] = [.standard, .characters(10, maxLines: 3), .characters(0, maxLines: 1),
+                                                   .tokens(context: 2_048, reply: 64), .tokens(context: 32_768, reply: 2_048)]
+        let examples = [ScriptExample(line: 1, text: "ticket 1", expected: "T-1")]
+        for text in texts {
+            for allowance in allowances {
+                let source = ScriptSampleSource(target: text, allowance: allowance)
+                for (instruction, marked) in [("x", []), ("make every ticket a link, please", examples)] {
+                    #expect(source.sample(instruction: instruction, examples: marked)
+                        == allowance.sample(of: text, instruction: instruction, examples: marked),
+                            "\(text.prefix(12)) \(allowance)")
+                }
+            }
+        }
+        // The reading keeps only what a sample could hold, in whole lines.
+        let source = ScriptSampleSource(target: long, allowance: .tokens(context: 2_048, reply: 64))
+        #expect(!source.isWhole && source.totalLines == 40_000)
+        #expect(source.head.count <= 2_048 * 3 + 1 && long.hasPrefix(source.head + "\n"))
+        #expect(ScriptSampleSource(target: "a\nb", allowance: .standard).isWhole)
+        #expect(ScriptSampleSource(target: "", allowance: .standard).totalLines == 1)
+    }
+
     @Test func aSampleMeasuredInBytesCountsLineEndingsAndWideCharacters() {
         let text = "日本\r\n語\nabc"
         // 6 bytes, then 2 + 3 for the ending and the second line.

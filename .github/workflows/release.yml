@@ -251,7 +251,7 @@ jobs:
               sys.exit(f"::error::model helper entitlements are {actual}, expected {expected}")
           PY
           # The same rule from the other side: no other signed product has a
-          # network key, no source outside the helper makes a request, and
+          # network key, no source outside the helper names a networking API, and
           # plain HTTP is allowed for local addresses only, in the helper only.
           packaging/release/check-network-boundary.sh --app "$app"
           # The `boopstash` command (ADR 0009): signed like the app, with the

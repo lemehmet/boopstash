@@ -4,8 +4,12 @@
 #   - no entitlements file has a network key, except the model helper's,
 #     which has the sandbox and the outgoing-network key and nothing else
 #     (no App Group, no keychain access group);
-#   - no code outside App/ModelService makes a network request, and the
-#     model helper calls no Keychain API;
+#   - no code outside App/ModelService names a networking API
+#     (URLSession, Network, CFNetwork and their kin), and the model helper
+#     calls no Keychain API. This is a search of the text, a second line
+#     behind the entitlements: it does not see a load through a URL value
+#     (`Data(contentsOf: url)`), which the missing entitlement is what
+#     stops;
 #   - in a built app, the app, the script service and the boopstash
 #     command are signed without a network key, and the model helper with
 #     exactly its two.
@@ -69,7 +73,7 @@ while IFS= read -r file; do
 done < <(find "$root/App" "$root/iOS" "$root/CLI" -name '*.entitlements' 2>/dev/null | sort)
 
 # Sources: network APIs only in the model helper; no Keychain there.
-network_apis='URLSession|NSURLConnection|NWConnection|NWListener|CFNetwork|CFStream|CFSocket|import Network|WKWebView|URLDownload|getaddrinfo|Data\(contentsOf: *URL\(string|String\(contentsOf: *URL\(string'
+network_apis='URLSession|NSURLConnection|NWConnection|NWListener|nw_connection_|nw_listener_|CFNetwork|CFStream|CFSocket|import Network|WKWebView|URLDownload|getaddrinfo|Data\(contentsOf: *URL\(string|String\(contentsOf: *URL\(string'
 outside="$(grep -rnE "$network_apis" --include='*.swift' --include='*.m' --include='*.c' \
   "$root/App" "$root/Core/Sources" "$root/CLI" "$root/iOS" 2>/dev/null | grep -v "^$root/App/ModelService/" || true)"
 [ -z "$outside" ] || fail "a network API is used outside App/ModelService:
@@ -111,4 +115,4 @@ if [ -n "$app" ]; then
 fi
 
 [ "$failures" -eq 0 ] || exit 1
-echo "network boundary: only the model helper may reach the network"
+echo "network boundary: only the model helper has a network entitlement or names a networking API"
