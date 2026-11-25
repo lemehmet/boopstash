@@ -191,9 +191,9 @@ public enum PastedTextCleanup {
         return .asciiRow
     }
 
-    /// An open code fence: its marker, how many of them, and how far in
-    /// from the line's start they stand.
-    typealias Fence = (marker: Character, length: Int, column: Int)
+    /// An open code fence: its marker, how many of them, how far in
+    /// from the line's start they stand, and how many block quotes deep.
+    typealias Fence = (marker: Character, length: Int, column: Int, quotes: Int)
 
     /// What a fence can stand behind on its line: block quote and list
     /// markers (`> `, `- `, `12. `), each with the indent in front of it.
@@ -211,28 +211,42 @@ public enum PastedTextCleanup {
         // A backtick fence's info string has no backtick; with one, the
         // line is inline code.
         if marker == "`", text.dropFirst(run.count).contains("`") { return nil }
-        return (marker, run.count, column)
+        return (marker, run.count, column, quoteDepth(ns.substring(to: column)))
     }
 
-    /// A closing line is the marker alone, at least as many as opened the
-    /// fence, no more than three columns further in than the opening one:
-    /// further in, it is a line of the code.
+    /// The block quote markers in front of a line, with their indents.
+    static let quoteMarkers = try! NSRegularExpression(pattern: #"^(?:[ \t]*>[ \t]?)*[ \t]*"#)
+
+    static func quoteDepth(_ line: String) -> Int {
+        line.prefix { isIndent($0) || $0 == ">" }.count(where: { $0 == ">" })
+    }
+
+    /// A closing line is the marker alone behind the block quote markers
+    /// the fence stands in, at least as many as opened the fence, no more
+    /// than three columns further in than the opening one: further in, it
+    /// is a line of the code.
     static func closesFence(_ line: String, _ fence: Fence) -> Bool {
-        let text = line.trimmingCharacters(in: .whitespaces)
-        return text.count >= fence.length && text.allSatisfy { $0 == fence.marker } && indent(of: line).count <= fence.column + 3
+        let ns = line as NSString
+        let column = quoteMarkers.rangeOfFirstMatch(in: line, range: NSRange(location: 0, length: ns.length)).length
+        let text = ns.substring(from: column).trimmingCharacters(in: .whitespaces)
+        return text.count >= fence.length && text.allSatisfy { $0 == fence.marker } && column <= fence.column + 3
+    }
+
+    /// The fence open after `line`, and whether the line is part of a
+    /// fenced block (its opening line, its code, its closing line). A
+    /// fence inside a block quote ends where the quote does: a line with
+    /// fewer `>` in front is outside it.
+    static func fence(after line: String, in fence: Fence?) -> (open: Fence?, fenced: Bool) {
+        if let fence, quoteDepth(line) >= fence.quotes {
+            return (closesFence(line, fence) ? nil : fence, true)
+        }
+        let opening = fenceOpening(line)
+        return (opening, opening != nil)
     }
 
     /// The code fence still open after the last line of `text`, if any.
     static func openFence(atEndOf text: String) -> Fence? {
-        var fence: Fence?
-        for line in lines(text) {
-            if let open = fence {
-                if closesFence(line.content, open) { fence = nil }
-            } else {
-                fence = fenceOpening(line.content)
-            }
-        }
-        return fence
+        lines(text).reduce(nil) { fence(after: $1.content, in: $0).open }
     }
 
     /// Turns box-drawing tables (`┌─┬─┐`, `│`) and ASCII tables (`+---+`,
@@ -254,14 +268,9 @@ public enum PastedTextCleanup {
         var index = 0
         while index < all.count {
             let content = all[index].content
-            if let open = fence {
-                if closesFence(content, open) { fence = nil }
-                result.append(all[index])
-                index += 1
-                continue
-            }
-            if let open = fenceOpening(content) {
-                fence = open
+            let fenced: Bool
+            (fence, fenced) = Self.fence(after: content, in: fence)
+            if fenced {
                 result.append(all[index])
                 index += 1
                 continue
@@ -321,11 +330,11 @@ public enum PastedTextCleanup {
         guard closed || openBorders else { return nil }
         let columns = rowTexts.compactMap { $0 }.first?.count(where: { separators.contains($0) })
         guard borderTexts.allSatisfy({ $0.count(where: isJoint) == columns }) else { return nil }
-        // Open rows that all start with the same `-` or `+` are a diff of
-        // such a table; a table's header row starts with a name.
+        // An open row that starts with `- ` or `+ ` is a line of a diff of
+        // such a table (psql starts every row with a space, which the diff
+        // marker then stands in front of); a negative number has no space.
         if !box, !closed {
-            let firsts = Set(rowTexts.compactMap { $0?.first })
-            guard firsts != ["-"], firsts != ["+"] else { return nil }
+            guard !rowTexts.contains(where: { $0?.hasPrefix("- ") == true || $0?.hasPrefix("+ ") == true }) else { return nil }
         }
         // The rows between one border and the next.
         var segments: [[[String]]] = [[]]
@@ -341,21 +350,28 @@ public enum PastedTextCleanup {
                 lines.compactMap { $0.indices.contains(column) && !$0[column].isEmpty ? $0[column] : nil }.joined(separator: " ")
             }
         }
+        /// The lines of a segment after its first, without the empty ones.
+        func later(_ segment: [[String]]) -> ArraySlice<[String]> {
+            segment.filter { !$0.allSatisfy(\.isEmpty) }.dropFirst()
+        }
+        // A table is ruled between every row when it has at least three
+        // segments under its header and no segment under the header has a
+        // later line that starts with text.
+        let ruledBetweenRows = segments.count >= 4 && segments.dropFirst().allSatisfy { later($0).allSatisfy { $0.first?.isEmpty == true } }
         var rows: [[String]] = []
         for (number, segment) in segments.enumerated() {
             // Several lines between two borders are one row only with
             // evidence, since joining two rows damages them and leaving a
             // wrapped row split does not. Above the first inner border, the
             // header: each line after its first leaves a cell empty. In a
-            // table ruled between every row (three segments or more): each
-            // later line starts with an empty cell. Otherwise each line is
-            // a row of its own, as in a box with no header and a rule above
-            // its last row, in the body under a header rule, where an empty
-            // cell is just an empty cell, or in a body above a totals rule,
-            // where a row with a name and no value is a row.
-            let later = segment.filter { !$0.allSatisfy(\.isEmpty) }.dropFirst()
-            let header = number == 0 && later.allSatisfy { $0.contains(where: \.isEmpty) }
-            let wrapped = segments.count >= 3 && later.allSatisfy { $0.first?.isEmpty == true }
+            // table ruled between every row: each later line starts with
+            // an empty cell. Otherwise each line is a row of its own, as in
+            // a box with no header and a rule above its last row, in the
+            // body under a header rule, where an empty cell is just an
+            // empty cell, or in a body between a header rule and a totals
+            // rule, where a row may lack a name or a value.
+            let header = number == 0 && later(segment).allSatisfy { $0.contains(where: \.isEmpty) }
+            let wrapped = number > 0 && ruledBetweenRows
             if segments.count > 1, header || wrapped {
                 rows.append(merged(segment))
             } else {

@@ -188,6 +188,8 @@ import Testing
         │      │ quite busy │
         ├──────┼────────────┤
         │ bee  │ flies      │
+        ├──────┼────────────┤
+        │ cow  │ walks      │
         └──────┴────────────┘
         """
         #expect(clean(table) == """
@@ -195,7 +197,18 @@ import Testing
         | --- | --- |
         | ant | small and quite busy |
         | bee | flies |
+        | cow | walks |
         """)
+    }
+
+    /// A header rule and a totals rule do not make a table ruled between
+    /// every row: a body row without a name is a row.
+    @Test func aRowWithoutANameAboveATotalsRuleStaysARow() {
+        let table = "+------+-----+\n| item | qty |\n+------+-----+\n| ant  | 1   |\n|      | 22  |\n+------+-----+\n| all  | 23  |\n+------+-----+"
+        #expect(clean(table) == "| item | qty |\n| --- | --- |\n| ant | 1 |\n|  | 22 |\n| all | 23 |")
+        // Nor do several ruled sections when one has a row that starts with text.
+        let sections = "+---+---+\n| a | b |\n+---+---+\n| c | 1 |\n|   | 2 |\n+---+---+\n| d | 3 |\n| e | 4 |\n+---+---+\n| f | 5 |\n+---+---+"
+        #expect(clean(sections) == "| a | b |\n| --- | --- |\n| c | 1 |\n|  | 2 |\n| d | 3 |\n| e | 4 |\n| f | 5 |")
     }
 
     @Test func aHeaderWrappedOverTwoLinesIsOneRow() {
@@ -313,12 +326,21 @@ import Testing
         #expect(PastedTextCleanup.clean(note) == before + Self.boxTable + "\n```\n" + Self.markdownTable + "\n")
     }
 
-    @Test(arguments: ["- ", "* ", "12. ", "> ", "> - ", "  - "])
-    func aFenceInAListItemOrAQuoteIsAFence(_ container: String) {
-        let pad = String(repeating: " ", count: container.count)
+    @Test(arguments: [("- ", "  "), ("* ", "  "), ("12. ", "    "), ("> ", "> "), (">", ">"), ("> - ", ">   "), ("> > ", "> > "), ("  - ", "    ")])
+    func aFenceInAListItemOrAQuoteIsAFence(_ container: String, _ pad: String) {
         let table = Self.boxTable.replacingOccurrences(of: "\n", with: "\n" + pad)
-        let text = "\(container)```\n\(pad)\(table)\n\(pad)```\n\(Self.boxTable)\n"
-        #expect(clean("intro\n" + text) == "intro\n\(container)```\n\(pad)\(table)\n\(pad)```\n\(Self.markdownTable)\n")
+        let fenced = "\(container)```\n\(pad)\(table)\n\(pad)```\n"
+        #expect(clean("intro\n" + fenced + Self.boxTable + "\n") == "intro\n" + fenced + Self.markdownTable + "\n")
+    }
+
+    /// A fence in a block quote ends where the quote does, closed or not.
+    @Test func aFenceLeftOpenInAQuoteEndsWithTheQuote() {
+        let quoted = "> ```\n> \(Self.boxTable.replacingOccurrences(of: "\n", with: "\n> "))\n"
+        #expect(clean(quoted + "after\n" + Self.boxTable + "\n") == quoted + "after\n" + Self.markdownTable + "\n")
+        #expect(clean(quoted + Self.boxTable + "\n") == quoted + Self.markdownTable + "\n")
+        let note = quoted + Self.boxTable + "\n"
+        let last = (note as NSString).range(of: Self.boxTable, options: .backwards)
+        #expect(PastedTextCleanup.outputs(fullText: note, selections: [last]) == [Self.markdownTable])
     }
 
     /// Four columns further in than the opening line, the marker is a
@@ -358,6 +380,9 @@ import Testing
         "++---+---+\n+| a | b |\n+| c | d |\n++---+---+\n",
         "-+---+---+\n-| a | b |\n-| c | d |\n-+---+---+\n",
         "+ a | b\n+---+---\n+ c | d\n",
+        // A diff that changes rows of a table without outer borders.
+        " a | b\n-----+----\n- c | d\n+ e | f\n",
+        "  a | b\n -----+----\n- c | d\n+ e | f\n   g | h\n",
         // A diff that removes rows of a table without outer borders.
         "- a | b\n-----+----\n- c | d\n- e | f\n",
         // A commit graph (jj log) where a branch merges back, and rows
