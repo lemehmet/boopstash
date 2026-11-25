@@ -431,6 +431,9 @@ final class BoopTextView: NSTextView {
         }
         let fullText = string
         let selections = selectedRanges.map(\.rangeValue)
+        // Another note loaded while the script runs is another note even
+        // when its text is the same.
+        let generation = documentGeneration
         let request = ScriptRequest(scriptName: script.name, source: script.source,
                                     states: ScriptEdits.states(fullText: fullText, selections: selections))
         let started = Date()
@@ -453,13 +456,13 @@ final class BoopTextView: NSTextView {
             showMessage?("\(script.name) finished after its note was closed, so its result was not applied.")
             return
         }
-        guard string == fullText else {
+        guard documentGeneration == generation, string == fullText else {
             showMessage?("\(script.name) finished after the note changed, so its result was not applied.")
             return
         }
         guard let edits = ScriptEdits.replacements(fullText: fullText, selections: selections, response: response) else { return }
         if preview {
-            await review(edits, of: fullText, named: script.name).value
+            await review(edits, of: fullText, named: script.name, generation: generation).value
         } else {
             apply(edits, actionName: script.name)
         }
@@ -477,9 +480,15 @@ final class BoopTextView: NSTextView {
     /// moment. A sheet on its way out is waited for: the script picker
     /// that started this is still closing when a fast result arrives.
     /// The task ends when the sheet is up, or when it is known not to be.
+    ///
+    /// `generation` is the editor's document generation when the edits'
+    /// text was read, for a caller that waited on something since (a
+    /// script running in the service): another note loaded meanwhile is
+    /// another note even with the same text. Without it, now.
     @discardableResult
-    func review(_ edits: [(NSRange, String)], of snapshot: String, named name: String) -> Task<Void, Never> {
-        guard string == snapshot else {
+    func review(_ edits: [(NSRange, String)], of snapshot: String, named name: String, generation: Int? = nil) -> Task<Void, Never> {
+        let generation = generation ?? documentGeneration
+        guard documentGeneration == generation, string == snapshot else {
             showMessage?("\(name) finished after the note changed, so its result was not shown.")
             return Task {}
         }
@@ -490,7 +499,6 @@ final class BoopTextView: NSTextView {
             return Task {}
         }
         reviewStarting = true
-        let generation = documentGeneration
         let wait = reviewSheetWait
         return Task { [weak self] in
             let content = await Task.detached(priority: .userInitiated) {
@@ -598,7 +606,7 @@ final class BoopTextView: NSTextView {
                 return
             }
             let ns = snapshot as NSString
-            let changed = edits.contains { ns.substring(with: $0.0) != $0.1 }
+            let changed = edits.contains { !TextDiff.identical(ns.substring(with: $0.0), $0.1) }
             Log.editor.info("\(command.rawValue, privacy: .public): \(edits.count) ranges, \(changed ? "changed" : "unchanged", privacy: .public)")
             guard changed else {
                 switch command {
@@ -607,7 +615,7 @@ final class BoopTextView: NSTextView {
                 return
             }
             if preview {
-                await self.review(edits, of: snapshot, named: command.name).value
+                await self.review(edits, of: snapshot, named: command.name, generation: generation).value
             } else {
                 self.apply(edits, actionName: command.name)
             }
@@ -621,7 +629,7 @@ final class BoopTextView: NSTextView {
     func apply(_ edits: [(NSRange, String)], actionName: String, selectingReplacements: Bool = true) {
         let ns = string as NSString
         let edits = edits.sorted { $0.0.location < $1.0.location }
-        let changed = edits.filter { ns.substring(with: $0.0) != $0.1 }
+        let changed = edits.filter { !TextDiff.identical(ns.substring(with: $0.0), $0.1) }
         guard !changed.isEmpty, let storage = textStorage else { return }
         let caret = selectedRange().location
         guard shouldChangeText(inRanges: changed.map { NSValue(range: $0.0) }, replacementStrings: changed.map(\.1)) else { return }

@@ -153,6 +153,37 @@ struct DiffReviewFlowTests {
         close(window, view)
     }
 
+    /// A script that only changes how a character is encoded (a
+    /// combining accent to a precomposed letter) changes the note: it is
+    /// reviewed, and Keep applies it.
+    @Test func aCanonicallyEquivalentResultIsReviewedAndKept() async throws {
+        let source = "cafe\u{301}\n"
+        let result = "caf\u{E9}\n"
+        let (window, view) = host(source)
+        let whole = NSRange(location: 0, length: (source as NSString).length)
+        await view.review([(whole, result)], of: source, named: "Normalise").value
+        #expect(try #require(view.pendingReview).content.summary == TextDiff.Summary(removed: 1, added: 1))
+        view.keepPendingReview()
+        #expect(Array(view.string.utf16) == Array(result.utf16), "the code units are the script's")
+        #expect(view.undoManager?.undoActionName == "Normalise")
+        close(window, view)
+    }
+
+    /// A script runs in the service for a moment. Another note loaded
+    /// meanwhile is another note even when its text is the same, so the
+    /// result made for the first is not shown over it.
+    @Test func aResultMadeBeforeAnotherNoteWasLoadedIsNotShown() async {
+        let source = "b\na\n"
+        let (window, view) = host(source)
+        let started = view.documentGeneration
+        view.load(source, syntax: .plain)
+        let whole = NSRange(location: 0, length: (source as NSString).length)
+        await view.review([(whole, "a\nb\n")], of: source, named: "Sort Lines", generation: started).value
+        #expect(view.pendingReview == nil)
+        #expect(messages.all == ["Sort Lines finished after the note changed, so its result was not shown."])
+        close(window, view)
+    }
+
     @Test func aResultForATextTheNoteNoLongerHasIsNotShown() async {
         let (window, view) = host("new text\n")
         await view.review([(NSRange(location: 0, length: 4), "x")], of: "old text\n", named: "Upcase").value

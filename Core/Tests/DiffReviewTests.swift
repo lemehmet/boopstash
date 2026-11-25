@@ -59,6 +59,16 @@ import Testing
         #expect(mixed.parts.map(\.firstLine) == [2])
     }
 
+    /// A replacement Swift takes for equal to its range, but made of
+    /// other code units, is a change and is reviewed.
+    @Test func aCanonicallyEquivalentReplacementIsReviewed() {
+        let text = "cafe\u{301}\n"
+        let whole = NSRange(location: 0, length: (text as NSString).length)
+        let review = DiffReviewContent.make(fullText: text, edits: [(whole, "caf\u{E9}\n")])
+        #expect(review.summary == TextDiff.Summary(removed: 1, added: 1))
+        #expect(DiffReviewContent.make(fullText: text, edits: [(whole, text)]).isEmpty)
+    }
+
     @Test func aRangeOutsideTheTextIsSkipped() {
         #expect(DiffReviewContent.make(fullText: "ab", edits: [(NSRange(location: 1, length: 5), "x")]).isEmpty)
     }

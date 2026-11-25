@@ -181,6 +181,14 @@ public enum TextDiff {
         return lines
     }
 
+    /// Whether two texts are the same code units. Swift's `==` takes
+    /// canonically equivalent texts for equal (a precomposed "é" and "e"
+    /// with a combining accent); a script that turns one into the other
+    /// did change the note, so what counts as "no change" is decided here.
+    public static func identical(_ a: String, _ b: String) -> Bool {
+        a.utf8.elementsEqual(b.utf8)
+    }
+
     // MARK: - Lines
 
     /// A line and its ending. Two lines are the same line only when their

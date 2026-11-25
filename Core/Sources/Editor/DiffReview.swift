@@ -31,8 +31,9 @@ public struct DiffReviewContent: Sendable, Hashable {
     }
 
     /// The review of replacing each range of `fullText` with its text, in
-    /// the order of the ranges. A replacement equal to what it replaces
-    /// has no part: the editor does not apply one either. Old-side line
+    /// the order of the ranges. A replacement identical to what it
+    /// replaces, code unit for code unit, has no part: the editor does
+    /// not apply one either. Old-side line
     /// numbers are the note's as it is; new-side numbers are the note's
     /// as it would be, so a part after one that added or removed lines is
     /// numbered where it would then sit. Ranges are in UTF-16 units, as
@@ -45,7 +46,7 @@ public struct DiffReviewContent: Sendable, Hashable {
         for (range, replacement) in edits.sorted(by: { $0.0.location < $1.0.location }) {
             guard range.location >= 0, NSMaxRange(range) <= ns.length else { continue }
             let old = ns.substring(with: range)
-            guard old != replacement else { continue }
+            guard !TextDiff.identical(old, replacement) else { continue }
             let firstLine = lineNumber(of: range.location, in: ns)
             let hunks = TextDiff.hunks(old: old, new: replacement, context: context,
                                        firstLine: firstLine, firstNewLine: firstLine + shift)

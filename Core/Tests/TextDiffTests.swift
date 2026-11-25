@@ -212,15 +212,31 @@ import Testing
     // MARK: Size
 
     /// The work is bounded by construction, which this pins without a
-    /// clock: a stretch with no line in common larger than the exact
-    /// limit is taken as replaced, not matched cell by cell.
-    @Test func aLargeStretchWithNothingInCommonIsTakenAsReplaced() {
-        let old = Array(0..<1_200)
-        let new = Array(repeating: 5_000, count: 600) + Array(repeating: 5_001, count: 600)
+    /// clock: a stretch that nothing anchors and that is larger than the
+    /// exact limit is taken as replaced, not matched cell by cell. The
+    /// two sides here have a long common subsequence (the same two lines
+    /// alternating, shifted by one), which the exact matcher would find
+    /// and keep; that nothing is kept is the limit at work.
+    @Test func aLargeStretchThatNothingAnchorsIsTakenAsReplaced() {
+        let old = (0..<1_100).map { $0 % 2 }
+        let new = (0..<1_100).map { ($0 + 1) % 2 }
         #expect(old.count * new.count > TextDiff.exactLimit)
         let steps = TextDiff.steps(old, new)
-        #expect(steps.count == 2_400)
-        #expect(steps.prefix(1_200).allSatisfy { if case .remove = $0 { true } else { false } })
+        #expect(steps.count == 2_200)
+        #expect(steps.allSatisfy { if case .keep = $0 { false } else { true } }, "nothing matched cell by cell")
+        #expect(steps.prefix(1_100).allSatisfy { if case .remove = $0 { true } else { false } }, "removals first")
+        // The same shape under the limit is matched: all but one line stays.
+        let small = TextDiff.steps(Array(old.prefix(900)), Array(new.prefix(900)))
+        #expect(small.count(where: { if case .keep = $0 { true } else { false } }) == 899)
+        // And a lower limit takes that one as replaced too.
+        let limited = TextDiff.steps(Array(old.prefix(900)), Array(new.prefix(900)), exactLimit: 1_000)
+        #expect(limited.allSatisfy { if case .keep = $0 { false } else { true } })
+    }
+
+    @Test func identicalMeansTheSameCodeUnits() {
+        #expect(TextDiff.identical("abc", "abc"))
+        #expect(!TextDiff.identical("caf\u{E9}", "cafe\u{301}"))
+        #expect("caf\u{E9}" == "cafe\u{301}", "which Swift takes for equal")
     }
 
     @Test func fiveThousandLinesWithScatteredEdits() {
