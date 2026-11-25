@@ -38,6 +38,13 @@ import Testing
         #expect(PastedTextCleanup.removingEscapeCodes("\(e)]8;;https://example.com\(e)\\link\(e)]8;;\(e)\\ after") == "link after")
     }
 
+    @Test func theOneCharacterFormsOfOSCAndSTCount() {
+        let e = "\u{1B}"
+        #expect(PastedTextCleanup.removingEscapeCodes("\(e)]0;title\u{9C}prompt$") == "prompt$")
+        #expect(PastedTextCleanup.removingEscapeCodes("\u{9D}8;;https://example.com\u{9C}link\u{9D}8;;\(e)\\ after") == "link after")
+        #expect(PastedTextCleanup.removingEscapeCodes("\u{9D}0;never closed\nnext") == "0;never closed\nnext")
+    }
+
     @Test func anUnfinishedTitleStopsAtItsLine() {
         #expect(PastedTextCleanup.removingEscapeCodes("\u{1B}]0;never closed\nnext line") == "0;never closed\nnext line")
     }
@@ -195,13 +202,20 @@ import Testing
         let table = """
         +-------+-------+
         | First | Total |
-        | name  | count |
+        | name  |       |
         +-------+-------+
         | ant   | 1     |
         | bee   |       |
         +-------+-------+
         """
-        #expect(clean(table) == "| First name | Total count |\n| --- | --- |\n| ant | 1 |\n| bee |  |")
+        #expect(clean(table) == "| First name | Total |\n| --- | --- |\n| ant | 1 |\n| bee |  |")
+    }
+
+    /// With every cell filled, the lines above the first inner rule are
+    /// rows: a box with no header and a rule above its last row.
+    @Test func rowsAboveARuleAreNotAHeaderWithoutEvidence() {
+        let table = "┌───┬───┐\n│ a │ 1 │\n│ b │ 2 │\n├───┼───┤\n│ c │ 3 │\n└───┴───┘"
+        #expect(clean(table) == "| a | 1 |\n| --- | --- |\n| b | 2 |\n| c | 3 |")
     }
 
     /// Under a header rule alone, a row with an empty cell is a row, not
@@ -299,6 +313,23 @@ import Testing
         #expect(PastedTextCleanup.clean(note) == before + Self.boxTable + "\n```\n" + Self.markdownTable + "\n")
     }
 
+    @Test(arguments: ["- ", "* ", "12. ", "> ", "> - ", "  - "])
+    func aFenceInAListItemOrAQuoteIsAFence(_ container: String) {
+        let pad = String(repeating: " ", count: container.count)
+        let table = Self.boxTable.replacingOccurrences(of: "\n", with: "\n" + pad)
+        let text = "\(container)```\n\(pad)\(table)\n\(pad)```\n\(Self.boxTable)\n"
+        #expect(clean("intro\n" + text) == "intro\n\(container)```\n\(pad)\(table)\n\(pad)```\n\(Self.markdownTable)\n")
+    }
+
+    /// Four columns further in than the opening line, the marker is a
+    /// line of the code, and the fence is still open.
+    @Test func aMarkerIndentedInsideAFenceDoesNotCloseIt() {
+        let text = "```\n    ```\n\(Self.boxTable)\n```\n"
+        #expect(clean(text) == text)
+        let closed = "```\n   ```\n\(Self.boxTable)\n"
+        #expect(clean(closed) == "```\n   ```\n\(Self.markdownTable)\n")
+    }
+
     @Test func aTableAfterAClosedFenceIsConverted() {
         let text = "```\ncode\n```\n\(Self.boxTable)"
         #expect(clean(text) == "```\ncode\n```\n\(Self.markdownTable)")
@@ -327,6 +358,8 @@ import Testing
         "++---+---+\n+| a | b |\n+| c | d |\n++---+---+\n",
         "-+---+---+\n-| a | b |\n-| c | d |\n-+---+---+\n",
         "+ a | b\n+---+---\n+ c | d\n",
+        // A diff that removes rows of a table without outer borders.
+        "- a | b\n-----+----\n- c | d\n- e | f\n",
         // A commit graph (jj log) where a branch merges back, and rows
         // open at the ends under a closed border.
         "│ ○  abc\n│ │  desc\n├─╯\n○  root\n",
