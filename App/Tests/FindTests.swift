@@ -356,6 +356,56 @@ struct FindTests {
         host.close()
     }
 
+    /// A note that became a canonically equal text while its matches were
+    /// found is a changed note (#266): the ranges were for the other one.
+    @Test func replaceAllLeavesANoteThatBecameACanonicallyEqualTextAlone() async throws {
+        let host = Host("e\u{301} x x")
+        var messages: [String] = []
+        host.view.showMessage = { messages.append($0) }
+        host.view.find.show(replace: true)
+        host.view.find.setQueryText("x")
+        host.view.find.setReplacement("y")
+        #expect(try await matches(of: host, 2))
+        host.view.find.replaceAll()
+        host.view.insertText("\u{E9}", replacementRange: NSRange(location: 0, length: 2))
+        #expect(try await eventually { !messages.isEmpty })
+        #expect(Array(host.view.string.utf16) == Array("\u{E9} x x".utf16), "nothing was replaced")
+        #expect(messages == ["The note changed while its matches were being replaced, so it was left as it is."])
+        host.close()
+    }
+
+    /// A replacement that only changes how a character is encoded (a
+    /// combining accent to the precomposed letter) is an edit, as it is
+    /// for a script (#266): Swift's `==` would take it for no change.
+    @Test func replaceAllMakesAReplacementThatOnlyChangesTheEncoding() async throws {
+        let host = Host("cafe\u{301} cafe\u{301}")
+        var messages: [String] = []
+        host.view.showMessage = { messages.append($0) }
+        host.view.find.show(replace: true)
+        host.view.find.setQueryText("e\u{301}")
+        host.view.find.setReplacement("\u{E9}")
+        #expect(try await matches(of: host, 2))
+        host.view.find.replaceAll()
+        #expect(try await eventually { !messages.isEmpty })
+        #expect(Array(host.view.string.utf16) == Array("caf\u{E9} caf\u{E9}".utf16))
+        #expect(messages == ["Replaced 2 matches."])
+        host.close()
+    }
+
+    @Test func replaceMakesAReplacementThatOnlyChangesTheEncoding() async throws {
+        let host = Host("cafe\u{301} cafe\u{301}")
+        host.view.setSelectedRange(NSRange(location: 0, length: 0))
+        host.view.find.show(replace: true)
+        host.view.find.setQueryText("e\u{301}")
+        host.view.find.setReplacement("\u{E9}")
+        #expect(try await matches(of: host, 2))
+        #expect(try await eventually { host.view.selectedRange() == NSRange(location: 3, length: 2) })
+        host.view.find.replaceCurrent()
+        #expect(Array(host.view.string.utf16) == Array("caf\u{E9} cafe\u{301}".utf16))
+        #expect(host.view.undoManager?.undoActionName == "Replace")
+        host.close()
+    }
+
     @Test func aLineBreakInTheQueryFieldStepsBack() async throws {
         let host = Host("q q q")
         host.view.setSelectedRange(NSRange(location: 2, length: 1))

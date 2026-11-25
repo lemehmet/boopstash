@@ -327,7 +327,7 @@ final class FindController {
             return
         }
         // A replacement that changes nothing is a step, not an edit.
-        guard (view.string as NSString).substring(with: selection) != text else {
+        guard !TextDiff.identical((view.string as NSString).substring(with: selection), text) else {
             next()
             return
         }
@@ -370,7 +370,7 @@ final class FindController {
             guard let self, let view = self.view else { return }
             // Another note with the same text in this reused editor is not
             // the note the replacements were found in.
-            guard view.documentGeneration == generation, view.string == snapshot else {
+            guard view.documentGeneration == generation, TextDiff.identical(view.string, snapshot) else {
                 view.showMessage?("The note changed while its matches were being replaced, so it was left as it is.")
                 return
             }
@@ -383,7 +383,7 @@ final class FindController {
                 let ns = snapshot as NSString
                 // Only what changes counts: a replacement equal to its match
                 // is no edit (and `apply` makes none).
-                let edits = found.filter { !Self.inChip($0.range, view.chipRanges) && ns.substring(with: $0.range) != $0.text }
+                let edits = found.filter { !Self.inChip($0.range, view.chipRanges) && !TextDiff.identical(ns.substring(with: $0.range), $0.text) }
                 guard !edits.isEmpty else {
                     NSSound.beep()
                     return
