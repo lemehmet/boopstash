@@ -65,6 +65,25 @@ import Testing
         #expect(ids("in" + String(repeating: "\u{0301}", count: 2000) + "voice") == [101, 1999, 6767, 6610, 102])
     }
 
+    /// The placeholder comes as soon as the run passes `longWord`, before
+    /// the rest of it is read, so the tail is never folded (#227). Counting
+    /// the scalars read pins this without a clock: building the placeholder
+    /// only after reading the whole run gives the same words, but late.
+    @Test func anUnbrokenRunIsCutBeforeItsTailIsRead() {
+        var read = 0
+        let run = (0..<100_000).lazy.map { _ -> Unicode.Scalar in read += 1; return "b" }
+        var words: [String] = []
+        var readAtFirstWord: Int?
+        tokenizer.forEachWord(scalars: run) { word in
+            if readAtFirstWord == nil { readAtFirstWord = read }
+            words.append(word)
+            return true
+        }
+        #expect(words == [String(repeating: "a", count: WordPieceTokenizer.maxWordLength + 1)])
+        #expect(readAtFirstWord == WordPieceTokenizer.longWord + 1)
+        #expect(read == 100_000)
+    }
+
     /// Chunked folding (#164) is exact only because Swift's lowercased() maps
     /// each scalar on its own: no final-sigma rule, no other context. If that
     /// ever changes, chunks must be cut only where case has no context (#175).
