@@ -176,9 +176,13 @@ final class AppModel {
         Task { await editor.run(script, with: scriptRunner, preview: preview) }
     }
 
-    /// What writes a first draft in the script workbench (#247). Nothing
-    /// does yet (#269), and with none the workbench has no prompt field.
-    @ObservationIgnored var scriptGenerator: (any ScriptGenerator)?
+    /// Settings ▸ Model (ADR 0014): the model endpoint the user set up,
+    /// if they did. Empty by default.
+    @ObservationIgnored var modelEndpoint = ModelEndpointStore()
+    /// What writes a first draft in the script workbench (#247): the
+    /// user's own model endpoint. With none configured it says so, and
+    /// the workbench has no prompt field.
+    @ObservationIgnored lazy var scriptGenerator: (any ScriptGenerator)? = modelEndpoint.generator
     /// The script the workbench held when it last closed, in memory only,
     /// so that closing the sheet does not lose a script half written.
     @ObservationIgnored var workbenchDraft: String?

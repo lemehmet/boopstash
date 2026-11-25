@@ -8,6 +8,25 @@ breaking changes may land in a minor release.
 
 ### New
 
+- **Mac: a model you run yourself can draft scripts in the workbench
+  (#269, ADR 0014).** Settings ▸ Model takes the base URL of an
+  OpenAI-compatible endpoint (llama.cpp, llama-swap, Ollama, LM Studio,
+  vLLM, MLX servers), an optional API key kept in the Keychain, and the
+  model, picked from the service's own list or typed when the list cannot
+  be fetched. It is empty by default, and while it is empty nothing
+  changes and nothing is sent. With an endpoint set up the workbench has a
+  prompt field and Generate: the draft goes into the editor and runs only
+  when you run it. A mark beside Generate says what is sent and to which
+  host, and is the stronger one when the host is not this Mac or the local
+  network; What Is Sent shows the exact sample beforehand, which now grows
+  to what fits the model's context, and lets you mark lines as examples,
+  with what each should become. Generation settings (context length,
+  reply limit, temperature, top-p, time limit, extra request fields) have
+  defaults and a reset, and the help beside the extra fields lists how
+  each kind of server switches reasoning off. A reply cut off at the token
+  limit says so. The request is made by a separate sandboxed helper, the
+  only part of BoopStash with a network entitlement; the app itself still
+  has none. This changes the privacy baseline: see `SECURITY.md`.
 - **Mac: a script workbench (#247).** Scripts ▸ Script Workbench… (⌃⌘B)
   opens a sheet with a script on the left, highlighted as JavaScript, and
   on the right the diff of what it would change in the selection, or in

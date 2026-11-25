@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  The model helper (ADR 0014) makes the request to a model endpoint the user
+  configured, and is the only thing in BoopStash that may reach the network.
+  It has the sandbox and the outgoing-network key and nothing else: no App
+  Group, so the container the notes live in is closed to it (ADR 0009), and
+  no user files. It calls no Keychain API: the API key is the app's to keep,
+  and the app passes it with each request. Adding a key here needs an ADR,
+  and the release check refuses one.
+-->
+<plist version="1.0">
+<dict>
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+	<key>com.apple.security.network.client</key>
+	<true/>
+</dict>
+</plist>

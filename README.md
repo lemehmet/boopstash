@@ -75,7 +75,17 @@ access and can't read files you name; it only reads what is piped in.
   cannot read your notes. Without it, iCloud uses keys Apple can access, as it
   does for most iCloud data. If you sync, consider turning it on.
 - No analytics, no crash reporting service, no update checks.
-- Any AI is Apple's on-device model. Nothing is sent to a cloud model.
+- Titles, search by meaning and text in images run on your device, with
+  Apple's frameworks and a small bundled model. Nothing is sent to a cloud
+  model.
+- The one thing that can go elsewhere is off until you set it up: on the Mac,
+  **Settings → Model** takes the address of a language model you run yourself
+  (llama.cpp, Ollama, LM Studio and the like), and the script workbench can
+  then ask it for a first draft of a script. It sends your instruction, the
+  sample the workbench shows you first, and any lines you marked as examples,
+  only when you press Generate, and only to the address you typed. A mark
+  beside Generate says where that is, and warns when it is not your Mac or
+  your local network. BoopStash picks no service and ships no key.
 - The app never watches your clipboard. It reads it only when you paste or
   capture. If you want a clipboard history, macOS has one: turn on
   **System Settings → Spotlight → Clipboard**, then press ⌘Space, ⌘4.

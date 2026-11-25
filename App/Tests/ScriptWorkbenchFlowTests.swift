@@ -531,11 +531,14 @@ struct ScriptWorkbenchFlowTests {
         #expect(session.script == Self.prefixing)
         close(window, view)
 
-        // A generator that is not available now is the same.
+        // A generator that is set up and not usable now sends nothing
+        // either; the sheet shows Generate disabled, with the reason.
         let (other, editor) = host(Self.numbers)
         let fake = FakeGenerator(state: .unavailable(reason: "No model is set up."))
         let idle = await workbench(on: editor, generator: fake)
         #expect(idle.destination == nil)
+        #expect(idle.unavailableReason == "No model is set up.")
+        #expect(session.unavailableReason == nil, "with no generator there is nothing to say")
         idle.instruction = "make links"
         idle.generate()
         #expect(idle.generatingTask == nil)

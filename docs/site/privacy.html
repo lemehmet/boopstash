@@ -16,13 +16,17 @@
 <h2>What stays on your devices</h2>
 <ul>
 <li>Your notes, images and settings are stored on your device, inside the app's sandboxed containers: its own, and on the Mac a shared container that only BoopStash and its bundled <code>boopstash</code> command can open.</li>
-<li>There are no analytics, no crash reporting service, no advertising and no update checks. The app has no network access of its own.</li>
-<li>Titles, text recognition in images, search by meaning and any other AI features run on your device only, with Apple's frameworks and a small language model bundled with the app. Nothing is sent to a cloud model.</li>
+<li>There are no analytics, no crash reporting service, no advertising and no update checks. The app makes no network request of its own choosing: the only two it can make are the ones you turn on, iCloud sync and a model you run yourself, both described below and both off by default.</li>
+<li>Titles, text recognition in images and search by meaning run on your device only, with Apple's frameworks and a small language model bundled with the app. Nothing is sent to a cloud model.</li>
 <li>The Markdown preview loads nothing from the internet. Remote images are named, not fetched.</li>
 <li>Scripts and formatters run in a separate sandboxed process with no network and no file access.</li>
 </ul>
 <h2>The clipboard</h2>
 <p>BoopStash never watches your clipboard. It reads it only when you act: pasting, choosing a capture command, using Services or dropping something on the window. Items that password managers mark as concealed or transient are never stored.</p>
+<h2>A model you run yourself</h2>
+<p>On the Mac, Settings ▸ Model can be given the address of a language model you run yourself, so that the script workbench can ask it for a first draft of a script. It is empty by default, and while it is empty nothing is sent anywhere. BoopStash picks no service, ships no key and has no server of its own in between.</p>
+<p>When you press Generate, BoopStash sends to the address you typed, and nowhere else: your instruction, the sample of the note that the workbench shows you beforehand, any lines you marked as examples, the app's own fixed prompt, the model's name and settings, and your API key if you set one. Nothing else of the note and no other note is sent, and nothing that identifies you or your device. Entering the address or pressing Refresh in Settings asks that service for its list of models, and Test sends a small request with none of your text. A mark beside Generate says which host receives the text, and warns when that host is not your Mac or your local network. What that service does with the text is up to whoever runs it; if that is you, it stays with you.</p>
+<p>The API key is kept in your Keychain. The request is made by a separate sandboxed helper that cannot open your notes; the app itself has no network access.</p>
 <h2>iCloud sync</h2>
 <p>Sync through iCloud is optional and off by default. When it is on, your notes go only to the private database of BoopStash's iCloud container under your own Apple Account, which the developer cannot read. Every field the app stores is encrypted on your device before upload. With <a href="https://support.apple.com/en-us/102651">Advanced Data Protection</a> turned on, that encryption is end to end and only your devices hold the keys. Without it, iCloud uses keys Apple can access, as it does for most iCloud data.</p>
 <h2>Files</h2>

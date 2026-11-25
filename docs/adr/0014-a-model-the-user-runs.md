@@ -1,6 +1,6 @@
 # ADR 0014 — A model the user runs themselves may write scripts
 
-- **Status:** Accepted (2026-11-25); the app does not use it until #269 lands
+- **Status:** Accepted (2026-11-25); implemented by #269, which amended it (see the end)
 - **Deciders:** boopstash maintainers
 - **Amends:** ADR 0001 (privacy baseline) and ADR 0013 (model-written scripts)
 - **Evidence:** `Spikes/ModelScriptSpike/RESULTS-endpoint.md` (added by #275)
@@ -94,7 +94,14 @@ This is the only exception this ADR makes to ADR 0001.
   its result reaches the note only through the diff review (#245) when the
   user chooses Keep. There is no "generate and apply". These rules are ADR
   0013's and are unchanged.
-- **Both distribution channels, one code path** (ADR 0004).
+- **Both distribution channels, one code path** (ADR 0004): Homebrew and
+  the Mac App Store.
+- **macOS only.** The safeguard this decision rests on is that the app
+  holding the notes has no network entitlement and a separate sandboxed
+  helper makes the request. Neither exists on iOS: an iOS app needs no
+  entitlement to reach the network and has no XPC helper. The iOS app gets
+  no model endpoint, no Settings for one and no request path, and none of
+  this is compiled into it; bringing it to iOS would need its own ADR.
 - **Reasoning off is the recommended setup,** with the context spent on
   the user's text and examples instead. Servers spell that switch
   differently, so the settings take extra request fields and offer the
@@ -146,3 +153,64 @@ and for any later Generate", for Generate from a configured endpoint:
 - Review of changes: a network call anywhere but in the model helper, or a
   request that carries more than this ADR lists, is a defect of the highest
   severity, as any network call was before.
+
+## Amended while building it (#269)
+
+Building the feature settled points the decision left open, and narrowed
+two. None widens what may be sent.
+
+- **What Test sends.** Test in Settings makes the same request as
+  Generate, with an instruction and a two-line sample of BoopStash's own
+  in place of the user's: it shows that the endpoint, the model, the key
+  and the extra request fields work together, and sends none of the
+  user's text.
+- **The model list is remembered.** The names last fetched are kept with
+  the settings, so opening Settings shows them without a request. The list
+  is fetched when the user enters the base URL or presses Refresh, and not
+  when Settings merely opens or when the key changes.
+- **The rest of the HTTP request is fixed.** Beside `Authorization` the
+  helper sends `Accept`, `Content-Type`, `Accept-Language: en` and
+  `User-Agent: BoopStash`, without a version, set by us so that the
+  system's defaults (which name the OS and the user's languages) are not
+  sent. It keeps no cookies, no cache and no stored credentials, and
+  follows no redirect: a redirect would carry the text and the key to a
+  host the user did not type, so it is reported instead.
+- **Plain HTTP is refused for a host that is not local, by our own rule.**
+  App Transport Security's local-networking allowance also lets plain HTTP
+  through to any numeric address, so the app and the helper both check:
+  `http://` is accepted for this Mac and the local network (loopback,
+  private and link-local addresses, `.local` and bare host names) and
+  refused otherwise, as is a base URL holding a user name, a password, a
+  query or a fragment. "Any host the user types" stands, over HTTPS.
+- **The key belongs to an endpoint.** It is stored under the scheme, host
+  and port it was entered for, so changing the base URL to another host
+  does not send the first host's key there.
+- **The extra request fields cannot change what the interface says is
+  sent.** They are merged in as entered, except that an object naming
+  `messages`, `model`, `stream`, `temperature`, `top_p` or `max_tokens` is
+  refused, with the reason shown in Settings: the conversation is what the
+  workbench showed, the model is the one chosen, the reply is read whole,
+  and the three generation settings have fields of their own, from which
+  the sample's size is worked out. So no merged value differs from the
+  one shown.
+- **What is shown is what is sent, and where.** The workbench takes the
+  sample from the note when it shows it, and Generate sends that sample
+  and those examples: the note is not read again, so text that changed
+  under the open sheet is not sent unseen. The request also names the
+  destination the sheet showed; if the settings no longer give that
+  destination, nothing is sent until the sheet has shown the new one. The
+  key is read for the address the request goes to.
+- **The time limit is for the whole request,** from its start to the end
+  of the reply, not for the gap between two pieces of it, and its expiry
+  is reported as a timeout.
+- **Reasoning is dropped from the reply** in both spellings servers use:
+  between `<think>` tags, and before a closing tag alone, which is what
+  arrives when the chat template put the opening tag in the prompt.
+- **Nothing of the endpoint is in a problem report or a log.** Report a
+  Problem collects a fixed list of facts that the endpoint is not on: not
+  its address, model, key or extra request fields. Neither the app nor
+  the helper logs a request, a reply or a setting of this feature.
+- **A build without an application identifier cannot keep a key.** The
+  data-protection keychain needs one; an ad hoc Debug build has none, is
+  refused by the Keychain, and says so. The key is not kept anywhere else
+  instead. Released builds in both channels are provisioned.

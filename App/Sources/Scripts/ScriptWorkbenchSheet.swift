@@ -4,8 +4,8 @@ import SwiftUI
 
 /// The script workbench's sheet (#247): the script on the left, what it
 /// would change on the right, and Run, Keep, Discard and Save as Script
-/// below. The prompt row is there only when a generator is available,
-/// which none is yet.
+/// below. The prompt row is there only when a model endpoint is set up
+/// (ADR 0014).
 struct ScriptWorkbenchView: View {
     @Bindable var session: ScriptWorkbenchSession
 
@@ -59,7 +59,9 @@ private struct WorkbenchStartMenu: View {
     }
 }
 
-/// The prompt field and Generate, only with a generator that is available.
+/// The prompt field and Generate (ADR 0014): there with a generator that
+/// is set up, disabled with the reason when it cannot be used now, and
+/// absent when nothing is set up.
 private struct WorkbenchPrompt: View {
     @Bindable var session: ScriptWorkbenchSession
 
@@ -67,13 +69,42 @@ private struct WorkbenchPrompt: View {
         if let destination: ScriptGeneratorDestination = session.destination {
             WorkbenchPromptRow(session: session, destination: destination)
             Divider()
+        } else if let reason: String = session.unavailableReason {
+            WorkbenchUnavailablePrompt(session: session, reason: reason)
+            Divider()
         }
+    }
+}
+
+/// Generate, disabled, and why: a model is set up and cannot be used now.
+private struct WorkbenchUnavailablePrompt: View {
+    @Bindable var session: ScriptWorkbenchSession
+    let reason: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                TextField("What should the script do?", text: $session.instruction)
+                    .textFieldStyle(.roundedBorder)
+                    .disabled(true)
+                Button("Generate") {}
+                    .disabled(true)
+                    .help(reason)
+                Button("Check Again") { session.checkAgain() }
+                    .help("Ask again whether the model can be used. This sends nothing.")
+            }
+            Text("Generate is not available: \(reason)").font(.caption).foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
     }
 }
 
 private struct WorkbenchPromptRow: View {
     @Bindable var session: ScriptWorkbenchSession
     let destination: ScriptGeneratorDestination
+    /// Open from the start: what is sent is shown before Generate.
+    @State private var showsSent = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -82,12 +113,164 @@ private struct WorkbenchPromptRow: View {
                     .textFieldStyle(.roundedBorder)
                     .onSubmit { session.generate() }
                     .disabled(session.isGenerating)
+                if let indicator: ModelEndpointIndicator = destination.indicator {
+                    ModelEndpointMark(indicator: indicator)
+                }
                 WorkbenchGenerateButton(session: session)
             }
             Text(destination.notice).font(.caption).foregroundStyle(.secondary)
+            DisclosureGroup("What Is Sent", isExpanded: $showsSent) {
+                if showsSent { WorkbenchSent(session: session) }
+            }
+            .font(.caption)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
+    }
+}
+
+/// The warning mark (ADR 0014): a Unicode symbol whose details, what is
+/// sent and to which host, are its hover text and its accessibility
+/// label. The stronger mark, for text that leaves the local network, is
+/// also coloured.
+struct ModelEndpointMark: View {
+    let indicator: ModelEndpointIndicator
+
+    var body: some View {
+        Text(indicator.symbol)
+            .font(.body.weight(indicator.isStrong ? .bold : .regular))
+            .foregroundStyle(indicator.isStrong ? Color.orange : Color.secondary)
+            .help(indicator.details)
+            .accessibilityLabel(indicator.details)
+            .focusable()
+    }
+}
+
+/// Exactly what Generate sends from the note: the marked examples, then
+/// the sample the session holds, line by line. A line is marked as an
+/// example with the button before it, or by its number.
+private struct WorkbenchSent: View {
+    let session: ScriptWorkbenchSession
+    @State private var lineNumber = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            WorkbenchExamples(session: session)
+            HStack {
+                TextField("Line number", text: $lineNumber)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 110)
+                    .onSubmit { mark() }
+                Button("Mark Line as Example") { mark() }
+                    .disabled(Int(lineNumber.trimmingCharacters(in: .whitespaces)) == nil)
+                    .help("Send this line of the text as an example, with what it should become if you say.")
+                if let problem: String = session.exampleProblem {
+                    Text(problem).foregroundStyle(.red)
+                }
+            }
+            if let sample: ScriptSample = session.sampleToSend {
+                Text(sample.summary).foregroundStyle(.secondary)
+                WorkbenchSampleLines(session: session, lines: ScriptExamples.lines(of: sample.text).map(String.init))
+            }
+        }
+        .padding(.top, 4)
+    }
+
+    private func mark() {
+        guard let line = Int(lineNumber.trimmingCharacters(in: .whitespaces)) else { return }
+        session.markExample(line: line)
+        if session.exampleProblem == nil { lineNumber = "" }
+    }
+}
+
+/// The lines marked as examples, each with what it should become.
+private struct WorkbenchExamples: View {
+    let session: ScriptWorkbenchSession
+
+    var body: some View {
+        if !session.examples.isEmpty {
+            Text("Examples, sent ahead of the sample:").foregroundStyle(.secondary)
+            // Scrolls when the examples are long, so each is shown whole.
+            ScrollView {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(session.examples) { (example: ScriptExample) in
+                        WorkbenchExampleRow(session: session, example: example)
+                    }
+                }
+            }
+            .frame(maxHeight: 150)
+        }
+    }
+}
+
+private struct WorkbenchExampleRow: View {
+    let session: ScriptWorkbenchSession
+    let example: ScriptExample
+
+    /// The line is shown whole, wrapped, however long it is: it is sent
+    /// whole, and nothing is sent that was not shown.
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("\(example.line)").monospacedDigit().foregroundStyle(.secondary)
+                Text(example.text)
+                    .font(.system(.caption, design: .monospaced))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            HStack {
+                TextField("Should become (optional)", text: Binding(
+                    get: { example.expected },
+                    set: { session.setExpected($0, forExampleAt: example.line) }), axis: .vertical)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(.caption, design: .monospaced))
+                Button("Remove") { session.unmarkExample(line: example.line) }
+            }
+        }
+    }
+}
+
+/// The sample's lines, each with a button that marks it as an example.
+private struct WorkbenchSampleLines: View {
+    let session: ScriptWorkbenchSession
+    let lines: [String]
+
+    var body: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 1) {
+                ForEach(Array(lines.enumerated()), id: \.offset) { (index: Int, line: String) in
+                    WorkbenchSampleLine(session: session, number: index + 1, line: line)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxHeight: 130)
+        .background(Color(nsColor: .textBackgroundColor))
+        .accessibilityLabel("The sample that will be sent")
+    }
+}
+
+private struct WorkbenchSampleLine: View {
+    let session: ScriptWorkbenchSession
+    let number: Int
+    let line: String
+
+    var body: some View {
+        let marked: Bool = session.examples.contains { $0.line == number }
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Button(marked ? "◆" : "◇") {
+                if marked { session.unmarkExample(line: number) } else { session.markExample(line: number) }
+            }
+            .buttonStyle(.plain)
+            .help(marked ? "Line \(number) is an example. Click to unmark it." : "Mark line \(number) as an example.")
+            .accessibilityLabel(marked ? "Unmark line \(number) as an example" : "Mark line \(number) as an example")
+            Text("\(number)").monospacedDigit().foregroundStyle(.secondary)
+            Text(line)
+                .font(.system(.caption, design: .monospaced))
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+        }
     }
 }
 

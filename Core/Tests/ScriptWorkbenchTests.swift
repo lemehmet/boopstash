@@ -270,7 +270,7 @@ import Testing
     @Test func aGeneratorGetsTheInstructionAndABoundedSample() async {
         let generator = FakeGenerator()
         let target = (1...500).map { "ticket \($0)" }.joined(separator: "\n")
-        let result = await ScriptGeneration.run(generator, instruction: "  make links \n", target: target, budget: 60)
+        let result = await ScriptGeneration.run(generator, instruction: "  make links \n", target: target, allowance: .characters(60, maxLines: 40))
         #expect(result == .success("function main(state) {}"))
         let request = await generator.requests.first
         #expect(request?.instruction == "make links")
@@ -308,6 +308,10 @@ import Testing
         #expect(ScriptGeneration.destination(nil) == nil, "no generator: no prompt field, no Generate")
         #expect(ScriptGeneration.destination(.unavailable(reason: "No model is set up.")) == nil)
         #expect(ScriptGeneration.destination(await FakeGenerator(state: .available(here)).availability()) == here)
-        #expect(here.notice == "Your instruction and a sample of the text go to the model on this Mac.")
+        #expect(here.notice == "Your instruction and the sample shown under What Is Sent go to the model on this Mac.")
+        #expect(ScriptGeneration.destination(.notConfigured) == nil)
+        #expect(ScriptGeneration.unavailableReason(.unavailable(reason: "No model is set up.")) == "No model is set up.")
+        #expect(ScriptGeneration.unavailableReason(.notConfigured) == nil && ScriptGeneration.unavailableReason(nil) == nil)
+        #expect(here.indicator == nil, "a generator inside the app sends nothing to a host")
     }
 }
