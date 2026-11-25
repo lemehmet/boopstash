@@ -168,6 +168,36 @@ import Testing
         #expect(lines[2].changes.isEmpty)
     }
 
+    // MARK: Code units
+
+    /// Swift's string equality takes a precomposed "é" and "e" with a
+    /// combining accent for equal. A change between them is a change of
+    /// the text, and shows.
+    @Test func canonicallyEquivalentTextIsStillAChange() {
+        let composed = "the caf\u{E9} is open\nZ\n"
+        let decomposed = "the cafe\u{301} is open\nZ\n"
+        #expect(composed == decomposed, "equal to Swift")
+        let lines = TextDiff.lines(old: decomposed, new: composed)
+        #expect(lines.map(\.kind) == [.removed, .added, .unchanged])
+        #expect(!lines[0].changes.isEmpty && !lines[1].changes.isEmpty, "the word that changed is marked")
+        #expect(TextDiff.hunks(old: composed, new: composed).isEmpty)
+    }
+
+    /// A pair of very long lines is not matched word by word past the
+    /// word limit: it is shown as changed whole, with no marks.
+    @Test func veryLongLinesAreChangedWholeAndNotMatchedWordByWord() {
+        // Words that all differ in the middle of the line, so nothing
+        // anchors and trimming the ends leaves the whole middle.
+        let old = "start " + (0..<200).map { _ in "a b" }.joined(separator: " ") + " end"
+        let new = "start " + (0..<200).map { _ in "b a" }.joined(separator: " ") + " end"
+        #expect(TextDiff.tokens(old).count * TextDiff.tokens(new).count > TextDiff.wordExactLimit)
+        let (removed, added) = TextDiff.wordChanges(old, new)
+        #expect(removed.isEmpty && added.isEmpty)
+        // A short pair of the same shape is matched and marked.
+        let (shortRemoved, shortAdded) = TextDiff.wordChanges("start a b a b end", "start b a b a end")
+        #expect(!shortRemoved.isEmpty && !shortAdded.isEmpty)
+    }
+
     // MARK: Summary
 
     @Test func theSummaryCountsLines() {

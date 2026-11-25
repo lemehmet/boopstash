@@ -93,7 +93,7 @@ struct DiffReviewFlowTests {
 
         // The same through the review itself, as a script's result comes.
         let whole = NSRange(location: 0, length: (source as NSString).length)
-        view.review([(whole, source)], of: source, named: "Sort Lines")
+        await view.review([(whole, source)], of: source, named: "Sort Lines").value
         #expect(view.pendingReview == nil)
         #expect(messages.all.last == "Sort Lines would change nothing.")
         close(window, view)
@@ -116,11 +116,11 @@ struct DiffReviewFlowTests {
         close(window, view)
     }
 
-    @Test func aScriptsResultIsKeptUnderTheScriptsName() throws {
+    @Test func aScriptsResultIsKeptUnderTheScriptsName() async throws {
         let source = "b\na\nc\n"
         let (window, view) = host(source)
         let whole = NSRange(location: 0, length: (source as NSString).length)
-        view.review([(whole, "a\nb\nc\n")], of: source, named: "Sort Lines")
+        await view.review([(whole, "a\nb\nc\n")], of: source, named: "Sort Lines").value
         #expect(try #require(view.pendingReview).content.summary == TextDiff.Summary(removed: 1, added: 1))
         #expect(view.string == source)
         view.keepPendingReview()
@@ -153,9 +153,9 @@ struct DiffReviewFlowTests {
         close(window, view)
     }
 
-    @Test func aResultForATextTheNoteNoLongerHasIsNotShown() {
+    @Test func aResultForATextTheNoteNoLongerHasIsNotShown() async {
         let (window, view) = host("new text\n")
-        view.review([(NSRange(location: 0, length: 4), "x")], of: "old text\n", named: "Upcase")
+        await view.review([(NSRange(location: 0, length: 4), "x")], of: "old text\n", named: "Upcase").value
         #expect(view.pendingReview == nil)
         #expect(messages.all == ["Upcase finished after the note changed, so its result was not shown."])
         close(window, view)
@@ -167,9 +167,58 @@ struct DiffReviewFlowTests {
         await view.run(.cleanUpPastedText, preview: true).value
         let first = try #require(view.pendingReview)
         let whole = NSRange(location: 0, length: (source as NSString).length)
-        view.review([(whole, "other\n")], of: source, named: "Other")
+        await view.review([(whole, "other\n")], of: source, named: "Other").value
         #expect(view.pendingReview?.name == first.name, "the open review stays")
         #expect(messages.all == ["Other could not show its changes while another sheet is open."])
+        close(window, view)
+    }
+
+    /// The script picker is a sheet on the same window and is still
+    /// closing when a fast script's result arrives: the review waits for
+    /// it and is shown, not refused.
+    @Test func aReviewWaitsForASheetThatIsClosing() async throws {
+        let source = "b\na\n"
+        let (window, view) = host(source)
+        let picker = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.titled], backing: .buffered, defer: false)
+        picker.isReleasedWhenClosed = false
+        window.beginSheet(picker, completionHandler: nil)
+        let whole = NSRange(location: 0, length: (source as NSString).length)
+        let review = view.review([(whole, "a\nb\n")], of: source, named: "Sort Lines")
+        #expect(view.pendingReview == nil, "not over the picker")
+        window.endSheet(picker)
+        await review.value
+        #expect(try #require(view.pendingReview).name == "Sort Lines")
+        #expect(messages.all.isEmpty)
+        view.keepPendingReview()
+        #expect(view.string == "a\nb\n")
+        close(window, view)
+    }
+
+    @Test func aReviewGivesUpOnASheetThatStays() async {
+        let source = "b\na\n"
+        let (window, view) = host(source)
+        view.reviewSheetWait = .milliseconds(150)
+        let other = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.titled], backing: .buffered, defer: false)
+        other.isReleasedWhenClosed = false
+        window.beginSheet(other, completionHandler: nil)
+        let whole = NSRange(location: 0, length: (source as NSString).length)
+        await view.review([(whole, "a\nb\n")], of: source, named: "Sort Lines").value
+        #expect(view.pendingReview == nil)
+        #expect(view.string == source)
+        #expect(messages.all == ["Sort Lines could not show its changes while another sheet is open."])
+        window.endSheet(other)
+        close(window, view)
+    }
+
+    @Test func aNoteThatChangesWhileTheDiffIsWorkedOutIsNotReviewed() async {
+        let source = "b\na\n"
+        let (window, view) = host(source)
+        let whole = NSRange(location: 0, length: (source as NSString).length)
+        let review = view.review([(whole, "a\nb\n")], of: source, named: "Sort Lines")
+        view.insertText("edited ", replacementRange: NSRange(location: 0, length: 0))
+        await review.value
+        #expect(view.pendingReview == nil)
+        #expect(messages.all == ["Sort Lines finished after the note changed, so its result was not shown."])
         close(window, view)
     }
 

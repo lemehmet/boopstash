@@ -35,6 +35,21 @@ import Testing
         #expect(review.summary == TextDiff.Summary(removed: 2, added: 2))
     }
 
+    /// A part after one that added lines sits lower in the result: its
+    /// new-side numbers say where, its old-side numbers where it is now.
+    @Test func laterPartsAreNumberedWhereTheyWouldSitAfterTheEarlierOnes() {
+        let text = "one\ntwo\nthree\nfour\n"
+        let review = DiffReviewContent.make(fullText: text, edits: [(range(text, of: "one"), "1\n1b"), (range(text, of: "four"), "4")])
+        #expect(review.parts.map(\.firstLine) == [1, 4])
+        let second = review.parts[1].hunks.flatMap(\.lines)
+        #expect(second.map(\.oldNumber) == [4, nil])
+        #expect(second.map(\.newNumber) == [nil, 5], "one line was added above it")
+        #expect(second[1].spokenDescription == "Added, line 5: 4")
+
+        let removing = DiffReviewContent.make(fullText: text, edits: [(range(text, of: "one\ntwo\n"), ""), (range(text, of: "four"), "4")])
+        #expect(removing.parts[1].hunks.flatMap(\.lines).map(\.newNumber) == [nil, 2], "two lines were removed above it")
+    }
+
     @Test func aReplacementThatChangesNothingHasNoPart() {
         let text = "one\ntwo\n"
         let same = DiffReviewContent.make(fullText: text, edits: [(range(text, of: "one"), "one")])

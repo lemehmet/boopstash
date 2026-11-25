@@ -459,7 +459,7 @@ final class BoopTextView: NSTextView {
         }
         guard let edits = ScriptEdits.replacements(fullText: fullText, selections: selections, response: response) else { return }
         if preview {
-            review(edits, of: fullText, named: script.name)
+            await review(edits, of: fullText, named: script.name).value
         } else {
             apply(edits, actionName: script.name)
         }
@@ -472,28 +472,57 @@ final class BoopTextView: NSTextView {
     /// until then, and stays untouched on Discard. When the edits change
     /// nothing there is nothing to review: no sheet, and the banner says
     /// so. `snapshot` is the text the edits were made for.
-    func review(_ edits: [(NSRange, String)], of snapshot: String, named name: String) {
+    ///
+    /// The diff is worked out off the main thread, as a long one takes a
+    /// moment. A sheet on its way out is waited for: the script picker
+    /// that started this is still closing when a fast result arrives.
+    /// The task ends when the sheet is up, or when it is known not to be.
+    @discardableResult
+    func review(_ edits: [(NSRange, String)], of snapshot: String, named name: String) -> Task<Void, Never> {
         guard string == snapshot else {
             showMessage?("\(name) finished after the note changed, so its result was not shown.")
-            return
+            return Task {}
         }
-        let content = DiffReviewContent.make(fullText: snapshot, edits: edits)
-        guard !content.isEmpty else {
-            showMessage?("\(name) would change nothing.")
-            return
-        }
-        // One review at a time, and never over another sheet.
-        guard pendingReview == nil, let window, window.attachedSheet == nil else {
+        // One review at a time.
+        guard pendingReview == nil, !reviewStarting else {
             NSSound.beep()
             showMessage?("\(name) could not show its changes while another sheet is open.")
-            return
+            return Task {}
         }
-        let sheet = DiffReviewPresenter.present(
-            title: name, content: content, over: window,
-            keep: { [weak self] in self?.keepPendingReview() },
-            discard: { [weak self] in self?.discardPendingReview() })
-        pendingReview = PendingReview(name: name, edits: edits, snapshot: snapshot, generation: documentGeneration,
-                                      content: content, sheet: sheet)
+        reviewStarting = true
+        let generation = documentGeneration
+        let wait = reviewSheetWait
+        return Task { [weak self] in
+            let content = await Task.detached(priority: .userInitiated) {
+                DiffReviewContent.make(fullText: snapshot, edits: edits)
+            }.value
+            guard let self else { return }
+            defer { self.reviewStarting = false }
+            guard !content.isEmpty else {
+                self.showMessage?("\(name) would change nothing.")
+                return
+            }
+            let deadline = ContinuousClock.now + wait
+            while self.window?.attachedSheet != nil, ContinuousClock.now < deadline {
+                try? await Task.sleep(for: .milliseconds(25))
+            }
+            guard self.documentGeneration == generation, self.string == snapshot else {
+                self.showMessage?("\(name) finished after the note changed, so its result was not shown.")
+                return
+            }
+            // Never over a sheet that is staying.
+            guard let window = self.window, window.attachedSheet == nil else {
+                NSSound.beep()
+                self.showMessage?("\(name) could not show its changes while another sheet is open.")
+                return
+            }
+            let sheet = DiffReviewPresenter.present(
+                title: name, content: content, over: window,
+                keep: { [weak self] in self?.keepPendingReview() },
+                discard: { [weak self] in self?.discardPendingReview() })
+            self.pendingReview = PendingReview(name: name, edits: edits, snapshot: snapshot, generation: generation,
+                                               content: content, sheet: sheet)
+        }
     }
 
     /// Keep: closes the review and applies its edits as one undoable edit
@@ -578,7 +607,7 @@ final class BoopTextView: NSTextView {
                 return
             }
             if preview {
-                self.review(edits, of: snapshot, named: command.name)
+                await self.review(edits, of: snapshot, named: command.name).value
             } else {
                 self.apply(edits, actionName: command.name)
             }
@@ -727,6 +756,11 @@ final class BoopTextView: NSTextView {
 
     /// The change being reviewed on a sheet, if any (#245).
     private(set) var pendingReview: PendingReview?
+    /// A review is on its way to its sheet.
+    private var reviewStarting = false
+    /// How long a review waits for a sheet that is closing before it
+    /// gives up: the picker's own sheet animates out. Tests shorten it.
+    var reviewSheetWait: Duration = .seconds(2)
 
     struct PendingReview {
         let name: String

@@ -87,10 +87,12 @@ public enum TextDiff {
     /// The hunks that turn `old` into `new`, each with up to `context`
     /// unchanged lines before and after; changes closer together than
     /// twice that share a hunk. Empty when the texts are equal.
-    /// `firstLine` is the number of the first line of both texts, for a
-    /// diff of part of a note.
-    public static func hunks(old: String, new: String, context: Int = 3, firstLine: Int = 1) -> [Hunk] {
-        let lines = self.lines(old: old, new: new, firstLine: firstLine)
+    /// `firstLine` is the number of the first line of the old text, for a
+    /// diff of part of a note, and `firstNewLine` that of the new text
+    /// when it differs: a part that follows one that added or removed
+    /// lines starts elsewhere afterwards.
+    public static func hunks(old: String, new: String, context: Int = 3, firstLine: Int = 1, firstNewLine: Int? = nil) -> [Hunk] {
+        let lines = self.lines(old: old, new: new, firstLine: firstLine, firstNewLine: firstNewLine)
         let context = max(0, context)
         var hunks: [Hunk] = []
         var start: Int?
@@ -123,7 +125,8 @@ public enum TextDiff {
 
     /// Every line of the change in order: unchanged lines once, a changed
     /// stretch as its removed lines followed by its added ones.
-    public static func lines(old: String, new: String, firstLine: Int = 1) -> [Line] {
+    public static func lines(old: String, new: String, firstLine: Int = 1, firstNewLine: Int? = nil) -> [Line] {
+        let firstNewLine = firstNewLine ?? firstLine
         let before = split(old)
         let after = split(new)
         var ids: [Entry: Int] = [:]
@@ -145,7 +148,7 @@ public enum TextDiff {
             }
             var addedLines = added.map { index in
                 Line(kind: .added, text: after[index].text, ending: after[index].ending,
-                     oldNumber: nil, newNumber: firstLine + index)
+                     oldNumber: nil, newNumber: firstNewLine + index)
             }
             // A changed stretch pairs its lines in order: the first removed
             // with the first added, and so on. The pair shows which words
@@ -169,7 +172,7 @@ public enum TextDiff {
             case .keep(let oldIndex, let newIndex):
                 flush()
                 lines.append(Line(kind: .unchanged, text: before[oldIndex].text, ending: before[oldIndex].ending,
-                                  oldNumber: firstLine + oldIndex, newNumber: firstLine + newIndex))
+                                  oldNumber: firstLine + oldIndex, newNumber: firstNewLine + newIndex))
             case .remove(let index): removed.append(index)
             case .add(let index): added.append(index)
             }
@@ -180,9 +183,23 @@ public enum TextDiff {
 
     // MARK: - Lines
 
+    /// A line and its ending. Two lines are the same line only when their
+    /// text is the same code units: Swift's own string equality takes
+    /// "é" as one scalar and as "e" with a combining accent for equal,
+    /// and a change between the two is a change the review must show.
     struct Entry: Hashable {
         var text: String
         var ending: Ending
+
+        static func == (a: Entry, b: Entry) -> Bool {
+            a.ending == b.ending && a.text.utf8.elementsEqual(b.text.utf8)
+        }
+
+        func hash(into hasher: inout Hasher) {
+            hasher.combine(ending)
+            hasher.combine(text.utf8.count)
+            for unit in text.utf8 { hasher.combine(unit) }
+        }
     }
 
     /// The text's lines with their endings. A text ending in a newline
@@ -233,9 +250,14 @@ public enum TextDiff {
     /// of its two lengths; a larger one is taken as replaced.
     static let exactLimit = 1_000_000
 
+    /// The same for the words of one pair of lines. Far smaller: a review
+    /// has as many pairs as it has changed lines, and a line too long to
+    /// match word by word within this is shown as changed whole.
+    static let wordExactLimit = 20_000
+
     /// How to turn `old` into `new`: what stays, what goes, what comes,
     /// in order, removals before additions within a change.
-    static func steps(_ old: [Int], _ new: [Int]) -> [Step] {
+    static func steps(_ old: [Int], _ new: [Int], exactLimit: Int = TextDiff.exactLimit) -> [Step] {
         var steps: [Step] = []
         steps.reserveCapacity(max(old.count, new.count))
         // Stretches still to match, last in first out, so the steps come
@@ -265,7 +287,7 @@ public enum TextDiff {
                 }
                 let anchors = self.anchors(old, a, new, b)
                 if anchors.isEmpty {
-                    for step in exact(old, a, new, b).reversed() { pending.append(.emit(step)) }
+                    for step in exact(old, a, new, b, limit: exactLimit).reversed() { pending.append(.emit(step)) }
                     continue
                 }
                 var upperA = a.upperBound
@@ -326,9 +348,9 @@ public enum TextDiff {
 
     /// A stretch without anchors, matched by its longest common
     /// subsequence when small enough, otherwise taken as replaced.
-    private static func exact(_ old: [Int], _ a: Range<Int>, _ new: [Int], _ b: Range<Int>) -> [Step] {
+    private static func exact(_ old: [Int], _ a: Range<Int>, _ new: [Int], _ b: Range<Int>, limit: Int) -> [Step] {
         let (n, m) = (a.count, b.count)
-        guard n * m <= exactLimit else {
+        guard n * m <= limit else {
             return a.map { Step.remove($0) } + b.map { Step.add($0) }
         }
         // lengths[i][j]: the longest common subsequence of the stretches
@@ -396,13 +418,15 @@ public enum TextDiff {
         let before = tokens(old)
         let after = tokens(new)
         guard !before.isEmpty, !after.isEmpty else { return ([], []) }
-        var ids: [Substring: Int] = [:]
+        // By code units, as lines are: see `Entry`.
+        var ids: [[UInt8]: Int] = [:]
         func id(_ token: Token) -> Int {
-            if let known = ids[token.text] { return known }
-            ids[token.text] = ids.count
+            let key = Array(token.text.utf8)
+            if let known = ids[key] { return known }
+            ids[key] = ids.count
             return ids.count - 1
         }
-        let steps = self.steps(before.map(id), after.map(id))
+        let steps = self.steps(before.map(id), after.map(id), exactLimit: wordExactLimit)
         var kept = 0
         var removed: [NSRange] = []
         var added: [NSRange] = []

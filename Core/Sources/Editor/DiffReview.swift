@@ -31,22 +31,33 @@ public struct DiffReviewContent: Sendable, Hashable {
     }
 
     /// The review of replacing each range of `fullText` with its text, in
-    /// the order of the ranges. A replacement that leaves its range as it
-    /// was has no part. Ranges are in UTF-16 units, as the editor has
-    /// them; one outside the text is skipped.
+    /// the order of the ranges. A replacement equal to what it replaces
+    /// has no part: the editor does not apply one either. Old-side line
+    /// numbers are the note's as it is; new-side numbers are the note's
+    /// as it would be, so a part after one that added or removed lines is
+    /// numbered where it would then sit. Ranges are in UTF-16 units, as
+    /// the editor has them; one outside the text is skipped.
     public static func make(fullText: String, edits: [(NSRange, String)], context: Int = 3) -> DiffReviewContent {
         let ns = fullText as NSString
         var parts: [Part] = []
+        // Lines the edits before this one add (or, negative, remove).
+        var shift = 0
         for (range, replacement) in edits.sorted(by: { $0.0.location < $1.0.location }) {
             guard range.location >= 0, NSMaxRange(range) <= ns.length else { continue }
             let old = ns.substring(with: range)
             guard old != replacement else { continue }
             let firstLine = lineNumber(of: range.location, in: ns)
-            let hunks = TextDiff.hunks(old: old, new: replacement, context: context, firstLine: firstLine)
+            let hunks = TextDiff.hunks(old: old, new: replacement, context: context,
+                                       firstLine: firstLine, firstNewLine: firstLine + shift)
+            shift += lineFeeds(in: replacement) - lineFeeds(in: old)
             guard !hunks.isEmpty else { continue }
             parts.append(Part(id: parts.count, firstLine: firstLine, hunks: hunks))
         }
         return DiffReviewContent(parts: parts)
+    }
+
+    static func lineFeeds(in text: String) -> Int {
+        text.utf8.count(where: { $0 == UInt8(ascii: "\n") })
     }
 
     /// The 1-based line a UTF-16 location is in, counting line feeds.
