@@ -26,6 +26,42 @@ struct ImageTextTests {
         #expect(await LiveTextRecognizer.text(in: Data([1, 2, 3])) == nil, "not an image")
     }
 
+    /// A PNG of a table, one string per cell, drawn here: synthetic.
+    static func picture(ofGrid rows: [[String]]) -> Data {
+        let size = NSSize(width: 1500, height: CGFloat(rows.count) * 140 + 60)
+        let image = NSImage(size: size)
+        image.lockFocus()
+        NSColor.white.setFill()
+        NSRect(origin: .zero, size: size).fill()
+        for (row, cells) in rows.enumerated() {
+            for (column, cell) in cells.enumerated() {
+                // The first row at the top: AppKit's y runs upwards.
+                let point = NSPoint(x: 40 + CGFloat(column) * 480, y: size.height - CGFloat(row + 1) * 140)
+                (cell as NSString).draw(at: point, withAttributes: [.font: NSFont.systemFont(ofSize: 56, weight: .semibold), .foregroundColor: NSColor.black])
+            }
+        }
+        image.unlockFocus()
+        return NSBitmapImageRep(data: image.tiffRepresentation!)!.representation(using: .png, properties: [:])!
+    }
+
+    /// Vision's boxes end to end (#243): the first row drawn is the first
+    /// line read, and cells on a row are a tab apart, left to right.
+    @Test func aTableIsReadRowByRow() async throws {
+        let text = try #require(await LiveTextRecognizer.text(in: Self.picture(ofGrid: [["ALPHA", "1001", "BRAVO"], ["DELTA", "2002", "HOTEL"]])))
+        // The layout exactly; the letters only where a misreading is
+        // unlikely, as above.
+        let rows = text.split(separator: "\n").map { $0.split(separator: "\t").map(String.init) }
+        #expect(rows.map(\.count) == [3, 3], "read \(text.debugDescription)")
+        #expect(rows.first?.dropFirst().first?.contains("1001") == true, "read \(text.debugDescription)")
+        #expect(rows.last?.dropFirst().first?.contains("2002") == true, "read \(text.debugDescription)")
+    }
+
+    @Test func aPicturesSizeIsReadFromItsData() {
+        let size = LiveTextRecognizer.pixelSize(of: Self.picture(of: "size"))
+        #expect(size.map { $0.width > $0.height } == true)
+        #expect(LiveTextRecognizer.pixelSize(of: Data([1, 2, 3])) == nil)
+    }
+
     /// A request that arrives while the worker is busy is not lost.
     /// An image added after the worker's last look, while it finishes, is
     /// read by the rerun the request sets up (#91). Without the rerun it

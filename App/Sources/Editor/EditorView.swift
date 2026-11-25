@@ -20,6 +20,8 @@ struct EditorView: NSViewRepresentable {
     var jsFormat: (@Sendable (JSFormatRequest) async -> Result<String, FormatError>)?
     /// An attachment's file for its chip, nil when missing.
     var attachmentURL: ((UUID) -> URL?)?
+    /// An image's text, read on demand (#243).
+    var imageText: (@MainActor (UUID) async -> ImageTextRead)?
     /// Stores a pasted or dropped image for this note; returns its markdown.
     var storeImage: (Data, UTType) -> String? = { _, _ in nil }
     /// Called when this editor gains or loses focus, goes away, or its
@@ -44,6 +46,8 @@ struct EditorView: NSViewRepresentable {
         view.showMessage = showMessage
         if view.attachmentURL == nil { view.attachmentURL = attachmentURL }
         view.storeImage = storeImage
+        view.imageText = imageText
+        view.onImageSelectionChange = onFocusChange
         view.jsFormat = jsFormat
         view.onFocusChange = { _ in onFocusChange() }
         view.syntax.onLanguageChange = { [weak view] in

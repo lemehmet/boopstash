@@ -175,3 +175,26 @@ struct ImageSources: MarkupWalker {
     mutating func visitHTMLBlock(_ html: HTMLBlock) { hasText = true }
     mutating func visitInlineHTML(_ html: InlineHTML) { hasText = true }
 }
+
+/// What a command that copies an image's text found (#243).
+public enum ImageTextRead: Equatable, Sendable {
+    case text(String)
+    /// The image was read and holds no text.
+    case noText
+    /// The image, or its file, is not here.
+    case missing
+
+    /// Text that is empty or only whitespace is no text: nothing to copy.
+    public init(_ recognized: String) {
+        self = recognized.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .noText : .text(recognized)
+    }
+
+    /// What to tell the user when there is nothing to copy; nil for text.
+    public var message: String? {
+        switch self {
+        case .text: nil
+        case .noText: "This image has no text."
+        case .missing: "The image's file is missing, so its text cannot be read."
+        }
+    }
+}
