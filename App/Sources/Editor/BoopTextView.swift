@@ -296,6 +296,9 @@ final class BoopTextView: NSTextView {
         if item.action == #selector(formatJSONSortingKeys(_:)) {
             return isEditable && DocumentFormatter.canFormat(syntax.currentLanguage, style: .sortedKeys)
         }
+        if item.action == #selector(cleanUpPastedText(_:)) {
+            return isEditable
+        }
         if item.action == #selector(copyTextFromImage(_:)) {
             return imageText != nil && selectedImage != nil
         }
@@ -418,6 +421,11 @@ final class BoopTextView: NSTextView {
     /// banner. If the note changed while the script ran, the result is
     /// dropped rather than written over the newer text.
     func run(_ script: BoopScript, with runner: LiveScriptRunner) async {
+        // A built-in command (#244) is Swift in Core, not a script.
+        if let command = script.builtIn {
+            await run(command).value
+            return
+        }
         let fullText = string
         let selections = selectedRanges.map(\.rangeValue)
         let request = ScriptRequest(scriptName: script.name, source: script.source,
@@ -448,6 +456,53 @@ final class BoopTextView: NSTextView {
         }
         guard let edits = ScriptEdits.replacements(fullText: fullText, selections: selections, response: response) else { return }
         apply(edits, actionName: script.name)
+    }
+
+    /// Edit ▸ Clean Up Pasted Text (#244), also in the script picker.
+    @objc func cleanUpPastedText(_ sender: Any?) {
+        run(.cleanUpPastedText)
+    }
+
+    /// Runs a built-in command on each selected range, or on the whole
+    /// note, the way a script runs: one undoable edit named after the
+    /// command. The work is done off the main thread, as formatting is,
+    /// and applied only if the note and selection are as they were. When
+    /// nothing would change, nothing is applied (the undo stack stays as
+    /// it is) and the banner says so.
+    @discardableResult
+    func run(_ command: BuiltInCommand) -> Task<Void, Never> {
+        guard isEditable else {
+            NSSound.beep()
+            return Task {}
+        }
+        let snapshot = string
+        let selections = selectedRanges.map(\.rangeValue)
+        let generation = documentGeneration
+        return Task { [weak self] in
+            let edits = await Task.detached(priority: .userInitiated) { () -> [(NSRange, String)]? in
+                let outputs = switch command {
+                case .cleanUpPastedText: PastedTextCleanup.outputs(fullText: snapshot, selections: selections)
+                }
+                return ScriptEdits.replacements(fullText: snapshot, selections: selections, response: ScriptResponse(outputs: outputs))
+            }.value
+            guard let self, let edits else { return }
+            guard self.window != nil, self.documentGeneration == generation, self.string == snapshot,
+                  self.selectedRanges.map(\.rangeValue) == selections else {
+                Log.editor.notice("\(command.rawValue, privacy: .public) dropped: the note changed meanwhile")
+                self.showMessage?("The note changed while \(command.name) ran, so it was left as it is.")
+                return
+            }
+            let ns = snapshot as NSString
+            let changed = edits.contains { ns.substring(with: $0.0) != $0.1 }
+            Log.editor.info("\(command.rawValue, privacy: .public): \(edits.count) ranges, \(changed ? "changed" : "unchanged", privacy: .public)")
+            guard changed else {
+                switch command {
+                case .cleanUpPastedText: self.showMessage?("Nothing to clean up.")
+                }
+                return
+            }
+            self.apply(edits, actionName: command.name)
+        }
     }
 
     /// Replaces each range with its text as one undoable edit, then selects

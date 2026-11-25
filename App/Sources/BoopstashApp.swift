@@ -100,6 +100,12 @@ struct BoopstashApp: App {
                     NSApp.sendAction(#selector(BoopTextView.formatJSONSortingKeys(_:)), to: nil, from: nil)
                 }
                 .disabled(!(delegate.model?.canSortJSONKeys ?? false))
+                // Tables to Markdown and terminal leftovers removed (#244);
+                // also in the script picker.
+                Button(BuiltInCommand.cleanUpPastedText.name) {
+                    NSApp.sendAction(#selector(BoopTextView.cleanUpPastedText(_:)), to: nil, from: nil)
+                }
+                .disabled(!(delegate.model?.editorHasFocus ?? false))
                 Divider()
                 // Folding (#155); shortcuts from the key-binding preset
                 // (⌥⌘[ and ⌥⌘] in VS Code, ⌘- and ⌘= in JetBrains).

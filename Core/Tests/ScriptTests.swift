@@ -57,6 +57,28 @@ import Testing
         #expect(merged.last?.description == "my way" && merged.last?.isBundled == false)
     }
 
+    @Test func theCatalogStartsWithTheBuiltInCommands() {
+        let all = ScriptCatalog.all(bundled: [script("Base64 Encode")], user: [])
+        #expect(all.map(\.name) == ["Clean Up Pasted Text", "Base64 Encode"])
+        #expect(all[0].builtIn == .cleanUpPastedText && all[0].isBundled && all[0].source.isEmpty)
+        #expect(all[1].builtIn == nil)
+        #expect(ScriptCatalog.all(bundled: [], user: []).map(\.builtIn) == [.cleanUpPastedText], "with no scripts at all")
+    }
+
+    @Test func aUserScriptReplacesTheBuiltInCommandOfTheSameName() {
+        var mine = script("Clean Up Pasted Text", description: "my way")
+        mine.isBundled = false
+        let all = ScriptCatalog.all(bundled: [], user: [mine])
+        #expect(all.count == 1 && all[0].builtIn == nil && all[0].description == "my way")
+    }
+
+    @Test func theBuiltInCommandIsFoundByWhatItDoes() {
+        let all = ScriptCatalog.all(bundled: [script("Base64 Encode")], user: [])
+        for query in ["clean", "pasted", "table", "ansi"] {
+            #expect(ScriptSearch.rank(all, for: query).first?.builtIn == .cleanUpPastedText, "\(query)")
+        }
+    }
+
     // MARK: Search
 
     @Test func nameMatchesBeatTagsBeatDescriptions() {
