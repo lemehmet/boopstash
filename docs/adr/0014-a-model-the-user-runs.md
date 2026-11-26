@@ -217,8 +217,8 @@ two. None widens what may be sent.
   *Refined 2026-11-25 (#281): the tags count only outside the reply's
   code blocks. A script that mentions them, as one asked to strip them
   does, is the script's text and is left whole. A closing tag alone
-  that comes after the reply's last code block is what is said about
-  the script, not the end of reasoning, and takes nothing with it.*
+  that comes after a code block takes nothing with it: the block may be
+  the script, named in what is said after it.*
 - **Nothing of the endpoint is in a problem report or a log.** Report a
   Problem collects a fixed list of facts that the endpoint is not on: not
   its address, model, key or extra request fields. Neither the app nor

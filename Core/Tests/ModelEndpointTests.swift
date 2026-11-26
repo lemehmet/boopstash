@@ -435,6 +435,11 @@ struct ModelEndpointTests {
         // What is said after the script may name the closing tag: the script is not reasoning for that.
         #expect(outcome("\(fenced)\nThis keeps what follows `</think>`.") == .success(script))
         #expect(outcome("\(fenced)\nThis keeps what follows `</think>`, and", finish: "length") == .success(script))
+        #expect(outcome("\(fenced)\nIt keeps what follows `</think>`. For example:\n```\nx</think>b\n```") == .success(script),
+                "an example block after the sentence changes nothing")
+        // A fence may be indented with any space, as the block reader takes it.
+        #expect(outcome("\u{00A0}```js\n\(script)\n\u{00A0}```") == .success(script))
+        #expect(outcome("Here:\n\u{3000}\t```js\n\(script)\n\u{2003}```\nDone.") == .success(script))
         // Reasoning ahead of it is still dropped, in both spellings.
         #expect(ModelChat.reply(in: completion(content: "<think>They want the tags gone.</think>\n\(fenced)")) == .content(fenced, limited: false))
         #expect(ModelChat.reply(in: completion(content: "They want the tags gone.</think>\n\(fenced)")) == .content(fenced, limited: false))
@@ -443,7 +448,8 @@ struct ModelEndpointTests {
         // Reasoning that drafts a block of its own goes with its block.
         let draft = "```js\nfunction main(state) { state.text = \"draft\"; }\n```"
         #expect(ModelChat.reply(in: completion(content: "<think>Maybe:\n\(draft)\nNo.</think>\n\(fenced)")) == .content(fenced, limited: false))
-        #expect(ModelChat.reply(in: completion(content: "Maybe:\n\(draft)\nNo.</think>\n\(fenced)")) == .content(fenced, limited: false))
+        // After a closing tag alone the draft stays (it may have been the script), and the last block is the answer.
+        #expect(outcome("Maybe:\n\(draft)\nNo.</think>\n\(fenced)") == .success(script))
         // At the token limit a block that was closed is a script, whatever it mentions,
         #expect(outcome(fenced, finish: "length") == .success(script))
         #expect(ModelChat.reply(in: completion(content: "\(fenced)\n<think>and now", finish: "length")) == .content(fenced, limited: true))
@@ -455,11 +461,11 @@ struct ModelEndpointTests {
 
     @Test func reasoningIsDroppedOnlyOutsideCodeBlocks() {
         #expect(ModelChat.withoutThinking("<think>a</think>\n```\n</think>\n```\n<think>b</think>after") == "```\n</think>\n```\nafter")
-        #expect(ModelChat.withoutThinking("a\n```\nx\n```\nb</think>\n```\nmain\n```") == "```\nmain\n```",
-                "a closing tag alone still ends the reasoning when the answer's block follows it")
-        #expect(ModelChat.withoutThinking("a\n```\nx\n```\nb</think>```\nmain\n```") == "```\nmain\n```", "right after it, too")
-        let last = "a\n```\n<think>x</think>\n```\nb</think>c</think>d"
-        #expect(ModelChat.withoutThinking(last) == last, "after the reply's last block, a closing tag alone is prose")
+        let after = "a\n```\n<think>x</think>\n```\nb</think>c</think>d"
+        #expect(ModelChat.withoutThinking(after) == after, "after a block, a closing tag alone takes nothing")
+        let between = "a\n```\nx\n```\nb</think>\n```\nmain\n```"
+        #expect(ModelChat.withoutThinking(between) == between, "nor between two blocks")
+        #expect(ModelChat.withoutThinking("a ``` b</think>\n```\nmain\n```") == "```\nmain\n```", "with no block before it, it ends the reasoning")
         #expect(ModelChat.withoutThinking("  ```js\n<think>\n  ```\ntext") == "```js\n<think>\n  ```\ntext", "an indented fence is a fence")
         #expect(ModelChat.withoutThinking("say ``` then </think>answer") == "answer", "backticks inside a line open no block")
         #expect(ModelChat.withoutThinking("```\r\n</think>\r\n```\r\nafter") == "```\r\n</think>\r\n```\r\nafter", "Windows line endings")
@@ -469,6 +475,9 @@ struct ModelEndpointTests {
         let named = "This removes <think> spans:\n```js\nfunction main(state) { state.text = state.text.split(\"</think>\").pop(); }\n```"
         #expect(ModelChat.withoutThinking(named) == named)
         #expect(ModelScriptReply.extract(ModelChat.withoutThinking(named)) == "function main(state) { state.text = state.text.split(\"</think>\").pop(); }")
+        // A known limit: prose that names the opening tag before the block and the closing tag after it
+        // reads as reasoning that drafted a block, and the block goes with it.
+        #expect(ModelChat.withoutThinking(named + "\nIt keeps what follows `</think>`.") == "This removes `.")
         // An opening tag that never closes is left, and a block after it is not looked into.
         #expect(ModelChat.withoutThinking("<think>open\n```\n</think") == "<think>open\n```\n</think")
         // Reasoning cut off at the token limit after it drafted a block is cut off: the draft is no answer.

@@ -201,15 +201,21 @@ public enum ModelChat {
     /// with everything up to the next `</think>` that is outside a block
     /// too (reasoning that drafts a block takes the block with it), and
     /// a `</think>` with no opening tag takes everything before it,
-    /// unless that would take the reply's last block: with a block
-    /// before it and none after, it is prose about the script ("this
-    /// keeps what follows `</think>`") and is left where it stands.
+    /// unless a block stands before it: then it takes nothing. It may
+    /// be prose about the script ("this keeps what follows `</think>`")
+    /// or the end of reasoning that drafted a block, and keeping the
+    /// block is right for both, as the script is the last block that
+    /// defines `main` (`ModelScriptReply.extract`).
     ///
-    /// Reasoning that opens a block and never ends it cannot be told
-    /// from a script that mentions the tags, and is read as the script.
-    /// Nor can reasoning that drafts a block, ends with a closing tag
-    /// alone and is followed by an answer with no block: the draft is
-    /// kept with it. The model is asked to answer in a block.
+    /// Three shapes cannot be told from what they look like, and the
+    /// model is asked to answer in one block, which avoids all three:
+    /// - reasoning that opens a block and never ends it is read as a
+    ///   script that mentions the tags;
+    /// - reasoning that drafts a block, ends with a closing tag alone
+    ///   and is followed by an answer with no block keeps the draft;
+    /// - prose that names `<think>` before the script's block and
+    ///   `</think>` after it is read as reasoning that drafted a block,
+    ///   and the script goes with it.
     static func answer(in reply: String) -> (text: String, openReasoning: String.Index?) {
         var kept = Kept()
         var rest = reply[...]
@@ -250,16 +256,16 @@ public enum ModelChat {
                 kept.append(rest[..<open.lowerBound])
                 rest = rest[end.upperBound...]
             } else if let close {
-                let after = rest[close.upperBound...]
-                if kept.hasBlock, FenceSearch.leading(in: after) == nil, fences.next(in: after, atLineStart: false) == nil {
-                    // The reply's last block stands before it: the tag is
-                    // named in what is said about the script.
+                if kept.hasBlock {
+                    // A block stands before it: the block stays, whether
+                    // the tag is named in what is said about the script
+                    // or ends reasoning that drafted it.
                     kept.append(rest[..<close.upperBound])
                 } else {
                     // A closing tag alone: all before it was reasoning.
                     kept = Kept()
                 }
-                rest = after
+                rest = rest[close.upperBound...]
             }
         }
         return (kept.text + rest, nil)
@@ -277,12 +283,12 @@ public enum ModelChat {
 
         mutating func append(_ piece: Substring) {
             text += piece
-            for byte in piece.utf8.reversed() {
-                if byte == 0x0A || byte == 0x0D {
+            for scalar in piece.unicodeScalars.reversed() {
+                if FenceSearch.isLineBreak(scalar) {
                     atLineStart = true
                     return
                 }
-                if byte != 0x20 && byte != 0x09 {
+                if !FenceSearch.isBlank(scalar) {
                     atLineStart = false
                     return
                 }
@@ -331,34 +337,45 @@ public enum ModelChat {
 
         /// ``` at the start of `text`, after blanks at most.
         static func leading(in text: Substring) -> Range<String.Index>? {
-            let bytes = text.utf8
-            var index = bytes.startIndex
-            while index < bytes.endIndex, bytes[index] == 0x20 || bytes[index] == 0x09 { index = bytes.index(after: index) }
-            guard bytes[index...].starts(with: marker) else { return nil }
-            return index..<bytes.index(index, offsetBy: 3)
+            let scalars = text.unicodeScalars
+            var index = scalars.startIndex
+            while index < scalars.endIndex, isBlank(scalars[index]) { index = scalars.index(after: index) }
+            guard scalars[index...].starts(with: marker) else { return nil }
+            return index..<scalars.index(index, offsetBy: 3)
         }
 
         /// The first ``` in `text` that follows a line break and blanks
         /// at most. A carriage return counts, alone or before a line feed.
         static func afterLineBreak(in text: Substring) -> Range<String.Index>? {
-            let bytes = text.utf8
-            var index = bytes.startIndex
+            let scalars = text.unicodeScalars
+            var index = scalars.startIndex
             var lineStart = false
-            while index < bytes.endIndex {
-                let byte = bytes[index]
-                if byte == 0x0A || byte == 0x0D {
+            while index < scalars.endIndex {
+                let scalar = scalars[index]
+                if isLineBreak(scalar) {
                     lineStart = true
-                } else if lineStart, byte == 0x60, bytes[index...].starts(with: marker) {
-                    return index..<bytes.index(index, offsetBy: 3)
-                } else if byte != 0x20 && byte != 0x09 {
+                } else if lineStart, scalar == "`", scalars[index...].starts(with: marker) {
+                    return index..<scalars.index(index, offsetBy: 3)
+                } else if !isBlank(scalar) {
                     lineStart = false
                 }
-                index = bytes.index(after: index)
+                index = scalars.index(after: index)
             }
             return nil
         }
 
-        private static let marker: [UInt8] = [0x60, 0x60, 0x60]
+        static func isLineBreak(_ scalar: Unicode.Scalar) -> Bool {
+            scalar == "\n" || scalar == "\r"
+        }
+
+        /// What may stand before ``` on its line: what
+        /// `ModelScriptReply.fencedBlocks` trims from a line, a tab or
+        /// any space there is, a no-break space included.
+        static func isBlank(_ scalar: Unicode.Scalar) -> Bool {
+            scalar == " " || scalar == "\t" || (scalar.value >= 0x80 && scalar.properties.generalCategory == .spaceSeparator)
+        }
+
+        private static let marker: [Unicode.Scalar] = ["`", "`", "`"]
     }
 
     /// The message of an error body, in the shapes servers use:
