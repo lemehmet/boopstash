@@ -149,12 +149,30 @@ public enum ScriptGeneration {
     /// An empty instruction is not sent, nor is a request whose examples
     /// leave no room for any of the text. A cancelled task answers
     /// `.cancelled` whatever the generator returned, and a blank script is
-    /// `.noScript`.
+    /// `.noScript`. A task cancelled while the sample is taken, which for
+    /// a long text takes a moment, never reaches the generator (#277).
     public static func run(_ generator: any ScriptGenerator, instruction: String, target: String,
                            examples: [ScriptExample] = [], allowance: ScriptSampleAllowance = .standard)
         async -> Result<String, ScriptGenerationFailure> {
-        let sample = allowance.sample(of: target, instruction: instruction, examples: examples)
-        return await run(generator, instruction: instruction, sample: sample, examples: examples)
+        await run(generator, instruction: instruction, examples: examples) {
+            allowance.sample(of: target, instruction: instruction, examples: examples)
+        }
+    }
+
+    /// Takes the sample with `sampling`, then asks `generator`, unless the
+    /// task was cancelled meanwhile: a request the user cancelled is not
+    /// made at all, as what leaves the app is what ADR 0014 has to be
+    /// exact about. The check is here, next to the sampling it follows,
+    /// so it does not rest on the order of the checks further on.
+    static func run(_ generator: any ScriptGenerator, instruction: String, examples: [ScriptExample] = [],
+                    destination: ScriptGeneratorDestination? = nil, sampling: () -> ScriptSample)
+        async -> Result<String, ScriptGenerationFailure> {
+        let sample = sampling()
+        // An empty instruction is said first, cancelled or not.
+        guard !Task.isCancelled || instruction.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return .failure(.cancelled)
+        }
+        return await run(generator, instruction: instruction, sample: sample, examples: examples, destination: destination)
     }
 
     /// Asks `generator` for a script with exactly this sample and these

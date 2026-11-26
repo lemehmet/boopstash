@@ -303,6 +303,41 @@ import Testing
         #expect(await task.value == .failure(.cancelled))
     }
 
+    /// #277: the user presses Cancel, or closes the workbench, while a
+    /// long text is being sampled. The request is not made.
+    @Test func aTaskCancelledWhileTheSampleIsTakenNeverReachesTheGenerator() async {
+        let generator = FakeGenerator()
+        let target = (1...500).map { "ticket \($0)" }.joined(separator: "\n")
+        let task = Task {
+            await ScriptGeneration.run(generator, instruction: "make links") {
+                let sample = ScriptSampling.sample(of: target)
+                // Cancelled after the sample is taken and before the generator is called.
+                withUnsafeCurrentTask { $0?.cancel() }
+                return sample
+            }
+        }
+        #expect(await task.value == .failure(.cancelled))
+        #expect(await generator.requests.isEmpty, "a cancelled request is not sent at all")
+    }
+
+    @Test func aTaskCancelledBeforeItStartsOnALongTextNeverReachesTheGenerator() async {
+        let generator = FakeGenerator()
+        let target = String(repeating: "0123456789\n", count: 20_000)
+        let task = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return await ScriptGeneration.run(generator, instruction: "make links", target: target)
+        }
+        #expect(await task.value == .failure(.cancelled))
+        #expect(await generator.requests.isEmpty)
+        // An empty instruction is still what is said first: nothing was asked for.
+        let empty = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return await ScriptGeneration.run(generator, instruction: " ", target: target)
+        }
+        #expect(await empty.value == .failure(.failed("Say what the script should do.")))
+        #expect(await generator.requests.isEmpty)
+    }
+
     @Test func theSheetOffersGenerateOnlyForAnAvailableGenerator() async {
         let here = ScriptGeneratorDestination(summary: "the model on this Mac")
         #expect(ScriptGeneration.destination(nil) == nil, "no generator: no prompt field, no Generate")
