@@ -115,6 +115,12 @@ breaking changes may land in a minor release.
 
 ### Fixed
 
+- **Mac: Clean Up Pasted Text converts a table that has a line with a
+  pipe straight above or below it (#258).** A line such as
+  ``Output of `ls | wc`:`` right above a table drawn with `+---+` and
+  `|`, or with box-drawing characters, read as one of its rows, and the
+  table was left as it was. The table is now converted and the line
+  stays as it is.
 - **Mac: Clean Up Pasted Text no longer takes a code fence's opening
   line for a table row (#260).** An opening line with a pipe after the
   backticks or tildes, straight under a row and a rule, was rewritten as

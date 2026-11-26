@@ -292,10 +292,13 @@ public enum PastedTextCleanup {
                 end += 1
             }
             let block = Array(all[index..<end])
-            if let rows = markdownTable(block, box: first.isBox) {
+            if let (table, rows) = Self.table(in: block, box: first.isBox) {
+                // The lines of the block outside its table stay as they are.
+                result.append(contentsOf: block[..<table.lowerBound])
                 for (offset, row) in rows.enumerated() {
-                    result.append(Line(content: row, terminator: offset == rows.count - 1 ? block[block.count - 1].terminator : block[0].terminator))
+                    result.append(Line(content: row, terminator: block[offset == rows.count - 1 ? table.upperBound - 1 : table.lowerBound].terminator))
                 }
+                result.append(contentsOf: block[table.upperBound...])
             } else {
                 result.append(contentsOf: block)
             }
@@ -304,9 +307,37 @@ public enum PastedTextCleanup {
         return joined(result)
     }
 
+    /// A row with a separator at both ends: `| a | b |`, `│ a │ b │`.
+    static func isClosed(_ row: String, by separators: Set<Character>) -> Bool {
+        row.count >= 2 && separators.contains(row.first!) && separators.contains(row.last!)
+    }
+
+    /// The lines of a block that are a table, with their Markdown rows:
+    /// the whole block, or, when that is not a table, what stands from
+    /// its first border to its last. A line with a pipe straight above or
+    /// below a table (``Output of `ls | wc`:``) reads as a row and joins
+    /// the block; it is no reason to leave the table. The part is taken
+    /// only with evidence that the lines outside it are not the table's
+    /// own: its rows are closed at both ends and those lines are not (a
+    /// table with open rows has its header above its first border, and a
+    /// closed row under the last border is a row).
+    static func table(in block: [Line], box: Bool) -> (lines: Range<Int>, rows: [String])? {
+        if let rows = markdownTable(block, box: box) { return (block.indices, rows) }
+        let kinds = block.map { kind(of: $0.content) }
+        guard let first = kinds.firstIndex(where: \.isBorder), let last = kinds.lastIndex(where: \.isBorder), first < last else { return nil }
+        let inside = first..<(last + 1)
+        let separators: Set<Character> = box ? boxVerticals : ["|"]
+        let outside = block.indices.filter { !inside.contains($0) }
+        guard !outside.isEmpty, outside.allSatisfy({ index in
+            kinds[index] != .markdownRule && !isClosed(block[index].content.trimmingCharacters(in: .whitespaces), by: separators)
+        }) else { return nil }
+        return markdownTable(Array(block[inside]), box: box, framed: true).map { (inside, $0) }
+    }
+
     /// The Markdown rows for a block of border and row lines, or nil when
-    /// the block is not convincingly a table.
-    static func markdownTable(_ block: [Line], box: Bool) -> [String]? {
+    /// the block is not convincingly a table. `framed` asks for rows
+    /// closed at both ends.
+    static func markdownTable(_ block: [Line], box: Bool, framed: Bool = false) -> [String]? {
         let kinds = block.map { kind(of: $0.content) }
         guard !kinds.contains(.markdownRule), kinds.contains(where: \.isBorder) else { return nil }
         let separators: Set<Character> = box ? boxVerticals : ["|"]
@@ -314,9 +345,7 @@ public enum PastedTextCleanup {
         let borderTexts = zip(block, kinds).compactMap { $1.isBorder ? $0.content.trimmingCharacters(in: .whitespaces) : nil }
         // Rows closed at both ends lose the empty pieces outside the outer
         // separators; psql's open rows keep every piece.
-        let closed = rowTexts.compactMap { $0 }.allSatisfy { row in
-            row.count >= 2 && separators.contains(row.first!) && separators.contains(row.last!)
-        }
+        let closed = rowTexts.compactMap { $0 }.allSatisfy { isClosed($0, by: separators) }
         func cells(_ row: String) -> [String] {
             var pieces = row.split(omittingEmptySubsequences: false, whereSeparator: { separators.contains($0) })
             if closed { pieces = Array(pieces.dropFirst().dropLast()) }
@@ -330,7 +359,7 @@ public enum PastedTextCleanup {
         // the borders' junctions: a commit graph's `│ ○ abc` over `├─╯`.
         func isJoint(_ character: Character) -> Bool { box ? !boxHorizontals.contains(character) : character == "+" }
         let openBorders = borderTexts.allSatisfy { !isJoint($0.first!) && !isJoint($0.last!) }
-        guard closed || openBorders else { return nil }
+        guard closed || (openBorders && !framed) else { return nil }
         let columns = rowTexts.compactMap { $0 }.first?.count(where: { separators.contains($0) })
         guard borderTexts.allSatisfy({ $0.count(where: isJoint) == columns }) else { return nil }
         // An open row that starts with `- ` or `+ ` is a line of a diff of

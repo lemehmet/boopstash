@@ -406,6 +406,51 @@ import Testing
         #expect(clean(text) == text)
     }
 
+    // MARK: A line with a pipe next to a table (#258)
+
+    @Test func aLineWithAPipeAboveOrBelowAClosedTableStaysOutOfIt() {
+        let above = "Output of `ls | wc`:\n"
+        let below = "Counted with `sort | uniq -c`.\n"
+        #expect(clean(above + Self.ruledTable + "\n") == above + Self.ruledTableInMarkdown + "\n")
+        #expect(clean(Self.ruledTable + "\n" + below) == Self.ruledTableInMarkdown + "\n" + below)
+        #expect(clean(above + Self.ruledTable + "\n" + below) == above + Self.ruledTableInMarkdown + "\n" + below)
+        // The last line of the text, with no line ending of its own.
+        #expect(clean(Self.ruledTable + "\nsee a | b") == Self.ruledTableInMarkdown + "\nsee a | b")
+    }
+
+    @Test func aLineWithABoxBarAboveOrBelowABoxTableStaysOutOfIt() {
+        let text = "see a │ b\n\(Self.boxTable)\nand c │ d\n"
+        #expect(clean(text) == "see a │ b\n\(Self.markdownTable)\nand c │ d\n")
+    }
+
+    /// The lines left out of the table are written back as they were, and
+    /// the table keeps its own indent and line endings.
+    @Test func theLinesLeftOutOfATableAreWrittenBackUnchanged() {
+        let text = "note\t| x\r\n  +---+---+\r\n  | a | b |\r\n  | c | d |\r\n  +---+---+\r\nsee | y\r\n"
+        #expect(PastedTextCleanup.convertingTables(text) == "note\t| x\r\n  | a | b |\r\n  | --- | --- |\r\n  | c | d |\r\nsee | y\r\n")
+    }
+
+    @Test(arguments: [
+        // A closed row outside the borders is a row of the table, so the
+        // block is one table or none.
+        "+---+---+\n| a | b |\n| c | d |\n+---+---+\n| e | f |\nsee g | h\n",
+        "| x | y |\nsee g | h\n+---+---+\n| a | b |\n| c | d |\n+---+---+\n",
+        // Rows open at the ends have their header above the first border:
+        // the lines outside the borders may be the table's own.
+        "see a | b | c\n----+----\n c | d\n e | f\n----+----\n g | h\n",
+        " a │ b │ x\n──────┼───────\n c │ d\n e │ f\n──────┼───────\n g │ h\n",
+        // A Markdown table straight above a ruled one.
+        "a | b\n---|---\n+---+---+\n| c | d |\n| e | f |\n+---+---+\n",
+        // A line with a pipe between two tables.
+        "+---+---+\n| a | b |\n| c | d |\n+---+---+\nsee g | h\n+---+---+\n| e | f |\n| i | j |\n+---+---+\n",
+        // What is between the borders is still not a table.
+        "see a | b\n+---+---+\n| a | b |\n+---+---+\n",
+        "see a | b\n++---+---+\n+| a | b |\n+| c | d |\n++---+---+\n",
+    ])
+    func aBlockWithLinesOutsideItsBordersIsStillLeftAloneWithoutEvidence(_ text: String) {
+        #expect(clean(text) == text)
+    }
+
     // MARK: A fence opener that reads as a row (#260)
 
     @Test func aFenceOpenerWithAPipeInItsInfoStringIsNotARow() {
