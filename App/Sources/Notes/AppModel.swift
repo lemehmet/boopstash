@@ -184,13 +184,20 @@ final class AppModel {
     /// the workbench has no prompt field.
     @ObservationIgnored lazy var scriptGenerator: (any ScriptGenerator)? = modelEndpoint.generator
     /// The script the workbench held when it last closed, in memory only,
-    /// so that closing the sheet does not lose a script half written.
+    /// so that closing the workbench does not lose a script half written.
     @ObservationIgnored var workbenchDraft: String?
+    /// Where the workbench's window remembers its frame and its split.
+    @ObservationIgnored var workbenchLayout = ScriptWorkbenchLayoutStore.standard
 
-    /// Scripts ▸ Script Workbench…: opens the workbench on `editor`, with
-    /// the script it last held, or the line-by-line skeleton.
-    @discardableResult
-    func openWorkbench(in editor: BoopTextView) -> Task<Void, Never> {
+    /// Scripts ▸ Script Workbench…: opens the workbench for `editor`'s
+    /// note in a window of its own (#285), with the script it last held,
+    /// or the line-by-line skeleton. Chosen again for an editor that has
+    /// one, the open window comes forward.
+    func openWorkbench(in editor: BoopTextView) {
+        if let open = editor.workbench {
+            open.bringForward()
+            return
+        }
         reloadScripts()
         let draft = workbenchDraft.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
         let session = ScriptWorkbenchSession(
@@ -198,9 +205,10 @@ final class AppModel {
             scripts: scriptLibrary.scripts, folder: scriptsFolder,
             runner: { [scriptRunner] request in await scriptRunner.run(request) },
             generator: scriptGenerator,
+            layout: workbenchLayout,
             onSaved: { [weak self] in self?.reloadScripts() },
             onClose: { [weak self] script in self?.workbenchDraft = script })
-        return ScriptWorkbenchSession.open(session)
+        ScriptWorkbenchSession.open(session)
     }
 
     func runLastScript() {

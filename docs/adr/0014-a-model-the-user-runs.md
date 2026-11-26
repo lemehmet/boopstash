@@ -200,6 +200,14 @@ two. None widens what may be sent.
   destination the sheet showed; if the settings no longer give that
   destination, nothing is sent until the sheet has shown the new one. The
   key is read for the address the request goes to.
+  *Amended 2026-11-25 (#285): the workbench is a window of its own, and
+  the note can be edited while it is open. The rule is unchanged: the
+  sample is read when the workbench learns where a request goes (the
+  answer may come a while after the window opens, and the note is read as
+  it is then), and again only when the user chooses Refresh or Check
+  Again. Each reading is on show before
+  anything can be sent. An edit in the note, or a run, does not change
+  what is on show or what Generate sends.*
 - **The time limit is for the whole request,** from its start to the end
   of the reply, not for the gap between two pieces of it, and its expiry
   is reported as a timeout.

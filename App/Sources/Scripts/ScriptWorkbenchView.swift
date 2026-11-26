@@ -2,10 +2,11 @@ import AppKit
 import BoopstashCore
 import SwiftUI
 
-/// The script workbench's sheet (#247): the script on the left, what it
-/// would change on the right, and Run, Keep, Discard and Save as Script
+/// What the script workbench's window shows (#247, #285): the script on
+/// the left, what it would change on the right, with a divider between
+/// them that can be dragged, and Run, Keep, Discard and Save as Script
 /// below. The prompt row is there only when a model endpoint is set up
-/// (ADR 0014).
+/// (ADR 0014). The panes take whatever room the window has.
 struct ScriptWorkbenchView: View {
     @Bindable var session: ScriptWorkbenchSession
 
@@ -18,7 +19,8 @@ struct ScriptWorkbenchView: View {
             Divider()
             WorkbenchFooter(session: session)
         }
-        .frame(minWidth: 780, idealWidth: 1000, minHeight: 440, idealHeight: 620)
+        .frame(minWidth: ScriptWorkbenchLayout.minimumSize.width, idealWidth: ScriptWorkbenchLayout.defaultSize.width, maxWidth: .infinity,
+               minHeight: ScriptWorkbenchLayout.minimumSize.height, idealHeight: ScriptWorkbenchLayout.defaultSize.height, maxHeight: .infinity)
     }
 }
 
@@ -27,13 +29,27 @@ private struct WorkbenchHeader: View {
 
     var body: some View {
         HStack(alignment: .firstTextBaseline) {
-            Text("Script Workbench").font(.headline)
-            Text(session.target).font(.subheadline).foregroundStyle(.secondary)
+            Text("Runs on").font(.subheadline).foregroundStyle(.secondary)
+            Text(session.target).font(.headline)
+            WorkbenchRefreshButton(session: session)
             Spacer()
             WorkbenchStartMenu(session: session)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
+    }
+}
+
+/// Refresh (#285): the note can be edited while the workbench is open, so
+/// this reads it again and runs.
+private struct WorkbenchRefreshButton: View {
+    let session: ScriptWorkbenchSession
+
+    var body: some View {
+        Button("Refresh") { Task { await session.refresh() } }
+            .keyboardShortcut("r", modifiers: .command)
+            .disabled(!session.canRefresh)
+            .help("Read the selection, or the whole note, again as it is now and run the script on it (⌘R). The note is not touched.")
     }
 }
 
@@ -288,20 +304,72 @@ private struct WorkbenchGenerateButton: View {
     }
 }
 
+/// The script and the diff side by side, with the divider where the user
+/// left it (#285): the script has its share of the width, whatever the
+/// window's size, and the diff has the rest.
 private struct WorkbenchPanes: View {
     let session: ScriptWorkbenchSession
+    static let space = "workbench.panes"
+    /// The divider's width: a line, with room either side to take hold of.
+    static let divider: CGFloat = 9
 
     var body: some View {
-        HSplitView {
-            WorkbenchScriptPane(session: session)
-                .frame(minWidth: 320, idealWidth: 460, maxWidth: .infinity, maxHeight: .infinity)
-            WorkbenchDiffPane(session: session)
-                .frame(minWidth: 320, idealWidth: 540, maxWidth: .infinity, maxHeight: .infinity)
+        GeometryReader { (geometry: GeometryProxy) in
+            let total: Double = max(Double(geometry.size.width - Self.divider), 0)
+            let width: Double = ScriptWorkbenchLayout.scriptWidth(split: session.split, total: total)
+            HStack(spacing: 0) {
+                WorkbenchScriptPane(session: session)
+                    .frame(width: width)
+                    .frame(maxHeight: .infinity)
+                WorkbenchDivider(session: session, total: total)
+                WorkbenchDiffPane(session: session)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .coordinateSpace(.named(Self.space))
         }
     }
 }
 
-/// The script, and under it what the last run and the sheet have to say.
+/// The divider between the script and the diff. Dragged, or moved with
+/// the accessibility increment and decrement.
+private struct WorkbenchDivider: View {
+    let session: ScriptWorkbenchSession
+    /// The width the two panes share.
+    let total: Double
+
+    var body: some View {
+        Rectangle()
+            .fill(Color(nsColor: .separatorColor))
+            .frame(width: 1)
+            .frame(width: WorkbenchPanes.divider)
+            .frame(maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .pointerStyle(.columnResize)
+            .gesture(drag)
+            .help("Drag to give the script or the diff more room")
+            .accessibilityElement()
+            .accessibilityLabel("Divider between the script and the diff")
+            .accessibilityValue("\(shownPercent) percent for the script")
+            .accessibilityAdjustableAction { (direction: AccessibilityAdjustmentDirection) in
+                session.stepDivider(by: direction == .increment ? 0.05 : -0.05, of: total)
+            }
+    }
+
+    /// The script's share as it is on screen, which in a narrow window is
+    /// not the remembered one.
+    private var shownPercent: Int {
+        Int((ScriptWorkbenchLayout.shownSplit(split: session.split, total: total) * 100).rounded())
+    }
+
+    private var drag: some Gesture {
+        DragGesture(minimumDistance: 1, coordinateSpace: .named(WorkbenchPanes.space))
+            .onChanged { (value: DragGesture.Value) in
+                session.moveDivider(toScriptWidth: Double(value.location.x - WorkbenchPanes.divider / 2), of: total)
+            }
+    }
+}
+
+/// The script, and under it what the last run and the workbench have to say.
 private struct WorkbenchScriptPane: View {
     let session: ScriptWorkbenchSession
 
@@ -315,7 +383,7 @@ private struct WorkbenchScriptPane: View {
 }
 
 /// The session's own text view, so its text and undo stack outlive any
-/// redraw of the sheet.
+/// redraw of the window.
 private struct WorkbenchScriptEditor: NSViewRepresentable {
     let scroll: NSScrollView
 
@@ -427,8 +495,9 @@ private struct WorkbenchActions: View {
     let session: ScriptWorkbenchSession
 
     var body: some View {
-        Button("Discard", role: .cancel) { session.discard() }
-            .keyboardShortcut(.cancelAction)
+        // No Escape: this is a window, closed as windows are (⌘W).
+        Button("Discard") { session.discard() }
+            .help("Close the workbench without touching the note. The script is offered again the next time it opens.")
         Button("Run") { Task { await session.run() } }
             .keyboardShortcut(.return, modifiers: .command)
             .disabled(session.isRunning)
@@ -440,7 +509,7 @@ private struct WorkbenchActions: View {
     }
 }
 
-/// The sheet's words. Pure, so the hosted tests can check them without
+/// The workbench's words. Pure, so the hosted tests can check them without
 /// drawing anything.
 enum ScriptWorkbenchStyle {
     static func status(running: Bool, result: ScriptWorkbenchResult?, edited: Bool) -> String {
@@ -452,26 +521,5 @@ enum ScriptWorkbenchStyle {
     static func placeholder(result: ScriptWorkbenchResult?) -> String {
         guard let result else { return "Run the script to see what it would change.\nNothing reaches the note until you choose Keep." }
         return result.status
-    }
-}
-
-/// Shows a workbench as a sheet on a window.
-@MainActor
-enum ScriptWorkbenchPresenter {
-    /// The sheet, already attached to `window`. The session ends it.
-    static func present(_ session: ScriptWorkbenchSession, over window: NSWindow) -> NSWindow {
-        let sheet = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 620),
-                             styleMask: [.titled, .resizable], backing: .buffered, defer: false)
-        sheet.isReleasedWhenClosed = false
-        sheet.title = "Script Workbench"
-        sheet.contentViewController = NSHostingController(rootView: ScriptWorkbenchView(session: session))
-        sheet.setContentSize(NSSize(width: 1000, height: 620))
-        window.beginSheet(sheet, completionHandler: nil)
-        // The script's view joins the sheet when SwiftUI first lays it out.
-        DispatchQueue.main.async { [weak sheet] in
-            guard let sheet, session.scriptView.window === sheet else { return }
-            sheet.makeFirstResponder(session.scriptView)
-        }
-        return sheet
     }
 }

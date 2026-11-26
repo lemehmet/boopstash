@@ -2,7 +2,7 @@
   "appStoreSince": { "mac": "0.3.0", "ios": "0.3.0" },
   "unreleased": [
     { "on": "mac", "text": "Settings ▸ Model: point BoopStash at a language model you run yourself, and the script workbench can draft a script from a plain instruction. Off until you set it up; a mark beside Generate says what is sent and where." },
-    { "on": "mac", "text": "Scripts ▸ Script Workbench… (⌃⌘B): write or adapt a script, run it to see what it would change as a diff, edit and run again, then keep the result and save the script for next time." },
+    { "on": "mac", "text": "Scripts ▸ Script Workbench… (⌃⌘B): write or adapt a script, run it to see what it would change as a diff, edit and run again, then keep the result and save the script for next time. It has a window of its own, which can be any size or full screen." },
     { "on": "mac", "text": "Scripts ▸ Run Script with Preview… (⌥⌘B) shows what a script would change as a diff, to keep or discard." },
     { "on": "mac", "text": "Help ▸ BoopStash Help shows what the app does and how it treats your notes, without going online." },
     { "on": "ios", "text": "Settings ▸ Help shows what the app does and how it treats your notes, without going online." },

@@ -5,17 +5,24 @@ import Observation
 /// One open script workbench (#247, ADR 0013): a script the user edits,
 /// what it would change in the note as a diff, and Keep, Discard and Save
 /// as Script. The script runs only in the script service (ADR 0007), and
-/// only when Run is chosen; nothing reaches the note without Keep, which
-/// goes through the diff review's own check that the note is still the
-/// text the diff was made for.
+/// only when Run or Refresh is chosen; nothing reaches the note without
+/// Keep, which goes through the diff review's own check that the note is
+/// still the text the diff was made for.
+///
+/// It has a window of its own (#285), and the note stays editable in its
+/// window meanwhile. So that check is what protects the note: Keep over a
+/// note that changed since the run applies nothing and says so, and
+/// Refresh reads the note again and runs. The workbench is one note's: it
+/// closes when the note's window closes, when the editor leaves it, and
+/// when another note is loaded into the editor.
 ///
 /// What a run, a save and a generator's draft mean is Core's
 /// (`ScriptWorkbenchResult`, `ScriptSave`, `ScriptGeneration`); this holds
-/// the sheet's state and the script's text view.
+/// the window's state and the script's text view.
 @MainActor
 @Observable
 final class ScriptWorkbenchSession {
-    /// Something the sheet says next to the script, apart from what the
+    /// Something the workbench says next to the script, apart from what the
     /// script itself posted.
     struct Notice: Equatable {
         var isError: Bool
@@ -32,7 +39,7 @@ final class ScriptWorkbenchSession {
     /// menu until the user names it.
     static let unnamed = "Workbench Script"
 
-    // MARK: What the sheet shows
+    // MARK: What the window shows
 
     /// The last run, or nil before the first one and after the note
     /// changed under it.
@@ -60,10 +67,13 @@ final class ScriptWorkbenchSession {
     var instruction = "" {
         didSet { if instruction != oldValue { refreshSample() } }
     }
-    /// The sample Generate sends. The text is read from the note once,
-    /// when the sheet learns where a request goes (and on Check Again);
-    /// the sample is sized again from that reading when the instruction
-    /// or the examples change, as they take room from it. The sheet shows
+    /// The sample Generate sends. The text is read from the note when the
+    /// workbench learns where a request goes, on Check Again and on
+    /// Refresh, and at no other time: the note can be edited while the
+    /// workbench is open (#285), and an edit there changes nothing here
+    /// until one of those is chosen and the new reading is on show. The
+    /// sample is sized again from that reading when the instruction or
+    /// the examples change, as they take room from it. The window shows
     /// this under What Is Sent, and `generate` sends this and nothing
     /// read from the note later.
     private(set) var sampleToSend: ScriptSample?
@@ -77,6 +87,10 @@ final class ScriptWorkbenchSession {
     private(set) var isGenerating = false
     /// What the script runs on, in words.
     private(set) var target: String
+    /// The script pane's share of the width (#285): the divider between
+    /// the script and the diff can be dragged, and where it was left is
+    /// remembered.
+    private(set) var split: Double
 
     // MARK: Parts
 
@@ -84,7 +98,9 @@ final class ScriptWorkbenchSession {
     @ObservationIgnored let scriptView: ScriptTextView
     @ObservationIgnored private let painter = SyntaxPainter()
     @ObservationIgnored private(set) weak var editor: BoopTextView?
-    @ObservationIgnored private(set) weak var sheet: NSWindow?
+    /// The window, from `open` until the workbench closes.
+    @ObservationIgnored private var presented: ScriptWorkbenchWindow?
+    @ObservationIgnored private let layout: ScriptWorkbenchLayoutStore
     /// The library's scripts that can be a starting point, by name.
     @ObservationIgnored let libraryScripts: [BoopScript]
     @ObservationIgnored private let bundledNames: [String]
@@ -99,6 +115,8 @@ final class ScriptWorkbenchSession {
     @ObservationIgnored private var generating: Task<Void, Never>?
     @ObservationIgnored private var checking: Task<Void, Never>?
     @ObservationIgnored private var textObserver: NSObjectProtocol?
+    /// The note's window closing.
+    @ObservationIgnored private var noteWindowObserver: NSObjectProtocol?
     @ObservationIgnored private(set) var isClosed = false
     /// The script it started from, whose description and tags a save keeps.
     @ObservationIgnored private var base: BoopScript?
@@ -109,14 +127,18 @@ final class ScriptWorkbenchSession {
     ///   - folder: the user's Scripts folder, where Save as Script writes.
     ///   - runner: the script service.
     ///   - generator: what writes a draft (ADR 0014), or nil for none.
+    ///   - layout: where the window's frame and split are remembered.
     ///   - onSaved: a script was written to the folder.
-    ///   - onClose: the sheet closed; its script, to offer again next time.
+    ///   - onClose: the workbench closed; its script, to offer again next time.
     init(editor: BoopTextView, script: String, scripts: [BoopScript], folder: URL?,
          runner: @escaping @MainActor (ScriptRequest) async -> ScriptResponse,
          generator: (any ScriptGenerator)? = nil,
+         layout: ScriptWorkbenchLayoutStore = .standard,
          onSaved: @escaping @MainActor () -> Void = {},
          onClose: @escaping @MainActor (String) -> Void = { _ in }) {
         self.editor = editor
+        self.layout = layout
+        split = layout.split
         self.runner = runner
         self.generator = generator
         self.folder = folder
@@ -131,7 +153,6 @@ final class ScriptWorkbenchSession {
         painter.attach(to: scriptView)
         painter.replacingDocument { scriptView.string = script }
         painter.load(script, choice: .language(.javascript))
-        scriptView.onCancel = { [weak self] in self?.discard() }
         textObserver = NotificationCenter.default.addObserver(
             forName: NSText.didChangeNotification, object: scriptView, queue: nil
         ) { [weak self] _ in
@@ -141,7 +162,11 @@ final class ScriptWorkbenchSession {
 
     isolated deinit {
         if let textObserver { NotificationCenter.default.removeObserver(textObserver) }
+        if let noteWindowObserver { NotificationCenter.default.removeObserver(noteWindowObserver) }
     }
+
+    /// The workbench's window, while it is open.
+    var window: NSWindow? { presented?.window }
 
     var script: String { scriptView.string }
 
@@ -211,15 +236,31 @@ final class ScriptWorkbenchSession {
         notice = nil
     }
 
+    /// Refresh can be chosen: nothing is running and no request is out
+    /// (the sample a request was sent with stays on show until it is back).
+    var canRefresh: Bool { !isClosed && !isRunning && !isGenerating }
+
+    /// Refresh (#285): reads the note again, the selection or the whole
+    /// of it as it is now, and runs the script on it. What Is Sent shows
+    /// the new reading too, so what Generate would send is still exactly
+    /// what is on show.
+    func refresh() async {
+        guard canRefresh, let editor else { return }
+        target = ScriptWorkbenchResult.targetDescription(selections: editor.selectedRanges.map(\.rangeValue))
+        readTarget()
+        await run()
+    }
+
     // MARK: Keep and Discard
 
     /// There is a diff on show to keep, and no run on its way to replace it.
     var canKeep: Bool { !isClosed && !isRunning && (result?.canKeep ?? false) }
 
     /// Applies the diff on show as one undoable edit and closes, unless
-    /// the note is no longer the text the diff was made for. Then nothing
-    /// is applied, the sheet stays, and the diff is dropped: Run makes it
-    /// again for the note as it is.
+    /// the note is no longer the text the diff was made for: it was
+    /// edited in its own window, a review's Keep changed it, or iCloud
+    /// did. Then nothing is applied, the workbench stays, and the diff is
+    /// dropped: Refresh, or Run, makes it again for the note as it is.
     func keep() {
         guard canKeep, let editor, let edits = result?.edits, let snapshot else {
             NSSound.beep()
@@ -230,7 +271,7 @@ final class ScriptWorkbenchSession {
             result = nil
             self.snapshot = nil
             editedSinceRun = false
-            notice = Notice(isError: true, text: "The note changed since the last run, so nothing was applied. Run again to see the change against the note as it is now.")
+            notice = Notice(isError: true, text: "The note changed since the last run, so nothing was applied. Choose Refresh to run the script on the note as it is now.")
             return
         }
         close()
@@ -241,21 +282,43 @@ final class ScriptWorkbenchSession {
         close()
     }
 
-    /// Ends the sheet. The script is handed back, to start from next time.
+    /// Ends the workbench and closes its window. The script is handed
+    /// back, to start from next time. With `refocus` the note's window
+    /// comes forward with the keyboard in the note.
     func close(refocus: Bool = true) {
         guard !isClosed else { return }
         isClosed = true
         generating?.cancel()
         checking?.cancel()
         onClose(script)
-        if let sheet {
-            if let parent = sheet.sheetParent { parent.endSheet(sheet) }
-            sheet.orderOut(nil)
-        }
+        if let noteWindowObserver { NotificationCenter.default.removeObserver(noteWindowObserver) }
+        noteWindowObserver = nil
+        let window = presented
+        presented = nil
+        window?.close()
         if let editor {
             if editor.workbench === self { editor.workbench = nil }
-            if refocus { editor.window?.makeFirstResponder(editor) }
+            if refocus, let noteWindow = editor.window {
+                if !noteWindow.isMiniaturized { noteWindow.makeKeyAndOrderFront(nil) }
+                noteWindow.makeFirstResponder(editor)
+            }
         }
+    }
+
+    // MARK: The split
+
+    /// The divider was dragged to make the script pane `width` wide, of
+    /// `total` for both panes. Remembered for the next workbench.
+    func moveDivider(toScriptWidth width: Double, of total: Double) {
+        guard let share = ScriptWorkbenchLayout.split(draggedTo: width, total: total), share != split else { return }
+        split = share
+        layout.split = share
+    }
+
+    /// The divider moved one step (a share of `total`) with the
+    /// accessibility increment or decrement, from where it is on screen.
+    func stepDivider(by step: Double, of total: Double) {
+        moveDivider(toScriptWidth: ScriptWorkbenchLayout.scriptWidth(split: split, steppedBy: step, total: total), of: total)
     }
 
     // MARK: Save as Script
@@ -319,7 +382,7 @@ final class ScriptWorkbenchSession {
     /// Asks the generator, if there is one, whether it can be used,
     /// without waiting for the answer: a generator that is slow to say
     /// delays the prompt row and nothing else. An answer that comes after
-    /// the sheet closed is dropped. Asking sends nothing anywhere.
+    /// the workbench closed is dropped. Asking sends nothing anywhere.
     private func checkAvailability() {
         guard let generator, checking == nil, !isClosed else { return }
         checking = Task { [weak self] in
@@ -351,10 +414,10 @@ final class ScriptWorkbenchSession {
         return states.first?.text ?? ""
     }
 
-    /// Reads the note, once, for what the sheet shows and Generate sends:
-    /// when the sheet learns where a request goes. Examples marked on an
-    /// earlier reading whose lines are no longer there go, and the sheet
-    /// shows the ones that stay.
+    /// Reads the note for what the window shows and Generate sends: when
+    /// the workbench learns where a request goes, and on Refresh. Examples
+    /// marked on an earlier reading whose lines are no longer there go,
+    /// and the window shows the ones that stay.
     private func readTarget() {
         guard let destination else {
             sampleSource = nil
@@ -371,7 +434,7 @@ final class ScriptWorkbenchSession {
     }
 
     /// Sizes the sample again for this instruction and these examples,
-    /// from the reading the sheet already has: the note is not read, and
+    /// from the reading the workbench already has: the note is not read, and
     /// the cost does not grow with it. Not while a request is out.
     private func refreshSample() {
         guard !isGenerating else { return }
@@ -406,11 +469,11 @@ final class ScriptWorkbenchSession {
     }
 
     /// Asks the generator for a draft from the instruction, the marked
-    /// examples and the sample, exactly as the sheet shows them, to the
+    /// examples and the sample, exactly as the window shows them, to the
     /// destination it shows. Nothing is read from the note here: if the
-    /// note changed under the sheet since the sample was taken, what is
-    /// sent is still what was shown. The draft replaces the editor's text
-    /// and does not run.
+    /// note changed since the sample was taken, as it can while the
+    /// workbench is open, what is sent is still what was shown. The draft
+    /// replaces the editor's text and does not run.
     func generate() {
         guard let generator, let destination, let sample = sampleToSend, generating == nil, !isClosed, editor != nil else { return }
         let examples = examples
@@ -433,7 +496,7 @@ final class ScriptWorkbenchSession {
                 // A generator that cannot be used now (the model is not
                 // reachable, or the settings are no longer the ones
                 // shown) has Generate disabled, with the reason, until it
-                // is asked again and the sheet shows where a request goes.
+                // is asked again and the window shows where a request goes.
                 if case .unavailable(let reason) = failure {
                     self.destination = nil
                     self.unavailableReason = reason
@@ -451,44 +514,57 @@ final class ScriptWorkbenchSession {
     /// The request in flight, for tests to wait on.
     var generatingTask: Task<Void, Never>? { generating }
 
-    // MARK: The sheet
+    // MARK: The window
 
-    /// Opens a workbench on `editor`'s window. One sheet at a time: not
-    /// over a review, not twice, and a sheet that is closing (the script
-    /// picker's) is waited for, as the review waits. The task ends when
-    /// the sheet is up, or when it is known not to be. It does not wait
-    /// for the generator to say whether it is available: the editor is
-    /// held for the workbench only while a sheet is on its way or up.
+    /// Opens `session`'s workbench in a window of its own (#285), or, when
+    /// its editor already has one, brings that one forward: one workbench
+    /// per note window. False when nothing opened.
+    ///
+    /// A diff review sheet on the note's window (Run Script with Preview)
+    /// does not stand in the way, nor the workbench in a review's: each
+    /// applies through `BoopTextView.applyReviewed`, which refuses the
+    /// second of two changes made for the same text.
     @discardableResult
-    static func open(_ session: ScriptWorkbenchSession) -> Task<Void, Never> {
+    static func open(_ session: ScriptWorkbenchSession) -> Bool {
         // A note that cannot be edited has nothing to keep a result in.
-        guard let editor = session.editor, editor.isEditable else {
+        guard !session.isClosed, let editor = session.editor, editor.isEditable, let noteWindow = editor.window else {
             NSSound.beep()
-            return Task {}
+            return false
         }
-        guard editor.workbench == nil, editor.pendingReview == nil else {
-            NSSound.beep()
-            editor.showMessage?("The script workbench could not open while another sheet is open.")
-            return Task {}
+        if let open = editor.workbench {
+            open.bringForward()
+            return false
         }
         editor.workbench = session
-        let wait = editor.reviewSheetWait
         session.checkAvailability()
-        return Task { [weak editor] in
-            let deadline = ContinuousClock.now + wait
-            while editor?.window?.attachedSheet != nil, ContinuousClock.now < deadline {
-                try? await Task.sleep(for: .milliseconds(25))
-            }
-            guard let editor, editor.workbench === session, !session.isClosed else { return }
-            // Never over a sheet that is staying.
-            guard let window = editor.window, window.attachedSheet == nil else {
-                session.close(refocus: false)
-                NSSound.beep()
-                editor.showMessage?("The script workbench could not open while another sheet is open.")
-                return
-            }
-            session.sheet = ScriptWorkbenchPresenter.present(session, over: window)
+        let window = ScriptWorkbenchWindow(
+            session: session, title: ScriptWorkbenchLayout.windowTitle(note: editor.noteTitle),
+            layout: session.layout, noteWindow: noteWindow,
+            onClose: { [weak session] in session?.close(refocus: false) })
+        session.presented = window
+        session.noteWindowObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification, object: noteWindow, queue: nil
+        ) { [weak session] _ in
+            MainActor.assumeIsolated { session?.close(refocus: false) }
         }
+        window.show()
+        // The script's view joins the window when SwiftUI first lays it out.
+        DispatchQueue.main.async { [weak session] in
+            guard let session, let window = session.window, session.scriptView.window === window else { return }
+            window.makeFirstResponder(session.scriptView)
+        }
+        return true
+    }
+
+    /// Asked for again: the open window comes forward.
+    func bringForward() {
+        presented?.bringForward()
+    }
+
+    /// The note's title changed: the window's follows.
+    func noteTitleChanged() {
+        guard let editor else { return }
+        presented?.window.title = ScriptWorkbenchLayout.windowTitle(note: editor.noteTitle)
     }
 }
 
@@ -520,9 +596,6 @@ enum UserScriptFiles {
 /// JavaScript by the note editor's painter. Not a note editor, so the
 /// commands that act on the focused note do not reach it.
 final class ScriptTextView: NSTextView {
-    /// Escape.
-    var onCancel: (() -> Void)?
-
     /// The font of every character in the editor. A font is immutable;
     /// AppKit does not mark it Sendable, and the storage delegate, which is
     /// not isolated, reads it.
@@ -612,10 +685,10 @@ final class ScriptTextView: NSTextView {
         typingAttributes = Self.baseAttributes
     }
 
-    /// Escape closes the sheet; a text view would offer completions.
-    override func cancelOperation(_ sender: Any?) {
-        if let onCancel { onCancel() } else { super.cancelOperation(sender) }
-    }
+    /// Escape does nothing here. A text view would offer completions; and
+    /// the workbench is a window (#285), which Escape does not close: a
+    /// stray Escape would take a script half written off the screen.
+    override func cancelOperation(_ sender: Any?) {}
 }
 
 /// Text that enters the editor takes the base font and colour, however it

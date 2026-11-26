@@ -79,8 +79,9 @@ struct ScriptPicker: View {
 
 /// Scripts ▸ Run Script…, Run Last Script and Script Workbench… (#247).
 /// The picker opens in the key window only: each window publishes its own
-/// presentation as a focused scene value. The workbench is a sheet on the
-/// key editor's window.
+/// presentation as a focused scene value. The workbench is a window of
+/// its own (#285) for the key editor's note; chosen again there, the open
+/// one comes forward.
 struct ScriptCommands: Commands {
     let model: AppModel?
     @FocusedValue(\.scriptPicker) private var picker
