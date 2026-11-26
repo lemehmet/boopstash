@@ -73,10 +73,10 @@ extension NoteStore {
 
     /// The save to send for one record, built now; nil when it has nothing
     /// to send (acknowledged, or deleted, meanwhile). A note's record is
-    /// remembered as sent, by its `contentDigest`, until the note is back in
-    /// step, so the record
-    /// coming back is known as this device's own even if its
-    /// acknowledgement is lost (#229).
+    /// remembered as sent, by its `contentDigest` and its edit date, until
+    /// the note is back in step, so the record coming back is known as this
+    /// device's own even if its acknowledgement is lost (#229), and another
+    /// device's record with the same content is not (#232).
     public func pendingSave(kind: SyncRecord.Kind, name: String) throws -> SyncChange? {
         guard let id = UUID(uuidString: name) else { return nil }
         guard kind == .note else { return try writer.read { db in try buildSave(kind, id, db) } }
@@ -86,9 +86,9 @@ extension NoteStore {
         guard try hasPendingSave(kind: .note, name: name) else { return nil }
         return try writer.write { db in
             let change = try buildSave(.note, id, db)
-            if case .save(let record, _, _)? = change {
-                try db.execute(sql: "INSERT OR IGNORE INTO syncUpload (noteID, digest) VALUES (?, ?)",
-                               arguments: [id, record.contentDigest])
+            if case .save(let record, _, _)? = change, let editedAt = Self.editStamp(of: record) {
+                try db.execute(sql: "INSERT OR IGNORE INTO syncUpload (noteID, digest, editedAt) VALUES (?, ?, ?)",
+                               arguments: [id, record.contentDigest, editedAt])
             }
             return change
         }
@@ -118,6 +118,25 @@ extension NoteStore {
             try Bool.fetchOne(db, sql: "SELECT EXISTS (SELECT 1 FROM \(Self.table(kind)) WHERE id = ? AND syncPending > syncAcknowledged)",
                               arguments: [id]) ?? false
         }
+    }
+
+    /// How far the edit date of a record coming back may be from the one it
+    /// was sent with and still be that upload, in seconds. Dates are kept to
+    /// the millisecond here and may be rounded again on their way through
+    /// CloudKit, so they are not compared exactly. Erring wide costs little:
+    /// only a record with the same content in every other field, saved by
+    /// another device with an edit date this close to the upload's, would
+    /// pass for it, while erring narrow would turn every lost
+    /// acknowledgement back into a conflict copy (#229).
+    static let uploadDateTolerance: TimeInterval = 1
+
+    /// What tells one upload from another with the same content (#232): the
+    /// record's `updatedAt`, in seconds since 1970. This device stamps it
+    /// when the note is edited, so another device saving the same content
+    /// later, after a change this device never saw, carries another one.
+    /// Nil for a record without the field, which is then nobody's upload.
+    static func editStamp(of record: SyncRecord) -> Double? {
+        record.encrypted["updatedAt"]?.date?.timeIntervalSince1970
     }
 
     /// Forgets the records sent of a note the server has caught up with, or
@@ -176,8 +195,12 @@ extension NoteStore {
     /// own upload coming back: the server has not changed since, so unsent
     /// edits here are kept and sent, with no merge and no copy (#215). So is
     /// one this device built for sending since the note was last in step,
-    /// the same but for its dates, acknowledged or not (#229); the server's metadata is then
-    /// taken, so the next send is not refused again.
+    /// acknowledged or not (#229): the same content (`contentDigest`) with
+    /// the edit date it was sent with, give or take `uploadDateTolerance`.
+    /// The server's metadata is then taken, so the next send is not refused
+    /// again. The same content with another edit date is another device's
+    /// save, such as a change this device never fetched followed by a
+    /// revert, and is merged like any other (#232).
     public func applyServerRecord(_ record: SyncRecord, systemFields: Data, changeTag: String? = nil, assetData: Data? = nil,
                                   now: Date = Date()) throws -> Note? {
         // Deleted here, deletion not yet sent: a stale save from the server
@@ -248,9 +271,10 @@ extension NoteStore {
                 guard try !Self.isTombstoned(record, db) else { return nil }
                 let row = try Row.fetchOne(db, sql: """
                     SELECT syncPending, syncAcknowledged, syncSystemFields IS NOT NULL AND syncChangeTag = ? AS unchangedSince,
-                        EXISTS (SELECT 1 FROM syncUpload WHERE noteID = note.id AND digest = ?) AS sentHere
+                        EXISTS (SELECT 1 FROM syncUpload WHERE noteID = note.id AND digest = ?
+                                AND ABS(editedAt - ?) <= ?) AS sentHere
                     FROM note WHERE id = ?
-                    """, arguments: [changeTag, record.contentDigest, server.id])
+                    """, arguments: [changeTag, record.contentDigest, Self.editStamp(of: record), Self.uploadDateTolerance, server.id])
                 let changedHere = row.map { ($0["syncPending"] as Int) > ($0["syncAcknowledged"] as Int) } ?? false
                 if changedHere, changeTag != nil, row?["unchangedSince"] == true {
                     // The server still holds what this device last sent: the
