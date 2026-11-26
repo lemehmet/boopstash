@@ -1,6 +1,11 @@
 import Foundation
 
 /// What the find widget looks for: the text and VS Code's three toggles.
+///
+/// Two queries are the same query only when their text is the same code
+/// units (#273). The search matches code units, so "é" as one scalar and
+/// as "e" with a combining accent find different things, while Swift's
+/// string equality takes the two for equal.
 public struct FindQuery: Hashable, Sendable {
     public var text: String
     public var matchCase: Bool
@@ -15,6 +20,24 @@ public struct FindQuery: Hashable, Sendable {
     }
 
     public var isEmpty: Bool { text.isEmpty }
+
+    /// Whether `text` is this query's text, code unit for code unit: what
+    /// decides if a field's new text is a new query to search for.
+    public func hasText(_ text: String) -> Bool {
+        TextDiff.identical(self.text, text)
+    }
+
+    public static func == (a: FindQuery, b: FindQuery) -> Bool {
+        a.matchCase == b.matchCase && a.wholeWord == b.wholeWord && a.isRegex == b.isRegex && a.hasText(b.text)
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(matchCase)
+        hasher.combine(wholeWord)
+        hasher.combine(isRegex)
+        hasher.combine(text.utf8.count)
+        for unit in text.utf8 { hasher.combine(unit) }
+    }
 }
 
 /// A query that cannot be searched for: a regular expression that does not

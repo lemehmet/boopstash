@@ -24,6 +24,25 @@ import Testing
         #expect(try ranges(text, FindQuery("foo", matchCase: true)) == [NSRange(location: 4, length: 3), NSRange(location: 12, length: 3)])
     }
 
+    /// The search matches code units, so a query is the code units its
+    /// field shows (#273): "é" as one scalar and as "e" with a combining
+    /// accent are two queries, which find different things.
+    @Test func aQueryInAnotherEncodingIsAnotherQuery() throws {
+        let composed = FindQuery("\u{E9}")
+        let decomposed = FindQuery("e\u{301}")
+        #expect(composed.text == decomposed.text, "equal to Swift")
+        #expect(composed != decomposed)
+        #expect(Set([composed, decomposed, FindQuery("\u{E9}")]).count == 2)
+        #expect(composed == FindQuery("\u{E9}"))
+        #expect(composed.hasText("\u{E9}") && !composed.hasText("e\u{301}"))
+        #expect(composed != FindQuery("\u{E9}", matchCase: true))
+        #expect(composed != FindQuery("\u{E9}", wholeWord: true))
+        #expect(composed != FindQuery("\u{E9}", isRegex: true))
+        let note = "cafe\u{301}"
+        #expect(try ranges(note, composed).isEmpty)
+        #expect(try ranges(note, decomposed) == [NSRange(location: 3, length: 2)])
+    }
+
     @Test func emptyQueryMatchesNothing() throws {
         #expect(try ranges("anything", FindQuery("")).isEmpty)
         #expect(try ranges("anything", FindQuery("", isRegex: true)).isEmpty)

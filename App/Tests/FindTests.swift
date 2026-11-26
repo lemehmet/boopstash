@@ -406,6 +406,63 @@ struct FindTests {
         host.close()
     }
 
+    /// The field's text retyped in another encoding of the same
+    /// characters is another query (#273): the search matches code units,
+    /// so it has to run again.
+    @Test func aQueryRetypedInAnotherEncodingIsSearchedAgain() async throws {
+        let host = Host("cafe\u{301} x")
+        host.view.find.show(replace: false)
+        host.view.find.setQueryText("x")
+        #expect(try await matches(of: host, 1))
+        host.view.find.setQueryText("\u{E9}")
+        #expect(try await matches(of: host, 0), "the precomposed letter is not in the note")
+        host.view.find.setQueryText("e\u{301}")
+        #expect(Array(host.view.find.query.text.utf16) == Array("e\u{301}".utf16))
+        #expect(try await matches(of: host, 1))
+        #expect(host.view.find.matches == [NSRange(location: 3, length: 2)])
+        #expect(try await eventually { host.view.find.panel?.count.stringValue == "1 of 1" })
+        host.view.find.setQueryText("\u{E9}")
+        #expect(try await matches(of: host, 0), "and back")
+        host.close()
+    }
+
+    /// Replace All then puts in what the fields show, for the query the
+    /// field shows.
+    @Test func replaceAllActsOnTheQueryAsRetyped() async throws {
+        let host = Host("cafe\u{301} caf\u{E9}")
+        var messages: [String] = []
+        host.view.showMessage = { messages.append($0) }
+        host.view.find.show(replace: true)
+        host.view.find.setQueryText("\u{E9}")
+        #expect(try await matches(of: host, 1))
+        #expect(host.view.find.matches == [NSRange(location: 9, length: 1)])
+        host.view.find.setQueryText("e\u{301}")
+        host.view.find.setReplacement("E")
+        #expect(try await eventually { host.view.find.matches == [NSRange(location: 3, length: 2)] })
+        host.view.find.replaceAll()
+        #expect(try await eventually { !messages.isEmpty })
+        #expect(Array(host.view.string.utf16) == Array("cafE caf\u{E9}".utf16))
+        host.close()
+    }
+
+    /// The widget's fields show the query's own code units: a query that
+    /// came from elsewhere in another encoding (⌘E on a selection)
+    /// replaces what the field held.
+    @Test func theFieldsShowTheQueryInItsOwnEncoding() async throws {
+        let host = Host("cafe\u{301} caf\u{E9}")
+        let find = host.view.find
+        find.show(replace: true)
+        find.setQueryText("\u{E9}")
+        let panel = try #require(find.panel)
+        #expect(Array(panel.queryField.stringValue.utf16) == Array("\u{E9}".utf16))
+        host.view.setSelectedRange(NSRange(location: 3, length: 2))
+        find.useSelection()
+        #expect(Array(find.query.text.utf16) == Array("e\u{301}".utf16))
+        #expect(Array(panel.queryField.stringValue.utf16) == Array("e\u{301}".utf16))
+        #expect(try await matches(of: host, 1))
+        host.close()
+    }
+
     @Test func aLineBreakInTheQueryFieldStepsBack() async throws {
         let host = Host("q q q")
         host.view.setSelectedRange(NSRange(location: 2, length: 1))
