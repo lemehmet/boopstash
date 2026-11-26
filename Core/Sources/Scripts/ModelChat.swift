@@ -186,7 +186,8 @@ public enum ModelChat {
     /// opening tag that never closes is left as it is.
     ///
     /// The tags count only outside ``` code blocks (#281): a script that
-    /// mentions them, as one asked to strip them does, is left whole.
+    /// mentions them, as one asked to strip them does, is left whole, and
+    /// so is one followed by a sentence that names the closing tag.
     public static func withoutThinking(_ text: String) -> String {
         answer(in: text).text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
@@ -199,18 +200,24 @@ public enum ModelChat {
     /// nothing inside one is a tag. Outside blocks, a `<think>` goes
     /// with everything up to the next `</think>` that is outside a block
     /// too (reasoning that drafts a block takes the block with it), and
-    /// a `</think>` with no opening tag takes everything before it.
+    /// a `</think>` with no opening tag takes everything before it,
+    /// unless that would take the reply's last block: with a block
+    /// before it and none after, it is prose about the script ("this
+    /// keeps what follows `</think>`") and is left where it stands.
     ///
     /// Reasoning that opens a block and never ends it cannot be told
     /// from a script that mentions the tags, and is read as the script.
+    /// Nor can reasoning that drafts a block, ends with a closing tag
+    /// alone and is followed by an answer with no block: the draft is
+    /// kept with it. The model is asked to answer in a block.
     static func answer(in reply: String) -> (text: String, openReasoning: String.Index?) {
-        var kept = ""
+        var kept = Kept()
         var rest = reply[...]
         var opening = TagSearch("<think>")
         var closing = TagSearch("</think>")
         var fences = FenceSearch()
         while !rest.isEmpty {
-            let fence = fences.next(in: rest, atLineStart: endsAtLineStart(kept))
+            let fence = fences.next(in: rest, atLineStart: kept.atLineStart)
             let open = opening.next(in: rest)
             let close = closing.next(in: rest)
             guard let first = [fence, open, close].compactMap({ $0?.lowerBound }).min() else { break }
@@ -218,7 +225,8 @@ public enum ModelChat {
                 // A block: kept as it is, to the line that ends it, or to
                 // the end of a reply that never ends it.
                 let end = FenceSearch.afterLineBreak(in: rest[fence.upperBound...])?.upperBound ?? rest.endIndex
-                kept += rest[..<end]
+                kept.append(rest[..<end])
+                kept.hasBlock = true
                 rest = rest[end...]
             } else if let open, open.lowerBound == first {
                 // Its closing tag is the next one outside a block: the
@@ -235,21 +243,51 @@ public enum ModelChat {
                 }
                 guard let end else {
                     // Reasoning still open: left as it is, and said.
-                    kept += rest[..<open.lowerBound]
-                    let at = kept.endIndex
-                    kept += rest[open.lowerBound...]
-                    return (kept, at)
+                    kept.append(rest[..<open.lowerBound])
+                    let at = kept.text.endIndex
+                    return (kept.text + rest[open.lowerBound...], at)
                 }
-                kept += rest[..<open.lowerBound]
+                kept.append(rest[..<open.lowerBound])
                 rest = rest[end.upperBound...]
             } else if let close {
-                // A closing tag alone: all before it was reasoning.
-                kept = ""
-                rest = rest[close.upperBound...]
+                let after = rest[close.upperBound...]
+                if kept.hasBlock, FenceSearch.leading(in: after) == nil, fences.next(in: after, atLineStart: false) == nil {
+                    // The reply's last block stands before it: the tag is
+                    // named in what is said about the script.
+                    kept.append(rest[..<close.upperBound])
+                } else {
+                    // A closing tag alone: all before it was reasoning.
+                    kept = Kept()
+                }
+                rest = after
             }
         }
-        kept += rest
-        return (kept, nil)
+        return (kept.text + rest, nil)
+    }
+
+    /// What of the reply is kept so far, whether a block is in it, and
+    /// whether what comes next starts a line of it, with at most blanks
+    /// before it: the place where ``` opens a block. That is kept up as
+    /// text is added, from the added text alone, so that a reply of many
+    /// tags with blanks between them is not read again for each (#281).
+    private struct Kept {
+        private(set) var text = ""
+        private(set) var atLineStart = true
+        var hasBlock = false
+
+        mutating func append(_ piece: Substring) {
+            text += piece
+            for byte in piece.utf8.reversed() {
+                if byte == 0x0A || byte == 0x0D {
+                    atLineStart = true
+                    return
+                }
+                if byte != 0x20 && byte != 0x09 {
+                    atLineStart = false
+                    return
+                }
+            }
+        }
     }
 
     /// Finds a tag from where the reading stands, remembering where it
@@ -321,16 +359,6 @@ public enum ModelChat {
         }
 
         private static let marker: [UInt8] = [0x60, 0x60, 0x60]
-    }
-
-    /// Whether what comes next starts a line of `kept`, with at most
-    /// blanks before it: the place where ``` opens a block.
-    private static func endsAtLineStart(_ kept: String) -> Bool {
-        for byte in kept.utf8.reversed() {
-            if byte == 0x0A || byte == 0x0D { return true }
-            if byte != 0x20 && byte != 0x09 { return false }
-        }
-        return true
     }
 
     /// The message of an error body, in the shapes servers use:

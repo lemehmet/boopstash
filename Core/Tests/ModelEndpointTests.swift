@@ -432,6 +432,9 @@ struct ModelEndpointTests {
         #expect(ModelChat.withoutThinking(fenced) == fenced)
         #expect(outcome(fenced) == .success(script))
         #expect(outcome("Here you go:\n\(fenced)\nIt removes the reasoning.") == .success(script))
+        // What is said after the script may name the closing tag: the script is not reasoning for that.
+        #expect(outcome("\(fenced)\nThis keeps what follows `</think>`.") == .success(script))
+        #expect(outcome("\(fenced)\nThis keeps what follows `</think>`, and", finish: "length") == .success(script))
         // Reasoning ahead of it is still dropped, in both spellings.
         #expect(ModelChat.reply(in: completion(content: "<think>They want the tags gone.</think>\n\(fenced)")) == .content(fenced, limited: false))
         #expect(ModelChat.reply(in: completion(content: "They want the tags gone.</think>\n\(fenced)")) == .content(fenced, limited: false))
@@ -452,7 +455,11 @@ struct ModelEndpointTests {
 
     @Test func reasoningIsDroppedOnlyOutsideCodeBlocks() {
         #expect(ModelChat.withoutThinking("<think>a</think>\n```\n</think>\n```\n<think>b</think>after") == "```\n</think>\n```\nafter")
-        #expect(ModelChat.withoutThinking("a\n```\n<think>x</think>\n```\nb</think>c") == "c", "a closing tag alone, after a block, still ends the reasoning")
+        #expect(ModelChat.withoutThinking("a\n```\nx\n```\nb</think>\n```\nmain\n```") == "```\nmain\n```",
+                "a closing tag alone still ends the reasoning when the answer's block follows it")
+        #expect(ModelChat.withoutThinking("a\n```\nx\n```\nb</think>```\nmain\n```") == "```\nmain\n```", "right after it, too")
+        let last = "a\n```\n<think>x</think>\n```\nb</think>c</think>d"
+        #expect(ModelChat.withoutThinking(last) == last, "after the reply's last block, a closing tag alone is prose")
         #expect(ModelChat.withoutThinking("  ```js\n<think>\n  ```\ntext") == "```js\n<think>\n  ```\ntext", "an indented fence is a fence")
         #expect(ModelChat.withoutThinking("say ``` then </think>answer") == "answer", "backticks inside a line open no block")
         #expect(ModelChat.withoutThinking("```\r\n</think>\r\n```\r\nafter") == "```\r\n</think>\r\n```\r\nafter", "Windows line endings")
@@ -464,9 +471,23 @@ struct ModelEndpointTests {
         #expect(ModelScriptReply.extract(ModelChat.withoutThinking(named)) == "function main(state) { state.text = state.text.split(\"</think>\").pop(); }")
         // An opening tag that never closes is left, and a block after it is not looked into.
         #expect(ModelChat.withoutThinking("<think>open\n```\n</think") == "<think>open\n```\n</think")
+        // Reasoning cut off at the token limit after it drafted a block is cut off: the draft is no answer.
+        let draft = "<think>Maybe:\n```js\nfunction main(state) { state.text = \"draft\"; }\n```\nOr"
+        #expect(ModelChat.reply(in: completion(content: draft, finish: "length")) == .cutOff)
         // Many blocks and tags cost no more than the reply's length.
         let many = String(repeating: "```\n</think>\n```\n<think>x</think>\n", count: 20_000)
         #expect(ModelChat.withoutThinking(many) == String(repeating: "```\n</think>\n```\n\n", count: 20_000).trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    /// A reply as long as is accepted, all tags with blanks between
+    /// them, is read in the time its length takes, not its square.
+    @Test(.timeLimit(.minutes(1))) func aReplyOfManyTagsIsReadOnce() {
+        let spaced = "a" + String(repeating: " <think>x</think>", count: 200_000)
+        #expect(ModelChat.withoutThinking(spaced) == "a")
+        let closings = "```\nx\n```\n" + String(repeating: "</think> \t", count: 300_000)
+        #expect(ModelChat.withoutThinking(closings) == closings.trimmingCharacters(in: .whitespacesAndNewlines))
+        let blanks = String(repeating: " ", count: 1_000_000) + String(repeating: "</think>", count: 100_000) + "b"
+        #expect(ModelChat.withoutThinking(blanks) == "b")
     }
 
     @Test func theScriptIsTakenOutOfTheReply() {
