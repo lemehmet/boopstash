@@ -214,6 +214,9 @@ two. None widens what may be sent.
 - **Reasoning is dropped from the reply** in both spellings servers use:
   between `<think>` tags, and before a closing tag alone, which is what
   arrives when the chat template put the opening tag in the prompt.
+  *Refined 2026-11-25 (#281): the tags count only outside the reply's
+  code blocks. A script that mentions them, as one asked to strip them
+  does, is the script's text and is left whole.*
 - **Nothing of the endpoint is in a problem report or a log.** Report a
   Problem collects a fixed list of facts that the endpoint is not on: not
   its address, model, key or extra request fields. Neither the app nor

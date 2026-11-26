@@ -161,7 +161,8 @@ public enum ModelChat {
     /// server: empty content, no content at all (the reasoning went to a
     /// field of its own), or content that is reasoning still open, a
     /// `<think>` without its end. Whatever stands before that open tag is
-    /// an answer and is kept.
+    /// an answer and is kept. A `<think>` inside a code block is the
+    /// script's own text, not reasoning (#281).
     public static func reply(in data: Data) -> Reply {
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let choice = (object["choices"] as? [Any])?.first as? [String: Any]
@@ -170,10 +171,10 @@ public enum ModelChat {
         guard let raw = (choice["message"] as? [String: Any])?["content"] as? String else {
             return limited ? .cutOff : .none
         }
-        var text = withoutThinking(raw)
-        if limited, let open = text.range(of: "<think>") {
-            text = String(text[..<open.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
-        }
+        let answer = answer(in: raw)
+        var text = answer.text
+        if limited, let open = answer.openReasoning { text = String(text[..<open]) }
+        text = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if limited, text.isEmpty { return .cutOff }
         return .content(text, limited: limited)
     }
@@ -183,18 +184,153 @@ public enum ModelChat {
     /// because the chat template put the opening one in the prompt: then
     /// everything up to that unmatched closing tag is reasoning too. An
     /// opening tag that never closes is left as it is.
+    ///
+    /// The tags count only outside ``` code blocks (#281): a script that
+    /// mentions them, as one asked to strip them does, is left whole.
     public static func withoutThinking(_ text: String) -> String {
-        var text = text
-        while let open = text.range(of: "<think>"),
-              let close = text.range(of: "</think>", range: open.upperBound..<text.endIndex) {
-            text.removeSubrange(open.lowerBound..<close.upperBound)
+        answer(in: text).text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// `reply` without its reasoning, and where in it a `<think>` that
+    /// never closes begins, if one does outside a code block.
+    ///
+    /// Reads the reply once, from its start. A block begins and ends at
+    /// a line that starts with ```, as `ModelScriptReply` reads them, and
+    /// nothing inside one is a tag. Outside blocks, a `<think>` goes
+    /// with everything up to the next `</think>` that is outside a block
+    /// too (reasoning that drafts a block takes the block with it), and
+    /// a `</think>` with no opening tag takes everything before it.
+    ///
+    /// Reasoning that opens a block and never ends it cannot be told
+    /// from a script that mentions the tags, and is read as the script.
+    static func answer(in reply: String) -> (text: String, openReasoning: String.Index?) {
+        var kept = ""
+        var rest = reply[...]
+        var opening = TagSearch("<think>")
+        var closing = TagSearch("</think>")
+        var fences = FenceSearch()
+        while !rest.isEmpty {
+            let fence = fences.next(in: rest, atLineStart: endsAtLineStart(kept))
+            let open = opening.next(in: rest)
+            let close = closing.next(in: rest)
+            guard let first = [fence, open, close].compactMap({ $0?.lowerBound }).min() else { break }
+            if let fence, fence.lowerBound == first {
+                // A block: kept as it is, to the line that ends it, or to
+                // the end of a reply that never ends it.
+                let end = FenceSearch.afterLineBreak(in: rest[fence.upperBound...])?.upperBound ?? rest.endIndex
+                kept += rest[..<end]
+                rest = rest[end...]
+            } else if let open, open.lowerBound == first {
+                // Its closing tag is the next one outside a block: the
+                // reasoning may draft blocks of its own.
+                var inner = rest[open.upperBound...]
+                var end: Range<String.Index>?
+                while end == nil, let close = closing.next(in: inner) {
+                    guard let block = fences.next(in: inner, atLineStart: false), block.lowerBound < close.lowerBound else {
+                        end = close
+                        break
+                    }
+                    guard let blockEnd = FenceSearch.afterLineBreak(in: inner[block.upperBound...]) else { break }
+                    inner = inner[blockEnd.upperBound...]
+                }
+                guard let end else {
+                    // Reasoning still open: left as it is, and said.
+                    kept += rest[..<open.lowerBound]
+                    let at = kept.endIndex
+                    kept += rest[open.lowerBound...]
+                    return (kept, at)
+                }
+                kept += rest[..<open.lowerBound]
+                rest = rest[end.upperBound...]
+            } else if let close {
+                // A closing tag alone: all before it was reasoning.
+                kept = ""
+                rest = rest[close.upperBound...]
+            }
         }
-        // A closing tag left over has no opening tag before it.
-        while let close = text.range(of: "</think>") {
-            if let open = text.range(of: "<think>"), open.lowerBound < close.lowerBound { break }
-            text.removeSubrange(text.startIndex..<close.upperBound)
+        kept += rest
+        return (kept, nil)
+    }
+
+    /// Finds a tag from where the reading stands, remembering where it
+    /// last found it, or that there is none left, so that reading a long
+    /// reply with many blocks and tags searches each part of it once.
+    private struct TagSearch {
+        let tag: String
+        private var found: Range<String.Index>?
+        private var exhausted = false
+
+        init(_ tag: String) {
+            self.tag = tag
         }
-        return text.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        mutating func next(in rest: Substring) -> Range<String.Index>? {
+            if exhausted { return nil }
+            if let found, found.lowerBound >= rest.startIndex { return found }
+            found = rest.range(of: tag)
+            exhausted = found == nil
+            return found
+        }
+    }
+
+    /// Finds the next ``` that starts a line, after blanks at most, and
+    /// remembers it as `TagSearch` does.
+    private struct FenceSearch {
+        private var found: Range<String.Index>?
+        private var exhausted = false
+
+        /// The start of `rest` starts a line only if `atLineStart`: what
+        /// was kept before it may have put text on its line, or taken it
+        /// away.
+        mutating func next(in rest: Substring, atLineStart: Bool) -> Range<String.Index>? {
+            if atLineStart, let leading = Self.leading(in: rest) { return leading }
+            if exhausted { return nil }
+            if let found, found.lowerBound >= rest.startIndex { return found }
+            found = Self.afterLineBreak(in: rest)
+            exhausted = found == nil
+            return found
+        }
+
+        /// ``` at the start of `text`, after blanks at most.
+        static func leading(in text: Substring) -> Range<String.Index>? {
+            let bytes = text.utf8
+            var index = bytes.startIndex
+            while index < bytes.endIndex, bytes[index] == 0x20 || bytes[index] == 0x09 { index = bytes.index(after: index) }
+            guard bytes[index...].starts(with: marker) else { return nil }
+            return index..<bytes.index(index, offsetBy: 3)
+        }
+
+        /// The first ``` in `text` that follows a line break and blanks
+        /// at most. A carriage return counts, alone or before a line feed.
+        static func afterLineBreak(in text: Substring) -> Range<String.Index>? {
+            let bytes = text.utf8
+            var index = bytes.startIndex
+            var lineStart = false
+            while index < bytes.endIndex {
+                let byte = bytes[index]
+                if byte == 0x0A || byte == 0x0D {
+                    lineStart = true
+                } else if lineStart, byte == 0x60, bytes[index...].starts(with: marker) {
+                    return index..<bytes.index(index, offsetBy: 3)
+                } else if byte != 0x20 && byte != 0x09 {
+                    lineStart = false
+                }
+                index = bytes.index(after: index)
+            }
+            return nil
+        }
+
+        private static let marker: [UInt8] = [0x60, 0x60, 0x60]
+    }
+
+    /// Whether what comes next starts a line of `kept`, with at most
+    /// blanks before it: the place where ``` opens a block.
+    private static func endsAtLineStart(_ kept: String) -> Bool {
+        for byte in kept.utf8.reversed() {
+            if byte == 0x0A || byte == 0x0D { return true }
+            if byte != 0x20 && byte != 0x09 { return false }
+        }
+        return true
     }
 
     /// The message of an error body, in the shapes servers use:
