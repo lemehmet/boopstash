@@ -171,8 +171,11 @@ enum DiffReviewStyle {
 
     /// The line's text with the words that changed on a stronger
     /// background and underlined, so they show without colour too.
+    /// Whitespace that changed has nothing to underline, so it is drawn
+    /// as glyphs (`shownText`, #267), which take the marks' ranges as
+    /// the text itself does.
     static func text(of line: TextDiff.Line) -> AttributedString {
-        let text = NSMutableAttributedString(string: line.text.isEmpty ? " " : line.text)
+        let text = NSMutableAttributedString(string: line.text.isEmpty ? " " : line.shownText)
         guard line.kind != .unchanged else { return AttributedString(text) }
         let tint: NSColor = line.kind == .removed ? .systemRed : .systemGreen
         let length = (line.text as NSString).length

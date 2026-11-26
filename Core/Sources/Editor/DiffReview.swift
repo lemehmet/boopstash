@@ -87,9 +87,96 @@ extension TextDiff.Line {
         case .added: (what, number) = ("Added", newNumber)
         }
         let place = number.map { ", line \($0)" } ?? ""
-        let content = text.isEmpty ? "empty line" : text
         let ending = endingChanged ? ", \(self.ending.spokenChange)" : ""
-        return "\(what)\(place): \(content)\(ending)"
+        return "\(what)\(place): \(spokenContent)\(ending)"
+    }
+
+    /// The line's text as it is read out. Whitespace is silence to
+    /// VoiceOver, so a line of nothing else is said as what it holds
+    /// ("only 2 spaces"), and whitespace that changed between words is
+    /// named after the text (#267).
+    private var spokenContent: String {
+        if text.isEmpty { return "empty line" }
+        if text.unicodeScalars.allSatisfy(\.properties.isWhitespace) {
+            return "only " + TextDiff.spokenWhitespace(text.unicodeScalars)
+        }
+        let ns = text as NSString
+        let changed = markedWhitespace.map { TextDiff.spokenWhitespace(ns.substring(with: $0).unicodeScalars) }
+        guard !changed.isEmpty else { return text }
+        let named = changed.prefix(TextDiff.spokenWhitespaceLimit).joined(separator: "; ")
+        let more = changed.count > TextDiff.spokenWhitespaceLimit ? "; and more" : ""
+        return "\(text), changed whitespace: \(named)\(more)"
+    }
+
+    /// The marks that cover whitespace and nothing else: a change that
+    /// neither an underline nor a voice has anything to show on.
+    var markedWhitespace: [NSRange] {
+        let ns = text as NSString
+        return changes.filter { range in
+            guard range.location >= 0, range.length > 0, NSMaxRange(range) <= ns.length else { return false }
+            return (range.location..<NSMaxRange(range)).allSatisfy { TextDiff.whitespaceGlyph(ns.character(at: $0)) != nil }
+        }
+    }
+
+    /// The text as the review draws it: the same, but for whitespace
+    /// under a mark that covers nothing else, which is drawn as a glyph
+    /// (a space as "·", a tab as "→"), so a space that became a tab shows
+    /// and shows without colour (#267). One UTF-16 unit for each unit of
+    /// `text`: the ranges of `changes` fit this text as they fit that.
+    /// Whitespace anywhere else is left as it is.
+    public var shownText: String {
+        let marked = markedWhitespace
+        guard !marked.isEmpty else { return text }
+        var units = Array(text.utf16)
+        for range in marked {
+            for index in range.location..<NSMaxRange(range) {
+                if let glyph = TextDiff.whitespaceGlyph(units[index]) { units[index] = glyph }
+            }
+        }
+        return String(decoding: units, as: UTF16.self)
+    }
+}
+
+extension TextDiff {
+    /// How many runs of whitespace, and how many marks, are named when a
+    /// line is read out before the rest is "and more".
+    static let spokenWhitespaceLimit = 4
+
+    /// The glyph that stands for a whitespace UTF-16 unit, nil for a unit
+    /// that is not whitespace. All Unicode whitespace is one unit, and
+    /// so is each glyph.
+    static func whitespaceGlyph(_ unit: UInt16) -> UInt16? {
+        guard let scalar = Unicode.Scalar(unit), scalar.properties.isWhitespace else { return nil }
+        let glyph: Unicode.Scalar = switch scalar {
+        case " ": "\u{B7}"       // · middle dot
+        case "\t": "\u{2192}"    // → rightwards arrow
+        case "\u{A0}": "\u{237D}" // ⍽ shouldered open box
+        case "\r": "\u{240D}"    // ␍ symbol for carriage return
+        default: "\u{2423}"      // ␣ open box
+        }
+        return UInt16(glyph.value)
+    }
+
+    /// Whitespace in words, run by run: "2 spaces, 1 tab".
+    static func spokenWhitespace(_ scalars: String.UnicodeScalarView) -> String {
+        var runs: [(name: String, plural: String, count: Int)] = []
+        for scalar in scalars {
+            let (name, plural) = switch scalar {
+            case " ": ("space", "spaces")
+            case "\t": ("tab", "tabs")
+            case "\u{A0}": ("no-break space", "no-break spaces")
+            case "\r": ("carriage return", "carriage returns")
+            default: ("other whitespace character", "other whitespace characters")
+            }
+            if runs.last?.name == name {
+                runs[runs.count - 1].count += 1
+            } else {
+                runs.append((name, plural, 1))
+            }
+        }
+        var parts = runs.prefix(spokenWhitespaceLimit).map { "\($0.count) \($0.count == 1 ? $0.name : $0.plural)" }
+        if runs.count > spokenWhitespaceLimit { parts.append("and more whitespace") }
+        return parts.joined(separator: ", ")
     }
 }
 

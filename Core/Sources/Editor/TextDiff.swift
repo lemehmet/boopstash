@@ -36,7 +36,8 @@ public enum TextDiff {
         public var newNumber: Int?
         /// The parts of `text` that differ from the line it replaced or
         /// was replaced by, as UTF-16 ranges. Empty when the line has no
-        /// counterpart, or differs from it too much for marks to help.
+        /// counterpart, or differs from it too much for marks to help. A
+        /// range may hold nothing but whitespace: see `shownText`.
         public var changes: [NSRange]
         /// The other side of the change ends this line differently (a
         /// final newline gained or lost, or LF against CRLF), which the
@@ -422,10 +423,19 @@ public enum TextDiff {
     /// The parts of two lines that differ, as UTF-16 ranges in each. Empty
     /// for both when the lines share too little for marks to help: then
     /// the whole line is the change.
+    ///
+    /// Lines of nothing but whitespace are the exception (#267). They
+    /// have no words to share, and without marks a line of a space and
+    /// one of a tab are two rows that look the same, so their marks stay;
+    /// against an empty line, the whitespace is marked whole.
     static func wordChanges(_ old: String, _ new: String) -> ([NSRange], [NSRange]) {
         let before = tokens(old)
         let after = tokens(new)
-        guard !before.isEmpty, !after.isEmpty else { return ([], []) }
+        guard !before.isEmpty, !after.isEmpty else {
+            // One side is empty: all of the other is new or gone, which
+            // the row says already, unless nothing in it can be seen.
+            return (blank(before) ? whole(old) : [], blank(after) ? whole(new) : [])
+        }
         // By code units, as lines are: see `Entry`.
         var ids: [[UInt8]: Int] = [:]
         func id(_ token: Token) -> Int {
@@ -446,9 +456,20 @@ public enum TextDiff {
             }
         }
         let words = max(before.count(where: { !$0.isSpace }), after.count(where: { !$0.isSpace }))
+        // No words on either side: the whitespace is all there is to mark.
+        if words == 0 { return (removed, added) }
         // Fewer than a third of the words in common: two different lines.
-        guard words > 0, kept * 3 >= words else { return ([], []) }
+        guard kept * 3 >= words else { return ([], []) }
         return (removed, added)
+    }
+
+    /// A line of whitespace and nothing else; an empty line is not one.
+    private static func blank(_ tokens: [Token]) -> Bool {
+        !tokens.isEmpty && tokens.allSatisfy(\.isSpace)
+    }
+
+    private static func whole(_ line: String) -> [NSRange] {
+        [NSRange(location: 0, length: line.utf16.count)]
     }
 
     private static func append(_ range: NSRange, to ranges: inout [NSRange]) {

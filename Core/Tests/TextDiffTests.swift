@@ -155,6 +155,53 @@ import Testing
         #expect(lines[0].changes.isEmpty && lines[1].changes.isEmpty)
     }
 
+    /// Lines of nothing but whitespace have no words to share, and still
+    /// show what changed (#267): there the whitespace is the whole line.
+    @Test func aLineOfNothingButWhitespaceKeepsItsMarks() {
+        let lines = TextDiff.lines(old: " \n", new: "\t\n")
+        #expect(lines.map(\.kind) == [.removed, .added])
+        #expect(lines[0].changes == [NSRange(location: 0, length: 1)])
+        #expect(lines[1].changes == [NSRange(location: 0, length: 1)])
+        #expect(marked(lines[0]) == [" "])
+        #expect(marked(lines[1]) == ["\t"])
+        let indent = TextDiff.lines(old: "    \n", new: "\t\t\n")
+        #expect(marked(indent[0]) == ["    "])
+        #expect(marked(indent[1]) == ["\t\t"])
+        let (removed, added) = TextDiff.wordChanges(" ", "\t")
+        #expect(removed == [NSRange(location: 0, length: 1)] && added == [NSRange(location: 0, length: 1)])
+    }
+
+    @Test func whitespaceAgainstAnEmptyLineIsMarkedWhole() {
+        let gained = TextDiff.lines(old: "\n", new: "  \n")
+        #expect(gained.map(\.kind) == [.removed, .added])
+        #expect(gained[0].changes.isEmpty, "an empty line has nothing to mark")
+        #expect(gained[1].changes == [NSRange(location: 0, length: 2)])
+        let lost = TextDiff.lines(old: " \t\n", new: "\n")
+        #expect(lost[0].changes == [NSRange(location: 0, length: 2)])
+        #expect(lost[1].changes.isEmpty)
+        let (removed, added) = TextDiff.wordChanges("", "  ")
+        #expect(removed.isEmpty && added == [NSRange(location: 0, length: 2)])
+    }
+
+    /// Not only spaces and tabs: whatever Unicode calls whitespace.
+    @Test func otherKindsOfWhitespaceAreMarkedToo() {
+        let lines = TextDiff.lines(old: "\u{3000}\n", new: "\u{A0}\u{2003}\n")
+        #expect(lines[0].changes == [NSRange(location: 0, length: 1)])
+        #expect(lines[1].changes == [NSRange(location: 0, length: 2)])
+    }
+
+    /// Only whitespace earns marks without a word in common: a line of
+    /// words beside an empty or blank one is a different line, as before.
+    @Test func wordsAgainstAnEmptyOrBlankLineAreNotMarked() {
+        for (old, new) in [("\n", "return nil\n"), ("return nil\n", "\n"), ("  \n", "return nil\n"), ("return nil\n", "\t\n"), ("  \n", "  return nil\n")] {
+            let lines = TextDiff.lines(old: old, new: new)
+            #expect(lines.map(\.kind) == [.removed, .added])
+            #expect(lines[0].changes.isEmpty && lines[1].changes.isEmpty, "\(old.debugDescription) against \(new.debugDescription)")
+        }
+        let (removed, added) = TextDiff.wordChanges("", "")
+        #expect(removed.isEmpty && added.isEmpty)
+    }
+
     @Test func marksAreUTF16RangesAlsoPastAnEmoji() {
         let lines = TextDiff.lines(old: "🙂 old value\n", new: "🙂 new value\n")
         #expect(marked(lines[0]) == ["old"])
