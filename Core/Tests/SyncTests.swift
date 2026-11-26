@@ -515,8 +515,11 @@ import Testing
     }
 
     /// #233 leaves the digest of a record built here as it was: such a
-    /// record never held a field outside the schema, so the uploads
-    /// remembered before the change (`syncUpload`, v13) are still found.
+    /// record never held a field outside the schema. An upload identity
+    /// (ADR 0015) changes no digest either, so a record is the same content
+    /// with and without one, whoever wrote it. No remembered upload depends
+    /// on this any more: the uploads remembered before identities are
+    /// forgotten when the store is opened (`v14-sync-upload-identity`).
     @Test func theContentDigestOfABuiltRecordIsWhatItWasBeforeUnknownFieldsWereLeftOut() throws {
         // As records were built then: without an upload identity, which
         // changes no digest either.
