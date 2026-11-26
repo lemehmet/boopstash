@@ -984,6 +984,98 @@ struct ScriptWorkbenchFlowTests {
         }
     }
 
+    /// A generator whose availability checks the test answers one by
+    /// one, in any order (#282): the first asked is check 0.
+    actor SteppedGenerator: ScriptGenerator {
+        private var waiting: [Int: CheckedContinuation<ScriptGeneratorAvailability, Never>] = [:]
+        private(set) var asked = 0
+        private(set) var requests: [ScriptGenerationRequest] = []
+
+        func availability() async -> ScriptGeneratorAvailability {
+            let check = asked
+            asked += 1
+            return await withCheckedContinuation { waiting[check] = $0 }
+        }
+
+        func answer(_ check: Int, _ availability: ScriptGeneratorAvailability) {
+            waiting.removeValue(forKey: check)?.resume(returning: availability)
+        }
+
+        func generate(_ request: ScriptGenerationRequest) async -> Result<String, ScriptGenerationFailure> {
+            requests.append(request)
+            return .success(ScriptWorkbenchFlowTests.prefixing)
+        }
+    }
+
+    /// Waits until `generator` has been asked `count` times.
+    func asked(_ count: Int, of generator: SteppedGenerator) async {
+        while await generator.asked < count { try? await Task.sleep(for: .milliseconds(5)) }
+    }
+
+    /// #282: Check Again cancels the check in flight. Its answer, when
+    /// it comes after the newer one, changes nothing the window shows.
+    @Test func aCheckThatCheckAgainCancelledDoesNotWriteOverTheNewerAnswer() async throws {
+        let (window, view) = host("REG_A 1\nREG_B 2")
+        let fake = SteppedGenerator()
+        let session = await workbench(on: view, generator: fake, awaitingGenerator: false)
+        let older = ScriptGeneratorDestination(summary: "the model at old.example", host: "old.example", locality: .elsewhere)
+        let newer = ScriptGeneratorDestination(summary: "the model at localhost:8080", host: "localhost", locality: .thisMac)
+
+        // A slow check, then Check Again, whose answer arrives first.
+        let slow = try #require(session.availabilityCheck)
+        await asked(1, of: fake)
+        session.checkAgain()
+        let second = try #require(session.availabilityCheck)
+        await asked(2, of: fake)
+        await fake.answer(1, .available(newer))
+        await second.value
+        #expect(session.destination == newer)
+        let shown = try #require(session.sampleToSend)
+        #expect(shown.text == "REG_A 1\nREG_B 2")
+        // The note is edited before the slow one finishes.
+        view.insertText("NOT SHOWN 9\n", replacementRange: NSRange(location: 0, length: 0))
+        await fake.answer(0, .available(older))
+        await slow.value
+        #expect(session.destination == newer, "the window still says where the newer check said")
+        #expect(session.sampleToSend == shown, "and the note was not read again for a check that was cancelled")
+        #expect(session.availabilityCheck == second, "the newer check is still the one there is")
+
+        // An older reason does not disable a Generate the newer check enabled.
+        session.checkAgain()
+        let third = try #require(session.availabilityCheck)
+        await asked(3, of: fake)
+        session.checkAgain()
+        let fourth = try #require(session.availabilityCheck)
+        await asked(4, of: fake)
+        await fake.answer(3, .available(newer))
+        await fourth.value
+        let fresh = try #require(session.sampleToSend)
+        #expect(fresh.text == "NOT SHOWN 9\nREG_A 1\nREG_B 2", "Check Again read the note, and shows what it read")
+        await fake.answer(2, .unavailable(reason: "No model is chosen."))
+        await third.value
+        #expect(session.destination == newer && session.unavailableReason == nil)
+        #expect(session.sampleToSend == fresh)
+
+        // Nor does an older destination enable one the newer check disabled.
+        session.checkAgain()
+        let fifth = try #require(session.availabilityCheck)
+        await asked(5, of: fake)
+        session.checkAgain()
+        let sixth = try #require(session.availabilityCheck)
+        await asked(6, of: fake)
+        await fake.answer(5, .unavailable(reason: "No model is chosen."))
+        await sixth.value
+        await fake.answer(4, .available(older))
+        await fifth.value
+        #expect(session.destination == nil && session.unavailableReason == "No model is chosen.")
+        #expect(session.sampleToSend == nil, "with nowhere to send it, nothing is on show as sent")
+        session.instruction = "make defines"
+        session.generate()
+        #expect(session.generatingTask == nil)
+        #expect(await fake.requests.isEmpty)
+        close(window, view)
+    }
+
     @Test func withoutAGeneratorThereIsNoPromptFieldOrGenerate() async {
         let (window, view) = host(Self.numbers)
         let session = await workbench(on: view)
@@ -1115,13 +1207,18 @@ struct ScriptWorkbenchFlowTests {
     @Test func theMenuOpensTheWorkbenchWithTheLineSkeletonThenWithTheLastScript() async throws {
         defer { try? FileManager.default.removeItem(at: folder) }
         let model = AppModel(store: try .inMemory())
+        // #283: a model a test makes has no model endpoint, so it reads
+        // neither the settings nor the Keychain of whoever runs the test,
+        // whatever endpoint they saved in a Debug build.
+        #expect(model.modelEndpoint == nil && model.scriptGenerator == nil)
         model.scriptsFolder = folder
         model.workbenchLayout = layout
         let (window, view) = host(Self.numbers)
         model.openWorkbench(in: view)
         var session = try #require(view.workbench)
         #expect(session.script == ScriptSkeleton.lineByLine.source)
-        #expect(session.destination == nil, "no generator ships")
+        #expect(session.availabilityCheck == nil, "with no generator nothing is asked")
+        #expect(session.destination == nil && session.unavailableReason == nil, "and there is no prompt row")
         #expect(session.libraryScripts.contains { $0.isBundled }, "the bundled scripts are bases to adapt")
         // Chosen again, the same workbench comes forward with its script as it is.
         setScript(session, "// half written")

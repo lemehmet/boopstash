@@ -415,6 +415,90 @@ struct ModelEndpointTests {
         #expect(ModelChat.reply(in: completion(content: "reasoning</think>answer <think>more", finish: "length")) == .content("answer", limited: true))
     }
 
+    /// #281: a script that mentions the tags (asked to "strip think
+    /// tags", a model writes them) is code, not reasoning.
+    @Test(arguments: [
+        "function main(state) {\n  state.text = state.text.split(\"</think>\").pop();\n}",
+        "function main(state) {\n  const x = \"hm\";\n  state.text = state.text.replace(\"<think>\" + x + \"</think>\", \"\");\n}",
+        "function main(state) {\n  // drops everything up to <think>\n  state.text = state.text.split(\"<think>\")[0];\n}",
+    ])
+    func aScriptThatMentionsThinkTagsIsTakenOutWhole(script: String) {
+        func outcome(_ content: String, finish: String = "stop") -> Result<String, ScriptGenerationFailure> {
+            ModelChat.outcome(of: ModelServiceResponse(status: 200, body: completion(content: content, finish: finish)),
+                              host: "models.example", timeLimit: 60)
+        }
+        let fenced = "```js\n\(script)\n```"
+        #expect(ModelChat.reply(in: completion(content: fenced)) == .content(fenced, limited: false))
+        #expect(ModelChat.withoutThinking(fenced) == fenced)
+        #expect(outcome(fenced) == .success(script))
+        #expect(outcome("Here you go:\n\(fenced)\nIt removes the reasoning.") == .success(script))
+        // What is said after the script may name the closing tag: the script is not reasoning for that.
+        #expect(outcome("\(fenced)\nThis keeps what follows `</think>`.") == .success(script))
+        #expect(outcome("\(fenced)\nThis keeps what follows `</think>`, and", finish: "length") == .success(script))
+        #expect(outcome("\(fenced)\nIt keeps what follows `</think>`. For example:\n```\nx</think>b\n```") == .success(script),
+                "an example block after the sentence changes nothing")
+        // A fence may be indented with any space, as the block reader takes it.
+        #expect(outcome("\u{00A0}```js\n\(script)\n\u{00A0}```") == .success(script))
+        #expect(outcome("Here:\n\u{3000}\t```js\n\(script)\n\u{2003}```\nDone.") == .success(script))
+        // Reasoning ahead of it is still dropped, in both spellings.
+        #expect(ModelChat.reply(in: completion(content: "<think>They want the tags gone.</think>\n\(fenced)")) == .content(fenced, limited: false))
+        #expect(ModelChat.reply(in: completion(content: "They want the tags gone.</think>\n\(fenced)")) == .content(fenced, limited: false))
+        #expect(outcome("They want the tags gone.</think>\(fenced)") == .success(script), "the block starts right after the tag")
+        #expect(outcome("<think>hm</think>  \(fenced)") == .success(script))
+        // Reasoning that drafts a block of its own goes with its block.
+        let draft = "```js\nfunction main(state) { state.text = \"draft\"; }\n```"
+        #expect(ModelChat.reply(in: completion(content: "<think>Maybe:\n\(draft)\nNo.</think>\n\(fenced)")) == .content(fenced, limited: false))
+        // After a closing tag alone the draft stays (it may have been the script), and the last block is the answer.
+        #expect(outcome("Maybe:\n\(draft)\nNo.</think>\n\(fenced)") == .success(script))
+        // At the token limit a block that was closed is a script, whatever it mentions,
+        #expect(outcome(fenced, finish: "length") == .success(script))
+        #expect(ModelChat.reply(in: completion(content: "\(fenced)\n<think>and now", finish: "length")) == .content(fenced, limited: true))
+        // and one cut off before its end is cut off, not half a script.
+        let half = "```js\n\(script)"
+        #expect(ModelChat.reply(in: completion(content: half, finish: "length")) == .content(half, limited: true))
+        #expect(outcome(half, finish: "length") == .failure(.cutOff))
+    }
+
+    @Test func reasoningIsDroppedOnlyOutsideCodeBlocks() {
+        #expect(ModelChat.withoutThinking("<think>a</think>\n```\n</think>\n```\n<think>b</think>after") == "```\n</think>\n```\nafter")
+        let after = "a\n```\n<think>x</think>\n```\nb</think>c</think>d"
+        #expect(ModelChat.withoutThinking(after) == after, "after a block, a closing tag alone takes nothing")
+        let between = "a\n```\nx\n```\nb</think>\n```\nmain\n```"
+        #expect(ModelChat.withoutThinking(between) == between, "nor between two blocks")
+        #expect(ModelChat.withoutThinking("a ``` b</think>\n```\nmain\n```") == "```\nmain\n```", "with no block before it, it ends the reasoning")
+        #expect(ModelChat.withoutThinking("  ```js\n<think>\n  ```\ntext") == "```js\n<think>\n  ```\ntext", "an indented fence is a fence")
+        #expect(ModelChat.withoutThinking("say ``` then </think>answer") == "answer", "backticks inside a line open no block")
+        #expect(ModelChat.withoutThinking("```\r\n</think>\r\n```\r\nafter") == "```\r\n</think>\r\n```\r\nafter", "Windows line endings")
+        // Reasoning that drafts a block which mentions the tag ends at its own closing tag,
+        #expect(ModelChat.withoutThinking("<think>Draft:\n```js\nx.split(\"</think>\")\n```\nGood.</think>\n```js\nmain\n```") == "```js\nmain\n```")
+        // and prose that names the opening tag does not take the script's closing tag for its end.
+        let named = "This removes <think> spans:\n```js\nfunction main(state) { state.text = state.text.split(\"</think>\").pop(); }\n```"
+        #expect(ModelChat.withoutThinking(named) == named)
+        #expect(ModelScriptReply.extract(ModelChat.withoutThinking(named)) == "function main(state) { state.text = state.text.split(\"</think>\").pop(); }")
+        // A known limit: prose that names the opening tag before the block and the closing tag after it
+        // reads as reasoning that drafted a block, and the block goes with it.
+        #expect(ModelChat.withoutThinking(named + "\nIt keeps what follows `</think>`.") == "This removes `.")
+        // An opening tag that never closes is left, and a block after it is not looked into.
+        #expect(ModelChat.withoutThinking("<think>open\n```\n</think") == "<think>open\n```\n</think")
+        // Reasoning cut off at the token limit after it drafted a block is cut off: the draft is no answer.
+        let draft = "<think>Maybe:\n```js\nfunction main(state) { state.text = \"draft\"; }\n```\nOr"
+        #expect(ModelChat.reply(in: completion(content: draft, finish: "length")) == .cutOff)
+        // Many blocks and tags cost no more than the reply's length.
+        let many = String(repeating: "```\n</think>\n```\n<think>x</think>\n", count: 20_000)
+        #expect(ModelChat.withoutThinking(many) == String(repeating: "```\n</think>\n```\n\n", count: 20_000).trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    /// A reply as long as is accepted, all tags with blanks between
+    /// them, is read in the time its length takes, not its square.
+    @Test(.timeLimit(.minutes(1))) func aReplyOfManyTagsIsReadOnce() {
+        let spaced = "a" + String(repeating: " <think>x</think>", count: 200_000)
+        #expect(ModelChat.withoutThinking(spaced) == "a")
+        let closings = "```\nx\n```\n" + String(repeating: "</think> \t", count: 300_000)
+        #expect(ModelChat.withoutThinking(closings) == closings.trimmingCharacters(in: .whitespacesAndNewlines))
+        let blanks = String(repeating: " ", count: 1_000_000) + String(repeating: "</think>", count: 100_000) + "b"
+        #expect(ModelChat.withoutThinking(blanks) == "b")
+    }
+
     @Test func theScriptIsTakenOutOfTheReply() {
         let script = "function main(state) {\n  state.text = state.text.trim();\n}"
         #expect(ModelScriptReply.extract("Here you go:\n```js\n\(script)\n```\nEnjoy.") == script)

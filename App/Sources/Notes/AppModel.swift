@@ -177,12 +177,16 @@ final class AppModel {
     }
 
     /// Settings ▸ Model (ADR 0014): the model endpoint the user set up,
-    /// if they did. Empty by default.
-    @ObservationIgnored var modelEndpoint = ModelEndpointStore()
+    /// if they did. Only `live()` gives a model the user's own, which
+    /// reads their settings and, for a request, their Keychain; a model
+    /// made any other way (a test's, #283) has none until it is handed
+    /// one, so it reads neither.
+    @ObservationIgnored var modelEndpoint: ModelEndpointStore?
     /// What writes a first draft in the script workbench (#247): the
     /// user's own model endpoint. With none configured it says so, and
-    /// the workbench has no prompt field.
-    @ObservationIgnored lazy var scriptGenerator: (any ScriptGenerator)? = modelEndpoint.generator
+    /// the workbench has no prompt field; nor has it with no endpoint
+    /// store at all.
+    @ObservationIgnored lazy var scriptGenerator: (any ScriptGenerator)? = modelEndpoint?.generator
     /// The script the workbench held when it last closed, in memory only,
     /// so that closing the workbench does not lose a script half written.
     @ObservationIgnored var workbenchDraft: String?
@@ -338,7 +342,14 @@ final class AppModel {
         attachmentRows?.cancel()
     }
 
+    /// The app's own model: the user's notes, and their settings.
     static func live() throws -> AppModel {
+        let model = try opened()
+        model.modelEndpoint = .live()
+        return model
+    }
+
+    private static func opened() throws -> AppModel {
         #if DEBUG
         // Screenshots (#69): made-up notes in memory; the real store, sync
         // and the Scripts folder are never touched.
