@@ -6,7 +6,8 @@ import Foundation
 /// field the app defines travels in `encrypted`, which the adapter writes to
 /// `encryptedValues` (ADR 0002); in the clear are only the record name (a
 /// random UUID), the type, the parent reference and the asset. Labels add
-/// nothing in the clear (ADR 0011).
+/// nothing in the clear (ADR 0011), and neither does a note upload's
+/// identity (ADR 0015).
 public struct SyncRecord: Equatable, Sendable {
     public enum Kind: String, Codable, CaseIterable, Sendable {
         case note = "Note"
@@ -43,6 +44,11 @@ extension SyncRecord {
     /// two saves of the same content apart: the store pairs it with the
     /// record's edit date for that (`NoteStore.editStamp`, #232).
     ///
+    /// The upload's identity (`SyncMapping.uploadIDField`, ADR 0015) is left
+    /// out as well: it says which upload a record is, not what the note
+    /// holds, and the store checks it beside this digest. So the digest of a
+    /// record is the same with and without one, whoever wrote it.
+    ///
     /// A field outside the schema is left out (#233). The adapter leaves a
     /// newer app version's fields on the server and reads them back, so the
     /// record coming back can hold more than the one built here, which never
@@ -54,7 +60,7 @@ extension SyncRecord {
     /// server's record has the new field, and is merged, which keeps both
     /// texts.
     public var contentDigest: String {
-        let known = SyncMapping.schemaFields[kind] ?? []
+        let known = (SyncMapping.schemaFields[kind] ?? []).subtracting([SyncMapping.uploadIDField])
         let parts: [[String]] = encrypted.keys.filter(known.contains).sorted().compactMap { key in
             switch encrypted[key] {
             case .string(let value)?: [key, "s", value]
@@ -130,6 +136,31 @@ public enum SyncMapping {
     /// 0011); absent when it has none, so clearing them clears the field.
     static let labelIDsField = "labelIDs"
 
+    /// Which upload a note record is (#291, ADR 0015): a random value the
+    /// store makes for each record it builds for sending
+    /// (`NoteStore.pendingSave`) and remembers until the note is back in
+    /// step. It travels encrypted like every other field, says nothing about
+    /// the note, the user or the device, and is never logged. A device that
+    /// applies a record does not keep the value: the next record it builds
+    /// carries its own. A client from before the field neither reads nor
+    /// writes it, and leaves the server's as it is when it saves (the
+    /// adapter touches only its own schema's keys), so a value can outlive
+    /// the upload it named: it proves nothing without the content and the
+    /// edit date it was sent with (`NoteStore.applyServerRecord`).
+    public static let uploadIDField = "uploadID"
+
+    /// A new upload identity: 122 random bits, as a lowercased UUID string.
+    /// Nothing is derived from the note, the device or the account.
+    static func newUploadID() -> String { UUID().uuidString.lowercased() }
+
+    /// The identity a note record carries; nil when absent (an older
+    /// client's record, or one never saved by a client that writes it) or
+    /// not a non-empty string.
+    public static func uploadID(from record: SyncRecord) -> String? {
+        guard record.kind == .note, let value = record.encrypted[uploadIDField]?.string, !value.isEmpty else { return nil }
+        return value
+    }
+
     static let labelFields: [(name: String, value: @Sendable (NoteLabel) -> SyncValue?)] = [
         ("name", { .string($0.name) }),
         ("color", { .string($0.color) }),
@@ -147,18 +178,21 @@ public enum SyncMapping {
 
     /// Every encrypted field each record type can carry: the CloudKit schema.
     public static let schemaFields: [SyncRecord.Kind: Set<String>] = [
-        .note: Set(noteFields.map(\.name) + [labelIDsField]),
+        .note: Set(noteFields.map(\.name) + [labelIDsField, uploadIDField]),
         .attachment: Set(attachmentFields.map(\.name)),
         .label: Set(labelFields.map(\.name)),
     ]
 
     /// `labelIDs`: the labels the note carries, sent sorted so the same set
-    /// is always the same record.
-    public static func record(for note: Note, labelIDs: Set<UUID> = []) -> SyncRecord {
+    /// is always the same record. `uploadID`: the identity of the upload
+    /// this record is built for (`uploadIDField`); without one the record
+    /// describes the note only, as when two versions of it are compared.
+    public static func record(for note: Note, labelIDs: Set<UUID> = [], uploadID: String? = nil) -> SyncRecord {
         var fields = Dictionary(uniqueKeysWithValues: noteFields.compactMap { field in field.value(note).map { (field.name, $0) } })
         if !labelIDs.isEmpty {
             fields[labelIDsField] = .strings(labelIDs.map { $0.uuidString.lowercased() }.sorted())
         }
+        if let uploadID { fields[uploadIDField] = .string(uploadID) }
         return SyncRecord(kind: .note, name: note.id.uuidString.lowercased(), encrypted: fields)
     }
 

@@ -115,6 +115,24 @@ breaking changes may land in a minor release.
 
 ### Fixed
 
+- **With iCloud sync on, a label, syntax setting or generated title
+  changed and put back on another device is no longer taken for this
+  device's own upload (#291, ADR 0015).** A note sent from here whose
+  confirmation was lost, and which was edited here again, was recognised
+  when it came back by its content and edit date. A change that keeps the
+  edit date, made and undone elsewhere, left a note equal to the one sent,
+  so it passed for it and the edit here was sent over it without a merge.
+  Each note record now carries a random value naming that upload,
+  encrypted like every other field, and only a record with a value this
+  device made, and the content and date it was sent with, is its own;
+  anything else is merged, with a "(conflict)" copy when the text
+  differs. Devices on 0.4.5 or 0.4.6 keep syncing and leave the value
+  alone; on a note a newer version has saved they can make a "(conflict)"
+  copy where they would have recognised their own upload.
+  **Release gate: the new field `Note.uploadID` must be deployed to the
+  CloudKit Production schema before any release that contains this
+  change, or note saves from it are rejected by iCloud (see
+  `docs/plan/milestones.md`).**
 - **With iCloud sync on, a note a newer BoopStash has added a field to no
   longer gets a needless "(conflict)" copy.** A note sent from here whose
   confirmation was lost, and which was edited here again, is recognised

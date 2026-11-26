@@ -124,6 +124,13 @@ list is `SyncMapping.schemaFields`, and a test keeps
    store is not opened.
 2. In the CloudKit Console, Schema (Development) ▸ Deploy Schema Changes.
 
+Both steps are the maintainer's and come before any release that writes the
+field: until it is in the Production schema, every save of a record carrying
+it is rejected there. A change that adds a field says so as a release gate in
+`docs/plan/milestones.md` and in its changelog entry, with a check against
+the previous released client in Development (it must ignore the field and
+not strip it).
+
 ## App Store
 
 The Mac App Store and TestFlight builds go through fastlane (`fastlane/Fastfile`,
