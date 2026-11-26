@@ -112,11 +112,18 @@ complete reply; running the script is not counted.
 - **Runner errors.** When the child process cannot be started, or ends
   without a result (a trap inside the sandbox, say), nothing is known
   about the script. It is run again, up to three times in all. If the
-  runner fails every time the run is a *runner error*: it is in no figure
-  of the report, the model is not sent a retry for it, the report lists
-  it in a "Runner errors" section of its own, and the spike exits with
-  status 3. Run those cells again before the report is used. A *script
-  error* is only what the script itself raised or posted.
+  runner fails every time the attempt is a *runner error*, and the model
+  is not sent a retry for it. On the first try, the run is in no figure
+  of the report. On the retry, the run keeps its first try (a known
+  failure) in the first-try figures and is left out of those after and
+  about the retry, so the two columns of a row can have different
+  denominators. The report lists these runs in a "Runner errors" section
+  of its own, and the spike exits with status 3. Run those cells again
+  before the report is used. A script that itself brings the runner down
+  every time lands there too, and is not counted against the model: if a
+  cell does so again on a new run, read its replies (`--dump`). A *script
+  error* is only what the script itself raised or posted, and *timed out*
+  only a script the watchdog had to kill.
 - **"The same script again"** counts a retry when both replies hold a
   script and the two scripts are equal but for the space around them.
   Two replies without a script are not counted, however alike they are.

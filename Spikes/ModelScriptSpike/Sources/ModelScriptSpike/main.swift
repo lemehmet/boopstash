@@ -224,8 +224,15 @@ func describe(_ endpoint: Endpoint) -> String {
                                 timeout: endpoint.timeout, extra: endpoint.extraBody)
 }
 
-/// The runs of one fixture in one variation that count. A run the script
-/// runner failed on is in no figure; it is listed on its own.
+/// The runs of one fixture in one variation whose first try counts: all
+/// but those the script runner failed on at the first try. The first-try
+/// figures are of these.
+func firstScored(_ fixture: Fixture, _ variation: Variation) -> [Run] {
+    (results["\(fixture.id)|\(variation.id)"] ?? []).filter(\.firstIsScored)
+}
+
+/// The runs whose end counts: no runner failure on either try. The
+/// figures after the retry and about the retry are of these.
 func scored(_ fixture: Fixture, _ variation: Variation) -> [Run] {
     (results["\(fixture.id)|\(variation.id)"] ?? []).filter(\.isScored)
 }
@@ -252,38 +259,43 @@ var report = """
 """
 for fixture in fixtures {
     for variation in variations {
+        let firsts = firstScored(fixture, variation)
         let runs = scored(fixture, variation)
-        let first = runs.filter(\.first.passed).count
+        let first = firsts.filter(\.first.passed).count
         let end = runs.filter(\.passedInTheEnd).count
-        let seconds = runs.map(\.firstSeconds)
-        report += "| \(fixture.id) | \(variation.id) | \(first)/\(runs.count) | \(end)/\(runs.count) | \(String(format: "%.1f", median(seconds))) | \(String(format: "%.1f", seconds.max() ?? 0)) | \(tally(runs.map(\.first))) |\n"
+        let seconds = firsts.map(\.firstSeconds)
+        report += "| \(fixture.id) | \(variation.id) | \(first)/\(firsts.count) | \(end)/\(runs.count) | \(String(format: "%.1f", median(seconds))) | \(String(format: "%.1f", seconds.max() ?? 0)) | \(tally(firsts.map(\.first))) |\n"
     }
 }
 
 report += "\n## Per fixture, all variations together\n\n| Fixture | First try | After one retry | Retries that fixed it | Retries with the same script again |\n|---|---|---|---|---|\n"
 for fixture in fixtures {
+    let firsts = variations.flatMap { firstScored(fixture, $0) }
     let runs = variations.flatMap { scored(fixture, $0) }
     let retried = runs.filter { $0.retry != nil }
-    report += "| \(fixture.id) | \(runs.filter(\.first.passed).count)/\(runs.count) | \(runs.filter(\.passedInTheEnd).count)/\(runs.count) | \(retried.filter(\.passedInTheEnd).count)/\(retried.count) | \(retried.filter(\.retryRepeated).count)/\(retried.count) |\n"
+    report += "| \(fixture.id) | \(firsts.filter(\.first.passed).count)/\(firsts.count) | \(runs.filter(\.passedInTheEnd).count)/\(runs.count) | \(retried.filter(\.passedInTheEnd).count)/\(retried.count) | \(retried.filter(\.retryRepeated).count)/\(retried.count) |\n"
 }
 
+let everyFirst = fixtures.flatMap { fixture in variations.flatMap { firstScored(fixture, $0) } }
 let everyRun = fixtures.flatMap { fixture in variations.flatMap { scored(fixture, $0) } }
 let everyRetry = everyRun.filter { $0.retry != nil }
-let notScored = fixtures.flatMap { fixture in variations.flatMap { unscored(fixture, $0) } }.count
+let everyUnscored = fixtures.flatMap { fixture in variations.flatMap { unscored(fixture, $0) } }
+let notScored = everyUnscored.count
+let notScoredOnTheRetry = everyUnscored.filter(\.firstIsScored).count
 report += """
 
 ## Totals
 
-- First tries: \(everyRun.filter(\.first.passed).count) of \(everyRun.count) pass. Failures: \(tally(everyRun.map(\.first))).
+- First tries: \(everyFirst.filter(\.first.passed).count) of \(everyFirst.count) pass. Failures: \(tally(everyFirst.map(\.first))).
 - Retries: \(everyRetry.count) (a model error is not retried). Fixed: \(everyRetry.filter(\.passedInTheEnd).count). The same script again: \(everyRetry.filter(\.retryRepeated).count) (both replies held a script, and the two scripts were equal).
-- Runner errors: \(notScored). Such a run is in no figure of this report: the script runner failed on it \(Judge.runnerAttempts) times running, which says nothing of the script, and the model was not asked again.
+- Runner errors: \(notScored) runs, \(notScored - notScoredOnTheRetry) on the first try and \(notScoredOnTheRetry) on the retry. The script runner failed \(Judge.runnerAttempts) times running on the script, which says nothing of the script. A run with one on the first try is in no figure of this report and got no retry. A run with one on the retry keeps its first try in the first-try figures and is left out of those after and about the retry.
 - Seconds are to the complete first reply, whether or not it held a script.
 
 """
 
 report += "\n## How failures look\n\nUp to three different first-try failures of each kind per fixture.\n"
 for fixture in fixtures {
-    let failures = variations.flatMap { scored(fixture, $0) }.map(\.first).filter { !$0.passed }
+    let failures = variations.flatMap { firstScored(fixture, $0) }.map(\.first).filter { !$0.passed }
     guard !failures.isEmpty else { continue }
     report += "\n### \(fixture.id)\n\n"
     for (kind, group) in Dictionary(grouping: failures, by: \.kind).sorted(by: { $0.key < $1.key }) {
@@ -294,15 +306,17 @@ for fixture in fixtures {
 }
 
 if notScored > 0 {
-    report += "\n## Runner errors\n\nRuns that are in no figure above. Run these cells again before the report is used.\n\n"
-        + "| Fixture | Variation | Runs not scored | What the runner said |\n|---|---|---|---|\n"
+    report += "\n## Runner errors\n\nRuns left out of figures above, wholly or from the retry on (see Totals). Run these cells again before the report is used."
+        + " A script that itself brings the runner down every time lands here too: if a cell does so again, read its replies (`--dump`).\n\n"
+        + "| Fixture | Variation | Runs | On the first try | On the retry | What the runner said |\n|---|---|---|---|---|---|\n"
     for fixture in fixtures {
         for variation in variations {
             let runs = unscored(fixture, variation)
             guard !runs.isEmpty else { continue }
             var seen: [String] = []
             for message in runs.flatMap(\.runnerErrors).map(Outcome.short) where !seen.contains(message) { seen.append(message) }
-            report += "| \(fixture.id) | \(variation.id) | \(runs.count) | \(seen.joined(separator: "; ")) |\n"
+            let onRetry = runs.filter(\.firstIsScored).count
+            report += "| \(fixture.id) | \(variation.id) | \(runs.count) | \(runs.count - onRetry) | \(onRetry) | \(seen.joined(separator: "; ")) |\n"
         }
     }
 }
@@ -312,6 +326,6 @@ if let out = value(of: "--out") {
     do { try report.write(toFile: out, atomically: true, encoding: .utf8) } catch { say("could not write \(out): \(error.localizedDescription)") }
 }
 if notScored > 0 {
-    say("\(notScored) runs were not scored: the script runner failed on them. The report lists them.")
+    say("\(notScored) runs were not scored in full: the script runner failed on them. The report lists them.")
     exit(3)
 }

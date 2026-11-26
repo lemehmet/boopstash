@@ -80,10 +80,29 @@ final class ScriptedRunner {
         #expect(Run(first: .pass, firstSeconds: 1).isScored)
         #expect(Run(first: .scriptError("x"), firstSeconds: 1, retry: .wrong(line: 1, expected: "a", actual: nil, matching: 0, of: 1, head: "")).isScored)
         #expect(!Run(first: .runnerError("x"), firstSeconds: 1).isScored)
-        #expect(!Run(first: .scriptError("x"), firstSeconds: 1, retry: .runnerError("y")).isScored,
-                "the retry could not be scored, so the run's end is unknown")
-        #expect(Run(first: .scriptError("x"), firstSeconds: 1, retry: .runnerError("y")).runnerErrors == ["y"])
+        #expect(!Run(first: .runnerError("x"), firstSeconds: 1).firstIsScored)
         #expect(Run(first: .scriptError("x"), firstSeconds: 1, retry: .pass).passedInTheEnd)
+    }
+
+    /// Only the end of such a run is unknown: its first try is a known
+    /// failure and stays in the first-try figures.
+    @Test func aRunnerErrorOnTheRetryKeepsTheFirstTry() {
+        let run = Run(first: .scriptError("x"), firstSeconds: 1, retry: .runnerError("y"))
+        #expect(run.firstIsScored)
+        #expect(!run.isScored, "the retry could not be scored, so the run's end is unknown")
+        #expect(run.runnerErrors == ["y"])
+    }
+
+    /// A child with no result timed out only if the watchdog killed it.
+    @Test func onlyAChildTheWatchdogKilledTimedOut() {
+        #expect(ScriptRun.ended(watchdogFired: true, exit: .signal(15)) == .timedOut)
+        #expect(ScriptRun.ended(watchdogFired: true, exit: .status(3))
+            == .runnerFailed("the runner exited with status 3 and no result"), "it exited by itself as the watchdog fired")
+        #expect(ScriptRun.ended(watchdogFired: true, exit: .signal(5))
+            == .runnerFailed("the runner was ended by signal 5 and no result"), "it trapped as the watchdog fired")
+        #expect(ScriptRun.ended(watchdogFired: false, exit: .signal(15))
+            == .runnerFailed("the runner was ended by signal 15 and no result"), "not the watchdog's doing")
+        #expect(ScriptRun.ended(watchdogFired: false, exit: .status(0)) == .runnerFailed("the runner exited with status 0 and no result"))
     }
 
     @Test func theDetailOfATimeoutNamesTheLimit() {

@@ -15,6 +15,25 @@ public enum ScriptRun: Equatable, Sendable {
 
     /// Seconds a script may run.
     public static let timeLimit: TimeInterval = 2
+
+    /// How the runner's child process ended, for `ended`.
+    public enum Exit: Equatable, Sendable {
+        case status(Int32)
+        case signal(Int32)
+    }
+
+    /// What a child that left no result amounts to. It timed out only
+    /// when the watchdog is what ended it: the watchdog had fired and the
+    /// child died of the watchdog's own signal. A child that exited or
+    /// trapped by itself, even a moment before the watchdog would have
+    /// reached it, failed as a runner and is not the script's timeout.
+    public static func ended(watchdogFired: Bool, exit: Exit, watchdogSignal: Int32 = 15) -> ScriptRun {
+        switch exit {
+        case .signal(let signal) where watchdogFired && signal == watchdogSignal: .timedOut
+        case .signal(let signal): .runnerFailed("the runner was ended by signal \(signal) and no result")
+        case .status(let status): .runnerFailed("the runner exited with status \(status) and no result")
+        }
+    }
 }
 
 /// How one attempt ended.
@@ -27,7 +46,7 @@ public enum Outcome: Equatable, Sendable {
     case modelError(String)
     /// The script runner failed on every attempt. Nothing is known about
     /// the script, so this is neither a pass nor the model's failure: the
-    /// run is reported apart and left out of every count.
+    /// attempt is reported apart and counted nowhere.
     case runnerError(String)
 
     public var passed: Bool { self == .pass }
@@ -140,8 +159,16 @@ public struct Run: Sendable {
         }
     }
 
-    /// Whether the run counts. One with a runner error does not, on
-    /// either try: how it would have ended is not known.
+    /// Whether the first try counts: it does unless the runner failed on
+    /// it. A runner error on the retry leaves the first try what it was,
+    /// a known failure, and it stays in the first-try figures.
+    public var firstIsScored: Bool {
+        if case .runnerError = first { false } else { true }
+    }
+
+    /// Whether the run's end counts, for the figures after the retry and
+    /// about the retry. It does not when the runner failed on either try:
+    /// how the run would have ended is not known.
     public var isScored: Bool { runnerErrors.isEmpty }
 }
 

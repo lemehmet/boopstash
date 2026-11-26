@@ -54,13 +54,15 @@ enum ScriptRunner {
         watchdog.cancel()
 
         // A complete response wins: a child that finished as the watchdog
-        // fired has still finished. Only a run with no result is timed out.
+        // fired has still finished. A child with no result timed out only
+        // if the watchdog's SIGTERM is what ended it; one that exited or
+        // trapped by itself as the watchdog fired is a runner failure.
         if let response = try? JSONDecoder().decode(Response.self, from: data) {
             return .finished(output: response.output, errors: response.errors)
         }
-        if killed.isSet { return .timedOut }
-        let how = child.terminationReason == .uncaughtSignal ? "was ended by signal" : "exited with status"
-        return .runnerFailed("the runner \(how) \(child.terminationStatus) and no result")
+        let exit: ScriptRun.Exit = child.terminationReason == .uncaughtSignal
+            ? .signal(child.terminationStatus) : .status(child.terminationStatus)
+        return ScriptRun.ended(watchdogFired: killed.isSet, exit: exit, watchdogSignal: SIGTERM)
     }
 
     /// Whether the child's sandbox refuses a file read and a socket, asked
