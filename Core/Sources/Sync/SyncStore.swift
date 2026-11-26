@@ -211,7 +211,12 @@ extension NoteStore {
     /// revert, and is merged like any other (#232). A save that also has
     /// the upload's edit date, as after a change that is not an edit (a
     /// label, say) was made and undone elsewhere, cannot be told from the
-    /// upload (`editStamp`).
+    /// upload (`editStamp`). Fields this app version does not know take no
+    /// part: the upload coming back with a newer version's field beside it
+    /// is still this device's own, and so is a save elsewhere that changed
+    /// nothing else and kept the edit date (#233). Sending the edits here
+    /// then leaves such a field on the server as it is, since the adapter
+    /// never writes it.
     public func applyServerRecord(_ record: SyncRecord, systemFields: Data, changeTag: String? = nil, assetData: Data? = nil,
                                   now: Date = Date()) throws -> Note? {
         // Deleted here, deletion not yet sent: a stale save from the server

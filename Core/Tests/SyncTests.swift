@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import GRDB
 import Testing
@@ -422,7 +423,7 @@ import Testing
     }
 
     /// The digest leaves out the dates, which do not come back exactly as
-    /// sent, and nothing else.
+    /// sent, and nothing else this app writes.
     @Test func theContentDigestIgnoresOnlyDates() {
         let base = note("base", title: "Plan")
         var later = base
@@ -433,6 +434,190 @@ import Testing
         #expect(SyncMapping.record(for: later).contentDigest == digest)
         #expect(SyncMapping.record(for: retitled).contentDigest != digest)
         #expect(SyncMapping.record(for: base, labelIDs: [UUID()]).contentDigest != digest)
+    }
+
+    /// A note with every field set, and its record: every key of the note
+    /// schema is in it.
+    func fullRecord() -> SyncRecord {
+        var full = note("base", title: "Plan")
+        full.sourceBundleID = "com.example.terminal"
+        full.sourceAppName = "Terminal"
+        full.modelTitledHash = "abc"
+        full.syntaxOverride = "json"
+        return SyncMapping.record(for: full, labelIDs: [UUID()])
+    }
+
+    /// A value of the same kind that is not `value`.
+    func changed(_ value: SyncValue) -> SyncValue {
+        switch value {
+        case .string(let string): .string(string + "x")
+        case .bool(let bool): .bool(!bool)
+        case .int(let int): .int(int + 1)
+        case .strings(let strings): .strings(strings + ["x"])
+        case .date(let date): .date(date.addingTimeInterval(60))
+        }
+    }
+
+    /// #233: the digest covers every field of this version's schema but the
+    /// dates, each of them changed or taken away, and nothing outside it: a
+    /// field a newer app version wrote, which the adapter reads back with
+    /// the rest, does not make this device's own upload look foreign.
+    @Test func theContentDigestCoversEveryKnownFieldAndNoUnknownOne() throws {
+        let record = fullRecord()
+        let known = try #require(SyncMapping.schemaFields[.note])
+        #expect(Set(record.encrypted.keys) == known, "the record under test has every field")
+        let digest = record.contentDigest
+        for key in known.sorted() {
+            let value = try #require(record.encrypted[key])
+            var other = record, without = record
+            other.encrypted[key] = changed(value)
+            without.encrypted[key] = nil
+            if case .date = value {
+                #expect(other.contentDigest == digest, "\(key) is a date")
+                #expect(without.contentDigest == digest, "\(key) is a date")
+            } else {
+                #expect(other.contentDigest != digest, "\(key) changed")
+                #expect(without.contentDigest != digest, "\(key) taken away")
+            }
+        }
+        let unknown: [(String, SyncValue)] = [
+            ("pinned", .bool(true)), ("colour", .string("red")), ("rank", .int(3)), ("readers", .strings(["a", "b"])),
+            ("pinnedAt", .date(Date(timeIntervalSince1970: 5))),
+        ]
+        var newer = record
+        for (key, value) in unknown {
+            var one = record
+            one.encrypted[key] = value
+            #expect(one.contentDigest == digest, "\(key) is not this version's")
+            newer.encrypted[key] = value
+        }
+        #expect(newer.contentDigest == digest)
+    }
+
+    /// The other record types' digests follow their own schemas.
+    @Test func theContentDigestFollowsEachRecordTypesSchema() throws {
+        let label = SyncMapping.record(for: NoteLabel(name: "work", color: LabelColor.palette[0], createdAt: Date(timeIntervalSince1970: 1_000)))
+        var renamed = label, newerLabel = label
+        renamed.encrypted["name"] = .string("home")
+        newerLabel.encrypted["icon"] = .string("star")
+        // A note's field is not a label's.
+        newerLabel.encrypted["body"] = .string("text")
+        #expect(renamed.contentDigest != label.contentDigest)
+        #expect(newerLabel.contentDigest == label.contentDigest)
+    }
+
+    /// #233 leaves the digest of a record built here as it was: such a
+    /// record never held a field outside the schema, so the uploads
+    /// remembered before the change (`syncUpload`, v13) are still found.
+    @Test func theContentDigestOfABuiltRecordIsWhatItWasBeforeUnknownFieldsWereLeftOut() throws {
+        let record = fullRecord()
+        // What it was: every key the record holds but the dates.
+        let parts: [[String]] = record.encrypted.keys.sorted().compactMap { key in
+            switch record.encrypted[key] {
+            case .string(let value)?: [key, "s", value]
+            case .bool(let value)?: [key, "b", value ? "1" : "0"]
+            case .int(let value)?: [key, "i", String(value)]
+            case .strings(let values)?: [key, "l"] + values.sorted()
+            case .date?, nil: nil
+            }
+        }
+        let before = SHA256.hash(data: try JSONEncoder().encode(parts)).map { String(format: "%02x", $0) }.joined()
+        #expect(record.contentDigest == before)
+        let plain = SyncMapping.record(for: note("base", title: "Plan"))
+        #expect(plain.contentDigest != before, "and not one value for everything")
+    }
+
+    /// The upload coming back as a newer app version on another device left
+    /// it: every field this device sent, as sent, and one it does not know.
+    func withUnknownFields(_ record: SyncRecord) -> SyncRecord {
+        var newer = record
+        newer.encrypted["pinned"] = .bool(true)
+        newer.encrypted["pinnedAt"] = .date(Date(timeIntervalSince1970: 5))
+        return newer
+    }
+
+    /// #233: the server's record carries a field a newer app version wrote,
+    /// which this version leaves alone on the server and reads back. The
+    /// upload whose acknowledgement was lost comes back with it and is still
+    /// this device's own: the edit made since stays, pending, with no copy,
+    /// and is sent over the server's record. A change on another device
+    /// that touched nothing but such a field, and kept the edit date, is
+    /// this same record and is taken the same way: nothing this version can
+    /// read differs, and sending the edit leaves that field on the server.
+    @Test func ownUploadComingBackWithAnUnknownFieldKeepsTheEdits() throws {
+        let base = note("base", title: "Plan")
+        let name = base.id.uuidString.lowercased()
+        let uploaded = try #require(try unacknowledgedUpload(of: base))
+        var mine = try #require(try store.note(id: base.id))
+        mine.body = "second edit"
+        mine.updatedAt = base.updatedAt.addingTimeInterval(20)
+        try store.save(mine)
+        let serverFields = Data("server-fields".utf8)
+
+        #expect(try store.applyServerRecord(withUnknownFields(uploaded), systemFields: serverFields, changeTag: "tag-2") == nil)
+        #expect(try store.note(id: base.id)?.body == "second edit")
+        #expect(try store.notes(matching: NoteQuery()).count == 1, "no conflict copy")
+        #expect(try pendingNames() == ["save Note \(name)"], "the edit is still to send")
+        guard case .save(let next, let systemFields, _)? = try store.pendingSave(kind: .note, name: name) else {
+            Issue.record("not pending")
+            return
+        }
+        #expect(systemFields == serverFields, "sent over the server's record")
+        #expect(Set(next.encrypted.keys).isSubset(of: try #require(SyncMapping.schemaFields[.note])),
+                "and only this version's fields are sent: the adapter leaves the others on the server")
+    }
+
+    /// An unknown field does not hide a change to a known one: another
+    /// device's edit of the text, the title, a setting or the labels, with
+    /// the upload's edit date and a field this version does not know, is
+    /// still merged, and a changed text still leaves a copy.
+    @Test(arguments: ["body", "title", "titleIsUserSet", "syntaxOverride", "labelIDs"])
+    func aForeignChangeToAKnownFieldIsStillMergedBesideAnUnknownField(key: String) throws {
+        let base = note("base", title: "Plan")
+        let name = base.id.uuidString.lowercased()
+        let uploaded = try #require(try unacknowledgedUpload(of: base))
+        var mine = try #require(try store.note(id: base.id))
+        mine.body = "second edit"
+        mine.updatedAt = base.updatedAt.addingTimeInterval(20)
+        try store.save(mine)
+        var theirs = withUnknownFields(uploaded)
+        switch key {
+        case "body": theirs.encrypted[key] = .string("their edit")
+        case "title": theirs.encrypted[key] = .string("Their plan")
+        case "titleIsUserSet": theirs.encrypted[key] = .bool(true)
+        case "syntaxOverride": theirs.encrypted[key] = .string("json")
+        default: theirs.encrypted[key] = .strings([UUID().uuidString.lowercased()])
+        }
+
+        // The server's record is taken: merged with the edit here, which is
+        // kept as a copy since both texts differ from the server's.
+        let copy = try #require(try store.applyServerRecord(theirs, systemFields: fields, changeTag: "tag-2"))
+        #expect(copy.body == "second edit")
+        let merged = try #require(try store.note(id: base.id))
+        #expect(merged.body == (key == "body" ? "their edit" : "first edit"))
+        #expect(try store.notes(matching: NoteQuery()).count == 2)
+        // The uploads remembered are forgotten with it: the upload itself,
+        // unknown field and all, is no longer this device's own.
+        var again = merged
+        again.body = "third edit"
+        again.updatedAt = base.updatedAt.addingTimeInterval(30)
+        try store.save(again)
+        #expect(try store.pendingSave(kind: .note, name: name) != nil)
+        #expect(try store.applyServerRecord(withUnknownFields(uploaded), systemFields: fields, changeTag: "tag-3") != nil)
+    }
+
+    /// With nothing unsent here the digest is not asked: a record with a
+    /// field this version does not know is applied like any other.
+    @Test func aRecordWithAnUnknownFieldIsAppliedWhenNothingIsUnsent() throws {
+        let base = note("base", title: "Plan")
+        try store.applyServerRecord(SyncMapping.record(for: base), systemFields: fields, changeTag: "tag-1")
+        var theirs = base
+        theirs.body = "their edit"
+        theirs.updatedAt = base.updatedAt.addingTimeInterval(5)
+
+        #expect(try store.applyServerRecord(withUnknownFields(SyncMapping.record(for: theirs)), systemFields: fields, changeTag: "tag-2") == nil)
+        #expect(try store.note(id: base.id)?.body == "their edit")
+        #expect(try pendingNames().isEmpty)
     }
 
     /// Once the server has acknowledged the last body built, the note is in
