@@ -16,10 +16,13 @@ Each milestone ends in something that runs. Decisions behind them are in
 | v0.4.4 — Command line install | Mac 0.4.4 and iOS 0.4.3 in App Review |
 | v0.4.5 — Find and replace | Done; v0.4.5 (GitHub, Homebrew, TestFlight) |
 | v0.4.6 — Reopen the main window (App Review) | Window ▸ BoopStash (⌘0); Mac App Store resubmission |
-| Next release — sync upload identity | On `main`; **release gate open** (CloudKit Production schema, see below) |
+| v0.5.0 — Script workbench, a model you run, diff review, text from images | Done; v0.5.0 (GitHub, Homebrew, TestFlight) |
 
-Releases stay at most one version ahead of the App Store: while a version
-is in review, work lands on `main` and waits.
+GitHub, Homebrew and TestFlight releases do not wait for the App Store:
+a new version goes out there while an earlier one is waiting for review.
+The submission in review is left as it is (its build is not changed and
+the `release` lane is not run), and a fix for a rejection ships as the
+newest version.
 
 ## M0 — Skeleton
 
@@ -137,7 +140,7 @@ is in review, work lands on `main` and waits.
   CloudKit Production schema, and checked against a 0.4.1 client in
   Development (it must ignore labels and not strip them).
 
-## Next release — a note record says which upload it is (release gate closed 2026-11-26)
+## v0.5.0 — a note record says which upload it is (release gate closed 2026-11-26)
 
 - **Upload identity** (ADR 0015, #291). Each note record built for sending
   carries `uploadID`, a random encrypted value, remembered locally until

@@ -1,3 +1,12 @@
+• Settings ▸ Model: point BoopStash at a language model you run yourself, and the script workbench can draft a script from a plain instruction. Off until you set it up; a mark beside Generate says what is sent and where.
+• Scripts ▸ Script Workbench… (⌃⌘B): write or adapt a script, run it to see what it would change as a diff, edit and run again, then keep the result and save the script for next time. It has a window of its own, which can be any size or full screen.
+• Scripts ▸ Run Script with Preview… (⌥⌘B) shows what a script would change as a diff, to keep or discard.
+• Help ▸ BoopStash Help shows what the app does and how it treats your notes, without going online.
+• What's New: after an update, BoopStash shows once what changed. The notes stay in Help ▸ What's New and in Settings, and can be copied or saved as a note.
+• Clean Up Pasted Text in the Edit menu tidies text copied from a terminal: tables become Markdown tables, and shared indentation, trailing spaces and colour codes go.
+• Copy Text from Image: right-click an image in the editor to copy the text in it, or to insert that text below the image.
+• Text read from images keeps its rows, so a screenshot of a table pastes into a spreadsheet as a table.
+• Letting go of the preview divider where you grabbed it no longer changes the split.
 • Window ▸ BoopStash (⌘0) brings the main window back after it is closed; New Note opens it too.
 • Find and replace in a note, as in VS Code: ⌘F opens a widget with Match Case, Whole Word and Regular Expression toggles and the match count; ⌥⌘F unfolds the replace row; Enter and ⇧Enter step through the matches; $1 works in regular expression replacements.
 • With iCloud sync on, a note edited soon after its first sync is no longer emptied into a "(conflict)" copy.

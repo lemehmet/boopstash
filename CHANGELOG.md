@@ -6,6 +6,8 @@ breaking changes may land in a minor release.
 
 ## Unreleased
 
+## v0.5.0 — 2026-11-26
+
 ### New
 
 - **Mac: a model you run yourself can draft scripts in the workbench
