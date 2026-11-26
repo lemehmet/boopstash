@@ -22,6 +22,15 @@ import Testing
         FileManager.default.fileExists(atPath: store.fileURL(for: attachment).path)
     }
 
+    /// An image is where it is only with its row and its file both here.
+    @Test func anImageWithoutItsFileOrItsRowIsNowhere() throws {
+        let attachment = try store.addAttachment(png, contentType: "public.png", noteID: nil)
+        #expect(store.presentFileURL(forAttachment: attachment.id) == store.fileURL(for: attachment))
+        try FileManager.default.removeItem(at: store.fileURL(for: attachment))
+        #expect(store.presentFileURL(forAttachment: attachment.id) == nil, "the row outlived its file")
+        #expect(store.presentFileURL(forAttachment: UUID()) == nil, "no row")
+    }
+
     // MARK: References
 
     @Test func referencesRoundTrip() {
@@ -244,5 +253,22 @@ import Testing
         let file = try #require(NoteExport.files(for: [note], attachments: [attachment.id: attachment]).first)
         #expect(file.contents.contains("![plot](attachments/\(attachment.fileName))"))
         #expect(file.contents.contains(AttachmentReference.markdown(for: missing)), "an unknown reference is left as it is")
+    }
+
+    // MARK: Changes (#251)
+
+    /// Every commit to the attachment table is reported, and an image iCloud
+    /// brought has its file in place by then; so is one taken away.
+    @Test(.timeLimit(.minutes(1))) func attachmentCommitsAreReported() async throws {
+        var changes = store.attachmentChanges().makeAsyncIterator()
+        let attachment = NoteAttachment(noteID: nil, contentType: "public.png", byteSize: png.count)
+        let record = SyncMapping.record(for: attachment, file: URL(fileURLWithPath: "/unused"))
+        try store.applyServerRecord(record, systemFields: Data(), assetData: png)
+        #expect(await changes.next() != nil)
+        #expect(try store.attachment(id: attachment.id) != nil)
+        #expect(exists(attachment))
+        try store.applyServerDeletion(kind: .attachment, name: attachment.id.uuidString.lowercased())
+        #expect(await changes.next() != nil)
+        #expect(try store.attachment(id: attachment.id) == nil)
     }
 }

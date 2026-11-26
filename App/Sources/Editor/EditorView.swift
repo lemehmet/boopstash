@@ -11,6 +11,9 @@ struct EditorView: NSViewRepresentable {
     /// Bumped when the note changed in iCloud while open: the editor
     /// reloads `initialText`, which is then the merged text.
     var revision = 0
+    /// Bumped when an attachment's row or file arrived or went (#251): the
+    /// chips and the image selection are looked at again.
+    var attachmentsRevision = 0
     let initialText: String
     /// The note's title, which the script workbench's window names (#285).
     var noteTitle = ""
@@ -80,6 +83,10 @@ struct EditorView: NSViewRepresentable {
                 }
             }
         }
+        if context.coordinator.attachmentsRevision != attachmentsRevision {
+            context.coordinator.attachmentsRevision = attachmentsRevision
+            view.attachmentsMayHaveChanged()
+        }
         // After a load: another note's workbench is closed by then.
         view.noteTitle = noteTitle
     }
@@ -94,6 +101,7 @@ struct EditorView: NSViewRepresentable {
     final class Coordinator: NSObject, NSTextViewDelegate {
         var noteID: UUID?
         var revision = 0
+        var attachmentsRevision = 0
         var onChange: ((String) -> Void)?
         var onFocusChange: (() -> Void)?
 

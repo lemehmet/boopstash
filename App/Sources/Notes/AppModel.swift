@@ -239,6 +239,36 @@ final class AppModel {
         editorHasSelectedImage = editor?.selectedImage != nil
     }
 
+    /// Bumped when an attachment's row or file arrived or went, so every
+    /// open editor draws its chips again (#251).
+    private(set) var attachmentsRevision = 0
+    @ObservationIgnored private var attachmentsWatcher: FolderWatcher?
+    @ObservationIgnored private var attachmentRows: Task<Void, Never>?
+
+    /// Keeps what depends on an image being here current while nothing in
+    /// the editor changes (#251): iCloud brings or removes an attachment
+    /// without a note revision, and a file can go underneath the app. The
+    /// commands are SwiftUI's, which read the model's state when it changes
+    /// and are not asked again when their menu opens, so the state itself
+    /// is refreshed: on a change in the attachments folder, and on a commit
+    /// to the attachment table, since a file is in place before its row is.
+    func watchAttachments() {
+        guard attachmentRows == nil else { return }
+        attachmentsWatcher = FolderWatcher(store.attachmentsDirectory) { [weak self] in self?.attachmentsMayHaveChanged() }
+        let changes = store.attachmentChanges()
+        attachmentRows = Task { [weak self] in
+            for await _ in changes { self?.attachmentsMayHaveChanged() }
+        }
+    }
+
+    func attachmentsMayHaveChanged() {
+        attachmentsRevision &+= 1
+        // The focused editor now, not when SwiftUI next updates it: its
+        // record of the selection and the model's stay in step.
+        BoopTextView.editor(for: keyResponder())?.attachmentsMayHaveChanged()
+        refreshEditorFocus()
+    }
+
     /// An editor gained or lost focus, or went away. The window's first
     /// responder settles only after the change, so look on the next turn.
     func editorFocusMayHaveChanged() {
@@ -305,6 +335,7 @@ final class AppModel {
         if let activeObserver { NotificationCenter.default.removeObserver(activeObserver) }
         if changeToken != NOTIFY_TOKEN_INVALID { notify_cancel(changeToken) }
         keyObservers.forEach(notifications.removeObserver)
+        attachmentRows?.cancel()
     }
 
     static func live() throws -> AppModel {
@@ -363,6 +394,7 @@ final class AppModel {
         }
         if shared { model.watchOtherProcesses() }
         model.watchScripts()
+        model.watchAttachments()
         if UserDefaults.standard.bool(forKey: syncKey) { model.setSyncEnabled(true) }
         return model
     }

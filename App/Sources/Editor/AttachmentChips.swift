@@ -230,6 +230,14 @@ extension BoopTextView {
         onImageSelectionChange?()
     }
 
+    /// An attachment's row or file may have arrived or gone with the text
+    /// and the selection as they were (#251): the chips are drawn again, and
+    /// what the selection is is looked at again.
+    func attachmentsMayHaveChanged() {
+        scheduleChipUpdate()
+        imageSelectionMayHaveChanged()
+    }
+
     /// A chip's context menu. The chip is selected first, as a click does,
     /// so the items act on it and are validated like the Edit menu's.
     func chipMenu(for reference: NSRange) -> NSMenu {

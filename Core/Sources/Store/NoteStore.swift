@@ -592,6 +592,13 @@ public final class NoteStore: Sendable {
         FileManager.default.fileExists(atPath: fileURL(for: attachment).path)
     }
 
+    /// Where the image is, when its row and its file are both here; nil for
+    /// an image that is missing either, which is then shown as missing.
+    public func presentFileURL(forAttachment id: UUID) -> URL? {
+        guard let attachment = try? attachment(id: id), hasFile(for: attachment) else { return nil }
+        return fileURL(for: attachment)
+    }
+
     /// Attachments not yet through text recognition, oldest first.
     public func attachmentsAwaitingRecognition(limit: Int = 50) throws -> [NoteAttachment] {
         try writer.read { db in
@@ -793,6 +800,21 @@ public final class NoteStore: Sendable {
                 }
             }
             continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    /// One element after every commit that changed an attachment's row, for
+    /// what depends on an image being here (#251): sync writes a file and
+    /// then its row, so by the time this says so both are in place. Says
+    /// nothing about files alone; ends when the consuming task is cancelled.
+    public func attachmentChanges() -> AsyncStream<Void> {
+        AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
+            let cancellable = DatabaseRegionObservation(tracking: Table("attachment")).start(in: writer) { _ in
+                continuation.finish()
+            } onChange: { _ in
+                continuation.yield()
+            }
+            continuation.onTermination = { _ in cancellable.cancel() }
         }
     }
 
