@@ -115,6 +115,24 @@ breaking changes may land in a minor release.
 
 ### Fixed
 
+- **Mac: Clean Up Pasted Text on a selection keeps the code fence the
+  selection starts in (#259).** A table selected inside a fence was
+  converted, although cleaning the whole note leaves it alone, in two
+  cases: when the fence's opening line stood behind a colour code, and
+  when the selection began with an indented line of backticks or tildes
+  that is code, which read as the fence's closing line once the
+  selection's shared indent was removed.
+- **Mac: Clean Up Pasted Text converts a table that has a line with a
+  pipe straight above or below it (#258).** A line such as
+  ``Output of `ls | wc`:`` right above a table drawn with `+---+` and
+  `|`, or with box-drawing characters, read as one of its rows, and the
+  table was left as it was. The table is now converted and the line
+  stays as it is.
+- **Mac: Clean Up Pasted Text no longer takes a code fence's opening
+  line for a table row (#260).** An opening line with a pipe after the
+  backticks or tildes, straight under a row and a rule, was rewritten as
+  a row together with the code under it. It now ends the table above it
+  and the fence is left as it is.
 - **Mac: Copy Text from Image and Insert Text Below in the Edit menu
   follow the image's file (#251).** With an image selected, the two
   commands stayed off when iCloud brought the image afterwards, and stayed

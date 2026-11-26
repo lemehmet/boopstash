@@ -33,8 +33,25 @@ public enum PastedTextCleanup {
     /// something longer (a selection): a code fence left open there is
     /// still open where `text` starts.
     public static func clean(_ text: String, after preceding: String = "") -> String {
-        let fence = openFence(atEndOf: preceding)
-        return Pass.allCases.reduce(text) { $1 == .tables ? convertingTables($0, in: fence) : $1.apply($0) }
+        // The fence a run on the whole text has open where `text` starts.
+        // That run looks for fences after the escape codes have gone, so
+        // an opening line behind a colour code counts here too.
+        var fence = openFence(atEndOf: removingEscapeCodes(preceding))
+        return Pass.allCases.reduce(text) { text, pass in
+            switch pass {
+            case .commonIndent:
+                // The indent about to go moves this text's lines to the
+                // left and the fence's opening line, in `preceding`, not
+                // at all. The fence moves with them, so a marker further
+                // in than a closing line may be still is.
+                fence?.column -= commonIndent(of: lines(text)).utf16.count
+                return pass.apply(text)
+            case .tables:
+                return convertingTables(text, in: fence)
+            case .escapeCodes, .trailingWhitespace:
+                return pass.apply(text)
+            }
+        }
     }
 
     /// What a run on a note puts in place of each non-empty selected range,
@@ -121,19 +138,25 @@ public enum PastedTextCleanup {
     /// relative indentation, inside a code fence too, is kept.
     public static func removingCommonIndent(_ text: String) -> String {
         var all = lines(text)
-        var shared: Substring?
-        for line in all where !line.content.allSatisfy(isIndent) {
-            let own = indent(of: line.content)
-            shared = shared.map { commonPrefix($0, own) } ?? own
-            if shared?.isEmpty == true { return text }
-        }
-        guard let shared, !shared.isEmpty else { return text }
+        let shared = commonIndent(of: all)
+        guard !shared.isEmpty else { return text }
         for index in all.indices {
             // A blank line gives up as much of the indent as it has.
             let drop = commonPrefix(shared, indent(of: all[index].content)).count
             all[index].content.removeFirst(drop)
         }
         return joined(all)
+    }
+
+    /// The leading spaces and tabs every non-blank line shares.
+    static func commonIndent(of lines: [Line]) -> Substring {
+        var shared: Substring?
+        for line in lines where !line.content.allSatisfy(isIndent) {
+            let own = indent(of: line.content)
+            shared = shared.map { commonPrefix($0, own) } ?? own
+            if shared?.isEmpty == true { break }
+        }
+        return shared ?? ""
     }
 
     // MARK: - Trailing whitespace
@@ -193,6 +216,8 @@ public enum PastedTextCleanup {
 
     /// An open code fence: its marker, how many of them, how far in
     /// from the line's start they stand, and how many block quotes deep.
+    /// The column is below zero for a fence opened in front of a selection
+    /// whose lines have lost more indent than the fence stands in.
     typealias Fence = (marker: Character, length: Int, column: Int, quotes: Int)
 
     /// What a fence can stand behind on its line: block quote and list
@@ -286,13 +311,19 @@ public enum PastedTextCleanup {
             while end < all.count {
                 let next = kind(of: all[end].content)
                 guard next != .other, next.isBox == first.isBox else { break }
+                // A fence's opening line ends the run whatever it reads
+                // as: a pipe in its info string makes it look like a row.
+                guard !Self.fence(after: all[end].content, in: fence).fenced else { break }
                 end += 1
             }
             let block = Array(all[index..<end])
-            if let rows = markdownTable(block, box: first.isBox) {
+            if let (table, rows) = Self.table(in: block, box: first.isBox) {
+                // The lines of the block outside its table stay as they are.
+                result.append(contentsOf: block[..<table.lowerBound])
                 for (offset, row) in rows.enumerated() {
-                    result.append(Line(content: row, terminator: offset == rows.count - 1 ? block[block.count - 1].terminator : block[0].terminator))
+                    result.append(Line(content: row, terminator: block[offset == rows.count - 1 ? table.upperBound - 1 : table.lowerBound].terminator))
                 }
+                result.append(contentsOf: block[table.upperBound...])
             } else {
                 result.append(contentsOf: block)
             }
@@ -301,9 +332,42 @@ public enum PastedTextCleanup {
         return joined(result)
     }
 
+    /// A row with a separator at both ends: `| a | b |`, `│ a │ b │`.
+    static func isClosed(_ row: String, by separators: Set<Character>) -> Bool {
+        row.count >= 2 && separators.contains(row.first!) && separators.contains(row.last!)
+    }
+
+    /// The lines of a block that are a table, with their Markdown rows:
+    /// the whole block, or, when that is not a table, what stands from
+    /// its first border to its last. A line with a pipe straight above or
+    /// below a table (``Output of `ls | wc`:``) reads as a row and joins
+    /// the block; it is no reason to leave the table. The part is taken
+    /// only with evidence that the lines outside it are not the table's
+    /// own: its rows are closed at both ends and those lines are not (a
+    /// table with open rows has its header above its first border, and a
+    /// closed row under the last border is a row). A line outside that
+    /// starts with `+` or `-` may be a changed row in a diff of the table
+    /// (`-| a | b |` is not closed only because of its marker), and what
+    /// is between the borders is then the diff's context lines: the block
+    /// is left alone.
+    static func table(in block: [Line], box: Bool) -> (lines: Range<Int>, rows: [String])? {
+        if let rows = markdownTable(block, box: box) { return (block.indices, rows) }
+        let kinds = block.map { kind(of: $0.content) }
+        guard let first = kinds.firstIndex(where: \.isBorder), let last = kinds.lastIndex(where: \.isBorder), first < last else { return nil }
+        let inside = first..<(last + 1)
+        let separators: Set<Character> = box ? boxVerticals : ["|"]
+        let outside = block.indices.filter { !inside.contains($0) }
+        guard !outside.isEmpty, outside.allSatisfy({ index in
+            let text = block[index].content.trimmingCharacters(in: .whitespaces)
+            return kinds[index] != .markdownRule && !isClosed(text, by: separators) && !text.hasPrefix("+") && !text.hasPrefix("-")
+        }) else { return nil }
+        return markdownTable(Array(block[inside]), box: box, framed: true).map { (inside, $0) }
+    }
+
     /// The Markdown rows for a block of border and row lines, or nil when
-    /// the block is not convincingly a table.
-    static func markdownTable(_ block: [Line], box: Bool) -> [String]? {
+    /// the block is not convincingly a table. `framed` asks for rows
+    /// closed at both ends.
+    static func markdownTable(_ block: [Line], box: Bool, framed: Bool = false) -> [String]? {
         let kinds = block.map { kind(of: $0.content) }
         guard !kinds.contains(.markdownRule), kinds.contains(where: \.isBorder) else { return nil }
         let separators: Set<Character> = box ? boxVerticals : ["|"]
@@ -311,9 +375,7 @@ public enum PastedTextCleanup {
         let borderTexts = zip(block, kinds).compactMap { $1.isBorder ? $0.content.trimmingCharacters(in: .whitespaces) : nil }
         // Rows closed at both ends lose the empty pieces outside the outer
         // separators; psql's open rows keep every piece.
-        let closed = rowTexts.compactMap { $0 }.allSatisfy { row in
-            row.count >= 2 && separators.contains(row.first!) && separators.contains(row.last!)
-        }
+        let closed = rowTexts.compactMap { $0 }.allSatisfy { isClosed($0, by: separators) }
         func cells(_ row: String) -> [String] {
             var pieces = row.split(omittingEmptySubsequences: false, whereSeparator: { separators.contains($0) })
             if closed { pieces = Array(pieces.dropFirst().dropLast()) }
@@ -327,7 +389,7 @@ public enum PastedTextCleanup {
         // the borders' junctions: a commit graph's `│ ○ abc` over `├─╯`.
         func isJoint(_ character: Character) -> Bool { box ? !boxHorizontals.contains(character) : character == "+" }
         let openBorders = borderTexts.allSatisfy { !isJoint($0.first!) && !isJoint($0.last!) }
-        guard closed || openBorders else { return nil }
+        guard closed || (openBorders && !framed) else { return nil }
         let columns = rowTexts.compactMap { $0 }.first?.count(where: { separators.contains($0) })
         guard borderTexts.allSatisfy({ $0.count(where: isJoint) == columns }) else { return nil }
         // An open row that starts with `- ` or `+ ` is a line of a diff of

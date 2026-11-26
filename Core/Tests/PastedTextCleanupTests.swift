@@ -22,6 +22,16 @@ import Testing
     | bee | 22 |
     """
 
+    static let ruledTable = """
+    +------+-------+
+    | Name | Count |
+    +------+-------+
+    | ant  | 1     |
+    +------+-------+
+    """
+
+    static let ruledTableInMarkdown = "| Name | Count |\n| --- | --- |\n| ant | 1 |"
+
     // MARK: Escape codes
 
     @Test func coloursAndCursorCodesAreRemoved() {
@@ -396,6 +406,154 @@ import Testing
         #expect(clean(text) == text)
     }
 
+    // MARK: A line with a pipe next to a table (#258)
+
+    @Test func aLineWithAPipeAboveOrBelowAClosedTableStaysOutOfIt() {
+        let above = "Output of `ls | wc`:\n"
+        let below = "Counted with `sort | uniq -c`.\n"
+        #expect(clean(above + Self.ruledTable + "\n") == above + Self.ruledTableInMarkdown + "\n")
+        #expect(clean(Self.ruledTable + "\n" + below) == Self.ruledTableInMarkdown + "\n" + below)
+        #expect(clean(above + Self.ruledTable + "\n" + below) == above + Self.ruledTableInMarkdown + "\n" + below)
+        // The last line of the text, with no line ending of its own.
+        #expect(clean(Self.ruledTable + "\nsee a | b") == Self.ruledTableInMarkdown + "\nsee a | b")
+    }
+
+    @Test func aLineWithABoxBarAboveOrBelowABoxTableStaysOutOfIt() {
+        let text = "see a │ b\n\(Self.boxTable)\nand c │ d\n"
+        #expect(clean(text) == "see a │ b\n\(Self.markdownTable)\nand c │ d\n")
+    }
+
+    /// The lines left out of the table are written back as they were, and
+    /// the table keeps its own indent and line endings.
+    @Test func theLinesLeftOutOfATableAreWrittenBackUnchanged() {
+        let text = "note\t| x\r\n  +---+---+\r\n  | a | b |\r\n  | c | d |\r\n  +---+---+\r\nsee | y\r\n"
+        #expect(PastedTextCleanup.convertingTables(text) == "note\t| x\r\n  | a | b |\r\n  | --- | --- |\r\n  | c | d |\r\nsee | y\r\n")
+    }
+
+    @Test(arguments: [
+        // A closed row outside the borders is a row of the table, so the
+        // block is one table or none.
+        "+---+---+\n| a | b |\n| c | d |\n+---+---+\n| e | f |\nsee g | h\n",
+        "| x | y |\nsee g | h\n+---+---+\n| a | b |\n| c | d |\n+---+---+\n",
+        // Rows open at the ends have their header above the first border:
+        // the lines outside the borders may be the table's own.
+        "see a | b | c\n----+----\n c | d\n e | f\n----+----\n g | h\n",
+        " a │ b │ x\n──────┼───────\n c │ d\n e │ f\n──────┼───────\n g │ h\n",
+        // A Markdown table straight above a ruled one.
+        "a | b\n---|---\n+---+---+\n| c | d |\n| e | f |\n+---+---+\n",
+        // A line with a pipe between two tables.
+        "+---+---+\n| a | b |\n| c | d |\n+---+---+\nsee g | h\n+---+---+\n| e | f |\n| i | j |\n+---+---+\n",
+        // What is between the borders is still not a table.
+        "see a | b\n+---+---+\n| a | b |\n+---+---+\n",
+        "see a | b\n++---+---+\n+| a | b |\n+| c | d |\n++---+---+\n",
+        // A diff whose changed rows stand outside the borders: what is
+        // between the borders is the diff's context lines.
+        "-| a | b |\n+| a | x |\n +---+---+\n | c | d |\n | e | f |\n +---+---+\n-| g | h |\n+| g | y |\n",
+        " +---+---+\n | c | d |\n | e | f |\n +---+---+\n-| g | h |\n",
+        "+| a | x |\n +---+---+\n | c | d |\n | e | f |\n +---+---+\n",
+        "- | a | b |\n+ | a | x |\n  +---+---+\n  | c | d |\n  | e | f |\n  +---+---+\n",
+        "-│ a │ b │\n+│ a │ x │\n ┌───┬───┐\n │ c │ d │\n │ e │ f │\n └───┴───┘\n",
+    ])
+    func aBlockWithLinesOutsideItsBordersIsStillLeftAloneWithoutEvidence(_ text: String) {
+        #expect(clean(text) == text)
+    }
+
+    // MARK: A fence opener that reads as a row (#260)
+
+    @Test func aFenceOpenerWithAPipeInItsInfoStringIsNotARow() {
+        // One row above a border is not a table, and the fence is a fence.
+        let text = "a | b\n----+----\n``` |\nc | d\n```\n"
+        #expect(clean(text) == text)
+        let twoRows = "a | b\n----+----\n``` |\nc | d\ne | f\n```\n"
+        #expect(clean(twoRows) == twoRows)
+    }
+
+    @Test(arguments: ["``` |", "```sh | tee", "~~~ a|b", "~~~~ x | y", "- ``` |"])
+    func aTableStraightAboveAFenceWithAPipeInItsInfoStringIsConverted(_ opener: String) {
+        let fenced = "\(opener)\n g | h\n----+----\n i | j\n k | l\n"
+        #expect(clean(" a | b\n----+----\n c | d\n e | f\n" + fenced) == "| a | b |\n| --- | --- |\n| c | d |\n| e | f |\n" + fenced)
+        #expect(clean(Self.ruledTable + "\n" + fenced) == Self.ruledTableInMarkdown + "\n" + fenced)
+        #expect(clean(Self.boxTable + "\n" + fenced) == Self.markdownTable + "\n" + fenced)
+    }
+
+    // MARK: The fence a selection starts in (#259)
+
+    func range(of selected: String, after before: String) -> NSRange {
+        NSRange(location: (before as NSString).length, length: (selected as NSString).length)
+    }
+
+    /// A marker four columns in is a line of the code. It must stay one
+    /// when the selection's shared indent is removed and it stands at the
+    /// selection's first column.
+    @Test func aSelectionKeepsTheFenceItStartsInWhenItsIndentIsRemoved() {
+        let before = "```\n"
+        let selected = "    ```\n    \(Self.boxTable.replacingOccurrences(of: "\n", with: "\n    "))\n"
+        let note = before + selected + "```\n"
+        #expect(clean(note) == note)
+        #expect(PastedTextCleanup.outputs(fullText: note, selections: [range(of: selected, after: before)]) == ["```\n\(Self.boxTable)\n"])
+    }
+
+    /// The other way round: a real closing line in an indented selection
+    /// still closes the fence, and the table after it is converted.
+    @Test func aSelectionStillSeesItsFenceCloseWhenItsIndentIsRemoved() {
+        let before = "  ```\n"
+        let selected = "  code\n  ```\n  \(Self.boxTable.replacingOccurrences(of: "\n", with: "\n  "))\n"
+        let note = before + selected
+        #expect(clean(note) == "```\ncode\n```\n\(Self.markdownTable)\n")
+        #expect(PastedTextCleanup.outputs(fullText: note, selections: [range(of: selected, after: before)]) == ["code\n```\n\(Self.markdownTable)\n"])
+    }
+
+    @Test func aSelectionSeesAFenceOpenedBehindAColourCode() {
+        let before = "\u{1B}[31m```\u{1B}[0m\n"
+        let note = before + Self.boxTable + "\n```\n"
+        #expect(clean(note) == "```\n\(Self.boxTable)\n```\n")
+        #expect(PastedTextCleanup.outputs(fullText: note, selections: [range(of: Self.boxTable, after: before)]) == [Self.boxTable])
+        // A fence closed behind a colour code is closed.
+        let closed = before + "code\n\u{1B}[31m```\u{1B}[0m\n"
+        #expect(PastedTextCleanup.outputs(fullText: closed + Self.boxTable, selections: [range(of: Self.boxTable, after: closed)]) == [Self.markdownTable])
+    }
+
+    // MARK: A selection and the whole note agree (#244)
+
+    /// Cleaning never changes a table inside a code fence, and cleaning a
+    /// selection of whole lines gives those lines what cleaning the whole
+    /// note gives them, apart from the indent the selection's lines share
+    /// beyond the note's. `fenced` says the selection is all inside a
+    /// fence; `before` and `after` hold no table outside a fence, so the
+    /// whole note's lines can be counted.
+    @Test(arguments: [
+        // #259: the indent, the escape code, and both.
+        ("```\n", "    ```\n    ┌───┬───┐\n    │ a │ b │\n    │ c │ d │\n    └───┴───┘\n", "```\n", true),
+        ("\u{1B}[31m```\u{1B}[0m\n", "┌───┬───┐\n│ a │ b │\n│ c │ d │\n└───┴───┘\n", "```\n", true),
+        ("  \u{1B}[2m~~~\u{1B}[0m\n", "      ~~~\n      +---+---+\n      | a | b |\n      | c | d |\n      +---+---+\n", "  ~~~\n", true),
+        ("intro\n  ```\n", "  code\n  ```\n  +---+---+\n  | a | b |\n  | c | d |\n  +---+---+\n", "outro\n", false),
+        // #260: a selection inside the fence such an opener starts, and
+        // one that holds the opener.
+        ("intro\n``` |\n", " a | b\n----+----\n c | d\n e | f\n", "```\n", true),
+        ("intro\n", " a | b\n----+----\n x | y\n``` |\n c | d\n e | f\n", "```\noutro\n", false),
+        ("intro\n", " a | b\n----+----\n c | d\n e | f\n~~~ x|y\n g | h\n----+----\n i | j\n k | l\n", "~~~\n", false),
+        // #258: a line with a pipe next to a table, in a fence and out.
+        ("~~~\n", "Output of `ls | wc`:\n+---+---+\n| a | b |\n| c | d |\n+---+---+\nsee e | f\n", "~~~\n", true),
+        ("intro\n", "Output of `ls | wc`:\n+---+---+\n| a | b |\n| c | d |\n+---+---+\nsee e | f\n", "outro\n", false),
+        ("> ```\n", "> see a │ b\n> ┌───┬───┐\n> │ a │ b │\n> │ c │ d │\n> └───┴───┘\n", "> ```\n", true),
+    ])
+    func aSelectionIsCleanedAsTheWholeNoteIs(_ before: String, _ selected: String, _ after: String, _ fenced: Bool) {
+        let note = before + selected + after
+        let output = PastedTextCleanup.outputs(fullText: note, selections: [range(of: selected, after: before)])
+        let whole = PastedTextCleanup.lines(clean(note))
+            .dropFirst(PastedTextCleanup.lines(before).count)
+            .dropLast(PastedTextCleanup.lines(after).count)
+        #expect(output == [PastedTextCleanup.removingCommonIndent(PastedTextCleanup.joined(Array(whole)))])
+        let withoutTables = [PastedTextCleanup.Pass.escapeCodes, .commonIndent, .trailingWhitespace].reduce(selected) { $1.apply($0) }
+        if fenced {
+            #expect(output == [withoutTables], "a table inside a code fence is left alone")
+        } else {
+            #expect(output != [withoutTables], "the table outside the fence is converted")
+        }
+        // Cleaning what was cleaned changes nothing more.
+        #expect(clean(clean(note)) == clean(note))
+    }
+
     // MARK: Together
 
     @Test func everyPassRunsInOrder() {
@@ -424,6 +582,11 @@ import Testing
         // A box table straight above an ASCII border: the Markdown rows
         // must not be read as that border's table the second time.
         "┌───┬───┐\n│ a │ b │\n│ c │ d │\n└───┴───┘\n+---+---+\n",
+        // A line with a pipe above and below a table (#258), and a table
+        // straight above a fence with a pipe in its info string (#260).
+        "Output of `ls | wc`:\n+---+---+\n| a | b |\n| c | d |\n+---+---+\nsee e | f\n",
+        "see a │ b\n┌───┬───┐\n│ a │ b │\n│ c │ d │\n└───┴───┘\n+---+---+\n| e | f |\n",
+        " a | b\n----+----\n c | d\n e | f\n``` |\n g | h\n----+----\n i | j\n k | l\n",
     ])
     func cleaningTwiceIsCleaningOnce(_ text: String) {
         let once = clean(text)
