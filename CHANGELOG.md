@@ -186,6 +186,19 @@ breaking changes may land in a minor release.
   note for unchanged and could ask for text past its end. Such a note now
   counts as changed, and the result is dropped with the usual message
   (#266).
+- **Mac: the diff review shows a change of whitespace alone.** A line
+  that went from a space to a tab, or from empty to a few spaces, was
+  shown as a removed and an added row that looked the same. Whitespace
+  that changed is now marked and drawn as glyphs under the mark ("·" for
+  a space, "→" for a tab), also in a line of nothing else, and VoiceOver
+  names it ("only 1 tab", "changed whitespace: 2 spaces") (#267).
+- **Mac: Find searches for the query its field shows, also when only the
+  encoding changed.** A query replaced by the same characters in another
+  encoding (an "é" as one letter pasted over one made of a letter and a
+  combining accent, or back) was taken for unchanged, so the matches,
+  Replace and Replace All stayed with the old one. It is now searched
+  again, and the fields show the query and replacement as they are
+  (#273).
 - **Mac: letting go of the preview divider where you grabbed it no longer
   changes the split.** With the editor at its narrowest, such a drag
   stored the narrowest width over the size you had set, so a wider window

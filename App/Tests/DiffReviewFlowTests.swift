@@ -376,4 +376,34 @@ struct DiffReviewFlowTests {
         let unchanged = NSAttributedString(DiffReviewStyle.text(of: TextDiff.Line(kind: .unchanged, text: "", ending: .lf, oldNumber: 1, newNumber: 1)))
         #expect(unchanged.string == " ", "an empty line still has a row's height")
     }
+
+    /// A space that became a tab (#267): each row shows its whitespace as
+    /// a glyph under the mark, so the two rows differ, and differ without
+    /// colour.
+    @Test func changedWhitespaceIsDrawnAsUnderlinedGlyphs() throws {
+        let lines = TextDiff.lines(old: " \n", new: "\t\n")
+        let removed = NSAttributedString(DiffReviewStyle.text(of: lines[0]))
+        let added = NSAttributedString(DiffReviewStyle.text(of: lines[1]))
+        #expect(removed.string == "·")
+        #expect(added.string == "→")
+        for row in [removed, added] {
+            var range = NSRange()
+            #expect(row.attribute(.underlineStyle, at: 0, effectiveRange: &range) != nil)
+            #expect(row.attribute(.backgroundColor, at: 0, effectiveRange: nil) != nil)
+            #expect(range == NSRange(location: 0, length: 1))
+        }
+        let gained = TextDiff.lines(old: "\n", new: "  \n")
+        let empty = NSAttributedString(DiffReviewStyle.text(of: gained[0]))
+        #expect(empty.string == " ")
+        #expect(empty.attribute(.underlineStyle, at: 0, effectiveRange: nil) == nil, "an empty line has nothing marked")
+        let spaces = NSAttributedString(DiffReviewStyle.text(of: gained[1]))
+        #expect(spaces.string == "··")
+        var whole = NSRange()
+        #expect(spaces.attribute(.underlineStyle, at: 0, effectiveRange: &whole) != nil)
+        #expect(whole == NSRange(location: 0, length: 2))
+        // Between words only the whitespace that changed is drawn so.
+        let between = TextDiff.lines(old: "a  b c\n", new: "a\tb c\n")
+        #expect(NSAttributedString(DiffReviewStyle.text(of: between[0])).string == "a··b c")
+        #expect(NSAttributedString(DiffReviewStyle.text(of: between[1])).string == "a→b c")
+    }
 }

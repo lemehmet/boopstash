@@ -193,8 +193,13 @@ final class FindController {
 
     /// Typed in the widget: searched at once, and the first match from
     /// where the search started is selected, so the text follows the typing.
+    ///
+    /// The same text means the same code units (#273): the search matches
+    /// those, so a field that went from "é" as one scalar to "e" with a
+    /// combining accent holds another query, which Swift's `!=` would
+    /// take for the old one and leave unsearched.
     func setQueryText(_ text: String) {
-        guard query.text != text else { return }
+        guard !query.hasText(text) else { return }
         query.text = text
         panel?.update()
         guard let view else { return }
@@ -710,8 +715,11 @@ final class FindPanel: NSBox, NSTextFieldDelegate {
 
     /// The widget shows the controller's state; nothing is kept here.
     func update() {
-        if queryField.stringValue != controller.query.text { queryField.stringValue = controller.query.text }
-        if replacementField.stringValue != controller.replacement { replacementField.stringValue = controller.replacement }
+        // By code units, as the query is compared (#273): a field left
+        // showing another encoding of the query would not be what is
+        // searched for or put in.
+        if !controller.query.hasText(queryField.stringValue) { queryField.stringValue = controller.query.text }
+        if !TextDiff.identical(replacementField.stringValue, controller.replacement) { replacementField.stringValue = controller.replacement }
         matchCase.state = controller.query.matchCase ? .on : .off
         wholeWord.state = controller.query.wholeWord ? .on : .off
         regex.state = controller.query.isRegex ? .on : .off

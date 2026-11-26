@@ -91,4 +91,64 @@ import Testing
         #expect(ending[0].spokenDescription == "Removed, line 1: a, no newline at the end")
         #expect(ending[1].spokenDescription == "Added, line 1: a, ends with a line feed")
     }
+
+    // MARK: Whitespace that changed (#267)
+
+    /// A line of nothing but whitespace is spoken as what it holds: read
+    /// out as it is, it would be silence.
+    @Test func aLineOfOnlyWhitespaceIsSpokenAsWhatItHolds() {
+        let lines = TextDiff.lines(old: " \n", new: "\t\n")
+        #expect(lines.map(\.spokenDescription) == ["Removed, line 1: only 1 space", "Added, line 1: only 1 tab"])
+        let gained = TextDiff.lines(old: "\n", new: "  \n")
+        #expect(gained.map(\.spokenDescription) == ["Removed, line 1: empty line", "Added, line 1: only 2 spaces"])
+        let mixed = TextDiff.Line(kind: .unchanged, text: "  \t\u{A0}\r\u{2003}\u{2003}", ending: .lf, oldNumber: 4, newNumber: 4)
+        #expect(mixed.spokenDescription == "Unchanged, line 4: only 2 spaces, 1 tab, 1 no-break space, 1 carriage return, and more whitespace")
+    }
+
+    /// Whitespace that changed between words is named after the text.
+    @Test func changedWhitespaceBetweenWordsIsSpokenAfterTheText() {
+        let lines = TextDiff.lines(old: "a  b\n", new: "a\tb\n")
+        #expect(lines.map(\.spokenDescription) == [
+            "Removed, line 1: a  b, changed whitespace: 2 spaces",
+            "Added, line 1: a\tb, changed whitespace: 1 tab",
+        ])
+        let trailing = TextDiff.lines(old: "a \n", new: "a\n")
+        #expect(trailing.map(\.spokenDescription) == ["Removed, line 1: a , changed whitespace: 1 space", "Added, line 1: a"])
+        let two = TextDiff.lines(old: "a b c d\n", new: "a  b c\td\n")
+        #expect(two[1].spokenDescription == "Added, line 1: a  b c\td, changed whitespace: 2 spaces; 1 tab")
+        // Words that changed say so by being read: nothing is added.
+        let words = TextDiff.lines(old: "let count = 1\n", new: "let total = 1\n")
+        #expect(words.map(\.spokenDescription) == ["Removed, line 1: let count = 1", "Added, line 1: let total = 1"])
+    }
+
+    /// What the sheet draws: the line with the whitespace of a mark that
+    /// covers nothing else as glyphs, unit for unit, so the marks still fit.
+    @Test func markedWhitespaceIsShownAsGlyphs() {
+        let lines = TextDiff.lines(old: " \n", new: "\t\n")
+        #expect(lines.map(\.shownText) == ["·", "→"])
+        let between = TextDiff.lines(old: "a  b c\n", new: "a b c\n")
+        #expect(between.map(\.shownText) == ["a··b c", "a·b c"], "only the marked whitespace")
+        let kinds = TextDiff.Line(kind: .added, text: " \t\u{A0}\r\u{3000}", ending: .lf, oldNumber: nil, newNumber: 1,
+                                  changes: [NSRange(location: 0, length: 5)])
+        #expect(kinds.shownText == "·→⍽␍␣")
+        #expect(kinds.shownText.utf16.count == kinds.text.utf16.count)
+    }
+
+    @Test func unmarkedOrWordyRangesAreShownAsTheyAre() {
+        let unmarked = TextDiff.Line(kind: .unchanged, text: "a  b", ending: .lf, oldNumber: 1, newNumber: 1)
+        #expect(unmarked.shownText == "a  b")
+        // A mark with a word in it shows by the word; its spaces stay.
+        let wordy = TextDiff.Line(kind: .added, text: "x one two", ending: .lf, oldNumber: nil, newNumber: 1,
+                                  changes: [NSRange(location: 2, length: 7)])
+        #expect(wordy.shownText == "x one two")
+        #expect(wordy.spokenDescription == "Added, line 1: x one two")
+        // A range past the text is left alone, as the sheet leaves it.
+        let outside = TextDiff.Line(kind: .added, text: " ", ending: .lf, oldNumber: nil, newNumber: 1,
+                                    changes: [NSRange(location: 0, length: 9)])
+        #expect(outside.shownText == " ")
+        #expect(outside.spokenDescription == "Added, line 1: only 1 space")
+        // An emoji before the mark: ranges are UTF-16.
+        let emoji = TextDiff.lines(old: "🙂 a  b\n", new: "🙂 a b\n")
+        #expect(emoji[0].shownText == "🙂 a··b")
+    }
 }
