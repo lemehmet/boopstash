@@ -53,8 +53,17 @@ final class ModelEndpointStore {
     @ObservationIgnored private var listing: Task<Void, Never>?
     @ObservationIgnored private var testing: Task<Void, Never>?
 
-    init(defaults: UserDefaults = .standard, keys: any ModelKeyStore = KeychainModelKeyStore(),
-         transport: @escaping ModelEndpointGenerator.Transport = LiveModelService.send) {
+    /// The user's own: their settings, their Keychain and the model
+    /// helper. `AppModel.live()` makes the one there is; nothing else
+    /// does, so a test never reads the settings or the Keychain of
+    /// whoever runs it (#283).
+    static func live() -> ModelEndpointStore {
+        ModelEndpointStore(defaults: .standard, keys: KeychainModelKeyStore(), transport: LiveModelService.send)
+    }
+
+    /// Where the settings are kept, where the key is, and what makes a
+    /// request: all three are said, never assumed.
+    init(defaults: UserDefaults, keys: any ModelKeyStore, transport: @escaping ModelEndpointGenerator.Transport) {
         self.defaults = defaults
         self.keys = keys
         self.transport = transport

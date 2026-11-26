@@ -1207,13 +1207,18 @@ struct ScriptWorkbenchFlowTests {
     @Test func theMenuOpensTheWorkbenchWithTheLineSkeletonThenWithTheLastScript() async throws {
         defer { try? FileManager.default.removeItem(at: folder) }
         let model = AppModel(store: try .inMemory())
+        // #283: a model a test makes has no model endpoint, so it reads
+        // neither the settings nor the Keychain of whoever runs the test,
+        // whatever endpoint they saved in a Debug build.
+        #expect(model.modelEndpoint == nil && model.scriptGenerator == nil)
         model.scriptsFolder = folder
         model.workbenchLayout = layout
         let (window, view) = host(Self.numbers)
         model.openWorkbench(in: view)
         var session = try #require(view.workbench)
         #expect(session.script == ScriptSkeleton.lineByLine.source)
-        #expect(session.destination == nil, "no generator ships")
+        #expect(session.availabilityCheck == nil, "with no generator nothing is asked")
+        #expect(session.destination == nil && session.unavailableReason == nil, "and there is no prompt row")
         #expect(session.libraryScripts.contains { $0.isBundled }, "the bundled scripts are bases to adapt")
         // Chosen again, the same workbench comes forward with its script as it is.
         setScript(session, "// half written")
