@@ -58,7 +58,7 @@ themselves is held against ADR 0013's bar; the results so far are in
 - `--temperature`, `--top-p` and `--max-tokens` set the request (defaults
   0.2, 1.0 and 2048).
 - `--timeout` is the seconds one request may take in all, from sending it
-  to the end of the reply (default 120). A server that keeps sending
+  to the end of the reply (default 120, at most 86400). A server that keeps sending
   bytes is cut off at the limit too, and the attempt is reported as
   "request timed out". The report states the limit.
 - `--extra-body '<JSON object>'` is merged into each request, for what

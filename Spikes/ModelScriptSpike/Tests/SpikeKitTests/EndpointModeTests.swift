@@ -122,9 +122,14 @@ import Testing
     @Test func numbersMustBeNumbers() {
         #expect(problem("--runs ten") == "--runs needs a whole number of at least 1")
         #expect(problem("--runs 0") == "--runs needs a whole number of at least 1")
-        #expect(problem("--endpoint http://localhost:8080 --model m --timeout soon") == "--timeout needs a number of seconds above 0")
-        #expect(problem("--endpoint http://localhost:8080 --model m --timeout 0") == "--timeout needs a number of seconds above 0")
-        #expect(problem("--endpoint http://localhost:8080 --model m --timeout inf") == "--timeout needs a number of seconds above 0")
+        #expect(problem("--endpoint http://localhost:8080 --model m --timeout soon") == "--timeout needs a number of seconds above 0 and at most 86400")
+        #expect(problem("--endpoint http://localhost:8080 --model m --timeout 0") == "--timeout needs a number of seconds above 0 and at most 86400")
+        #expect(problem("--endpoint http://localhost:8080 --model m --timeout inf") == "--timeout needs a number of seconds above 0 and at most 86400")
+        #expect(problem("--endpoint http://localhost:8080 --model m --timeout 1e30") == "--timeout needs a number of seconds above 0 and at most 86400",
+                "finite, but no clock can sleep that long")
+        #expect(problem("--endpoint http://localhost:8080 --model m --timeout 86401") == "--timeout needs a number of seconds above 0 and at most 86400")
+        #expect(problem("--endpoint http://localhost:8080 --model m --timeout nan") == "--timeout needs a number of seconds above 0 and at most 86400")
+        #expect(problem("--endpoint http://localhost:8080 --model m --timeout 86400") == nil)
         #expect(problem("--endpoint http://localhost:8080 --model m --max-tokens 1.5") == "--max-tokens needs a whole number of at least 1")
         #expect(problem("--endpoint http://localhost:8080 --model m --temperature -1") == "--temperature needs a number of 0 or more")
         #expect(problem("--endpoint http://localhost:8080 --model m --top-p 2") == "--top-p needs a number above 0 and at most 1")

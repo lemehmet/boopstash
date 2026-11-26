@@ -9,6 +9,9 @@ public enum SpikeArguments {
     static let switches: Set<String> = ["--selfcheck", "--help"]
     /// Options for the endpoint mode only, each with a value.
     static let endpointOnly = ["--model", "--temperature", "--top-p", "--max-tokens", "--timeout", "--extra-body"]
+    /// The longest `--timeout`, a day. A limit has to fit the clock: a
+    /// number such as 1e30 is finite and cannot be slept for.
+    public static let longestTimeout: Double = 86_400
     /// Every option that takes a value.
     static let valued: Set<String> = Set(["--runs", "--fixtures", "--variations", "--out", "--dump", "--endpoint"] + endpointOnly)
 
@@ -54,8 +57,8 @@ public enum SpikeArguments {
             return "--top-p needs a number above 0 and at most 1"
         }
         if let text = value("--max-tokens"), (Int(text) ?? 0) < 1 { return "--max-tokens needs a whole number of at least 1" }
-        if let text = value("--timeout"), !(Double(text).map { $0.isFinite && $0 > 0 } ?? false) {
-            return "--timeout needs a number of seconds above 0"
+        if let text = value("--timeout"), !(Double(text).map { $0 > 0 && $0 <= longestTimeout } ?? false) {
+            return "--timeout needs a number of seconds above 0 and at most \(Int(longestTimeout))"
         }
         if let text = value("--extra-body") {
             guard let extra = extraBody(text) else { return "--extra-body needs a JSON object" }

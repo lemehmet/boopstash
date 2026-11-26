@@ -31,7 +31,7 @@ ModelScriptSpike [--runs N] [--fixtures id,id] [--variations id,id] [--out repor
   --model       the model's name at that endpoint (required with --endpoint)
   --temperature, --top-p, --max-tokens
                 generation settings for the endpoint (defaults 0.2, 1.0, 2048)
-  --timeout     seconds one request may take in all, from sending it to the end of the reply (default 120);
+  --timeout     seconds one request may take in all, from sending it to the end of the reply (default 120, at most 86400);
                 it is written to the report
   --extra-body  a JSON object merged into each request, for what the server at hand needs,
                 such as '{"chat_template_kwargs":{"enable_thinking":false}}' to switch off a model's reasoning.
@@ -282,13 +282,20 @@ let everyRetry = everyRun.filter { $0.retry != nil }
 let everyUnscored = fixtures.flatMap { fixture in variations.flatMap { unscored(fixture, $0) } }
 let notScored = everyUnscored.count
 let notScoredOnTheRetry = everyUnscored.filter(\.firstIsScored).count
+// The count alone when there are none; what it means when there are some.
+let runnerErrorLine = notScored == 0 ? "Runner errors: 0." : """
+Runner errors: \(notScored) runs, \(notScored - notScoredOnTheRetry) on the first try and \(notScoredOnTheRetry) on the retry. \
+On each, every one of the script runner's \(Judge.runnerAttempts) attempts at the script failed, which says nothing of the script. \
+A run with one on the first try is in no figure of this report and got no retry. \
+A run with one on the retry keeps its first try in the first-try figures and is left out of those after and about the retry.
+"""
 report += """
 
 ## Totals
 
 - First tries: \(everyFirst.filter(\.first.passed).count) of \(everyFirst.count) pass. Failures: \(tally(everyFirst.map(\.first))).
 - Retries: \(everyRetry.count) (a model error is not retried). Fixed: \(everyRetry.filter(\.passedInTheEnd).count). The same script again: \(everyRetry.filter(\.retryRepeated).count) (both replies held a script, and the two scripts were equal).
-- Runner errors: \(notScored) runs, \(notScored - notScoredOnTheRetry) on the first try and \(notScoredOnTheRetry) on the retry. The script runner failed \(Judge.runnerAttempts) times running on the script, which says nothing of the script. A run with one on the first try is in no figure of this report and got no retry. A run with one on the retry keeps its first try in the first-try figures and is left out of those after and about the retry.
+- \(runnerErrorLine)
 - Seconds are to the complete first reply, whether or not it held a script.
 
 """
