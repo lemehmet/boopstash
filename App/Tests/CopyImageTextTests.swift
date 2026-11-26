@@ -149,6 +149,60 @@ struct CopyImageTextTests {
         window.close()
     }
 
+    /// The editor as NoteDetail wires it: focused, and reporting its image
+    /// selection to the model, with the model watching the attachments.
+    func focus(_ view: BoopTextView) {
+        model.keyResponder = { view }
+        view.onImageSelectionChange = { [model] in model.editorFocusMayHaveChanged() }
+        model.watchAttachments()
+    }
+
+    /// The Edit menu's state follows the image's file while the selection
+    /// stays where it is (#251): nothing here tells the model to look again.
+    @Test func theEditMenuFollowsAFileThatGoesAndComesBack() async throws {
+        let image = try image()
+        let (window, view) = host("text " + AttachmentReference.markdown(for: image.id))
+        focus(view)
+        view.setSelectedRange(reference(image.id, in: view))
+        #expect(try await eventually { model.canCopyImageText })
+
+        // As the store removes a file, and as it writes one.
+        let url = model.store.fileURL(for: image)
+        try FileManager.default.removeItem(at: url)
+        #expect(try await eventually { !model.canCopyImageText }, "the file went")
+        try Data([1, 2, 3]).write(to: url, options: .atomic)
+        #expect(try await eventually { model.canCopyImageText }, "the file is back")
+
+        // The editor's own record followed too: leaving the image is still
+        // a change it reports.
+        view.setSelectedRange(NSRange(location: 0, length: 0))
+        #expect(try await eventually { !model.canCopyImageText })
+        window.close()
+    }
+
+    /// An image whose record iCloud has not brought yet: its chip can be
+    /// selected, and the commands come on when the record and its file
+    /// arrive, and go off when another device deletes it (#251). The store
+    /// is written as sync writes it; sync itself is off.
+    @Test func theEditMenuFollowsAnImageThatArrivesAndIsDeletedElsewhere() async throws {
+        let attachment = NoteAttachment(noteID: nil, contentType: "public.png", byteSize: 3)
+        let (window, view) = host("text " + AttachmentReference.markdown(for: attachment.id))
+        focus(view)
+        view.setSelectedRange(reference(attachment.id, in: view))
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(!model.canCopyImageText, "not here yet")
+        let revision = model.attachmentsRevision
+
+        let record = SyncMapping.record(for: attachment, file: URL(fileURLWithPath: "/unused"))
+        try model.store.applyServerRecord(record, systemFields: Data(), assetData: Data([1, 2, 3]))
+        #expect(try await eventually { model.canCopyImageText }, "arrived")
+        #expect(model.attachmentsRevision != revision, "the other editors draw their chips again")
+
+        try model.store.applyServerDeletion(kind: .attachment, name: attachment.id.uuidString.lowercased())
+        #expect(try await eventually { !model.canCopyImageText }, "deleted on another device")
+        window.close()
+    }
+
     /// The Edit menu's state follows the selection, not only the focus.
     @Test func selectingAnImageIsReported() throws {
         let image = try image()

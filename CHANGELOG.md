@@ -115,6 +115,12 @@ breaking changes may land in a minor release.
 
 ### Fixed
 
+- **Mac: Copy Text from Image and Insert Text Below in the Edit menu
+  follow the image's file (#251).** With an image selected, the two
+  commands stayed off when iCloud brought the image afterwards, and stayed
+  on when it was deleted on another device or its file went, until the
+  selection or the focus changed. They now follow the image as it arrives
+  and goes, and the image's chip in every open note is drawn again then.
 - **With iCloud sync on, a label, syntax setting or generated title
   changed and put back on another device is no longer taken for this
   device's own upload (#291, ADR 0015).** A note sent from here whose

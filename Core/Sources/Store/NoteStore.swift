@@ -796,6 +796,21 @@ public final class NoteStore: Sendable {
         }
     }
 
+    /// One element after every commit that changed an attachment's row, for
+    /// what depends on an image being here (#251): sync writes a file and
+    /// then its row, so by the time this says so both are in place. Says
+    /// nothing about files alone; ends when the consuming task is cancelled.
+    public func attachmentChanges() -> AsyncStream<Void> {
+        AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
+            let cancellable = DatabaseRegionObservation(tracking: Table("attachment")).start(in: writer) { _ in
+                continuation.finish()
+            } onChange: { _ in
+                continuation.yield()
+            }
+            continuation.onTermination = { _ in cancellable.cancel() }
+        }
+    }
+
 
     // MARK: Query building
 
