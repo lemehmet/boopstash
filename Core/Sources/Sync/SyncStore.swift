@@ -132,14 +132,16 @@ extension NoteStore {
 
     /// What tells one upload from another with the same content (#232): the
     /// record's `updatedAt`, in seconds since 1970. A device stamps it when
-    /// the note is edited, so another device saving the same
-    /// content later, after such a change this device never saw, carries
-    /// another one. Labelling a note leaves `updatedAt` as it is
-    /// (`NoteStore+Labels`), so a label put on and taken off again on
-    /// another device comes back equal to the upload in every field,
-    /// this one included, and still passes for it: nothing in the record
-    /// tells the two apart, and what the server then holds is what this
-    /// device sent.
+    /// the note's text is edited, so another device saving the same content
+    /// later, after such an edit this device never saw, carries another
+    /// one. A save that is not an edit keeps `updatedAt` as it is, so the
+    /// note keeps its place in the list: labelling is one (`NoteStore+Labels`),
+    /// and so is any caller's save of a note with its date untouched, such as
+    /// a setting of the note. A change of that kind made and undone on
+    /// another device comes back equal to the upload in every field, this
+    /// one included, and still passes for it: nothing in the record tells
+    /// the two apart, and what the server then holds is what this device
+    /// sent.
     /// Nil for a record without the field, which is then nobody's upload.
     static func editStamp(of record: SyncRecord) -> Double? {
         record.encrypted["updatedAt"]?.date?.timeIntervalSince1970
@@ -207,8 +209,9 @@ extension NoteStore {
     /// again. The same content with another edit date is another device's
     /// save, such as an edit this device never fetched followed by a
     /// revert, and is merged like any other (#232). A save that also has
-    /// the upload's edit date, as after a label was put on and taken off
-    /// elsewhere, cannot be told from the upload (`editStamp`).
+    /// the upload's edit date, as after a change that is not an edit (a
+    /// label, say) was made and undone elsewhere, cannot be told from the
+    /// upload (`editStamp`).
     public func applyServerRecord(_ record: SyncRecord, systemFields: Data, changeTag: String? = nil, assetData: Data? = nil,
                                   now: Date = Date()) throws -> Note? {
         // Deleted here, deletion not yet sent: a stale save from the server
