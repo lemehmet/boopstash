@@ -469,6 +469,84 @@ import Testing
         #expect(clean(Self.boxTable + "\n" + fenced) == Self.markdownTable + "\n" + fenced)
     }
 
+    // MARK: The fence a selection starts in (#259)
+
+    func range(of selected: String, after before: String) -> NSRange {
+        NSRange(location: (before as NSString).length, length: (selected as NSString).length)
+    }
+
+    /// A marker four columns in is a line of the code. It must stay one
+    /// when the selection's shared indent is removed and it stands at the
+    /// selection's first column.
+    @Test func aSelectionKeepsTheFenceItStartsInWhenItsIndentIsRemoved() {
+        let before = "```\n"
+        let selected = "    ```\n    \(Self.boxTable.replacingOccurrences(of: "\n", with: "\n    "))\n"
+        let note = before + selected + "```\n"
+        #expect(clean(note) == note)
+        #expect(PastedTextCleanup.outputs(fullText: note, selections: [range(of: selected, after: before)]) == ["```\n\(Self.boxTable)\n"])
+    }
+
+    /// The other way round: a real closing line in an indented selection
+    /// still closes the fence, and the table after it is converted.
+    @Test func aSelectionStillSeesItsFenceCloseWhenItsIndentIsRemoved() {
+        let before = "  ```\n"
+        let selected = "  code\n  ```\n  \(Self.boxTable.replacingOccurrences(of: "\n", with: "\n  "))\n"
+        let note = before + selected
+        #expect(clean(note) == "```\ncode\n```\n\(Self.markdownTable)\n")
+        #expect(PastedTextCleanup.outputs(fullText: note, selections: [range(of: selected, after: before)]) == ["code\n```\n\(Self.markdownTable)\n"])
+    }
+
+    @Test func aSelectionSeesAFenceOpenedBehindAColourCode() {
+        let before = "\u{1B}[31m```\u{1B}[0m\n"
+        let note = before + Self.boxTable + "\n```\n"
+        #expect(clean(note) == "```\n\(Self.boxTable)\n```\n")
+        #expect(PastedTextCleanup.outputs(fullText: note, selections: [range(of: Self.boxTable, after: before)]) == [Self.boxTable])
+        // A fence closed behind a colour code is closed.
+        let closed = before + "code\n\u{1B}[31m```\u{1B}[0m\n"
+        #expect(PastedTextCleanup.outputs(fullText: closed + Self.boxTable, selections: [range(of: Self.boxTable, after: closed)]) == [Self.markdownTable])
+    }
+
+    // MARK: A selection and the whole note agree (#244)
+
+    /// Cleaning never changes a table inside a code fence, and cleaning a
+    /// selection of whole lines gives those lines what cleaning the whole
+    /// note gives them, apart from the indent the selection's lines share
+    /// beyond the note's. `fenced` says the selection is all inside a
+    /// fence; `before` and `after` hold no table outside a fence, so the
+    /// whole note's lines can be counted.
+    @Test(arguments: [
+        // #259: the indent, the escape code, and both.
+        ("```\n", "    ```\n    ┌───┬───┐\n    │ a │ b │\n    │ c │ d │\n    └───┴───┘\n", "```\n", true),
+        ("\u{1B}[31m```\u{1B}[0m\n", "┌───┬───┐\n│ a │ b │\n│ c │ d │\n└───┴───┘\n", "```\n", true),
+        ("  \u{1B}[2m~~~\u{1B}[0m\n", "      ~~~\n      +---+---+\n      | a | b |\n      | c | d |\n      +---+---+\n", "  ~~~\n", true),
+        ("intro\n  ```\n", "  code\n  ```\n  +---+---+\n  | a | b |\n  | c | d |\n  +---+---+\n", "outro\n", false),
+        // #260: a selection inside the fence such an opener starts, and
+        // one that holds the opener.
+        ("intro\n``` |\n", " a | b\n----+----\n c | d\n e | f\n", "```\n", true),
+        ("intro\n", " a | b\n----+----\n x | y\n``` |\n c | d\n e | f\n", "```\noutro\n", false),
+        ("intro\n", " a | b\n----+----\n c | d\n e | f\n~~~ x|y\n g | h\n----+----\n i | j\n k | l\n", "~~~\n", false),
+        // #258: a line with a pipe next to a table, in a fence and out.
+        ("~~~\n", "Output of `ls | wc`:\n+---+---+\n| a | b |\n| c | d |\n+---+---+\nsee e | f\n", "~~~\n", true),
+        ("intro\n", "Output of `ls | wc`:\n+---+---+\n| a | b |\n| c | d |\n+---+---+\nsee e | f\n", "outro\n", false),
+        ("> ```\n", "> see a │ b\n> ┌───┬───┐\n> │ a │ b │\n> │ c │ d │\n> └───┴───┘\n", "> ```\n", true),
+    ])
+    func aSelectionIsCleanedAsTheWholeNoteIs(_ before: String, _ selected: String, _ after: String, _ fenced: Bool) {
+        let note = before + selected + after
+        let output = PastedTextCleanup.outputs(fullText: note, selections: [range(of: selected, after: before)])
+        let whole = PastedTextCleanup.lines(clean(note))
+            .dropFirst(PastedTextCleanup.lines(before).count)
+            .dropLast(PastedTextCleanup.lines(after).count)
+        #expect(output == [PastedTextCleanup.removingCommonIndent(PastedTextCleanup.joined(Array(whole)))])
+        let withoutTables = [PastedTextCleanup.Pass.escapeCodes, .commonIndent, .trailingWhitespace].reduce(selected) { $1.apply($0) }
+        if fenced {
+            #expect(output == [withoutTables], "a table inside a code fence is left alone")
+        } else {
+            #expect(output != [withoutTables], "the table outside the fence is converted")
+        }
+        // Cleaning what was cleaned changes nothing more.
+        #expect(clean(clean(note)) == clean(note))
+    }
+
     // MARK: Together
 
     @Test func everyPassRunsInOrder() {
@@ -497,6 +575,11 @@ import Testing
         // A box table straight above an ASCII border: the Markdown rows
         // must not be read as that border's table the second time.
         "┌───┬───┐\n│ a │ b │\n│ c │ d │\n└───┴───┘\n+---+---+\n",
+        // A line with a pipe above and below a table (#258), and a table
+        // straight above a fence with a pipe in its info string (#260).
+        "Output of `ls | wc`:\n+---+---+\n| a | b |\n| c | d |\n+---+---+\nsee e | f\n",
+        "see a │ b\n┌───┬───┐\n│ a │ b │\n│ c │ d │\n└───┴───┘\n+---+---+\n| e | f |\n",
+        " a | b\n----+----\n c | d\n e | f\n``` |\n g | h\n----+----\n i | j\n k | l\n",
     ])
     func cleaningTwiceIsCleaningOnce(_ text: String) {
         let once = clean(text)

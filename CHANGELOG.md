@@ -115,6 +115,13 @@ breaking changes may land in a minor release.
 
 ### Fixed
 
+- **Mac: Clean Up Pasted Text on a selection keeps the code fence the
+  selection starts in (#259).** A table selected inside a fence was
+  converted, although cleaning the whole note leaves it alone, in two
+  cases: when the fence's opening line stood behind a colour code, and
+  when the selection began with an indented line of backticks or tildes
+  that is code, which read as the fence's closing line once the
+  selection's shared indent was removed.
 - **Mac: Clean Up Pasted Text converts a table that has a line with a
   pipe straight above or below it (#258).** A line such as
   ``Output of `ls | wc`:`` right above a table drawn with `+---+` and

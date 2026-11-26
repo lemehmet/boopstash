@@ -33,8 +33,25 @@ public enum PastedTextCleanup {
     /// something longer (a selection): a code fence left open there is
     /// still open where `text` starts.
     public static func clean(_ text: String, after preceding: String = "") -> String {
-        let fence = openFence(atEndOf: preceding)
-        return Pass.allCases.reduce(text) { $1 == .tables ? convertingTables($0, in: fence) : $1.apply($0) }
+        // The fence a run on the whole text has open where `text` starts.
+        // That run looks for fences after the escape codes have gone, so
+        // an opening line behind a colour code counts here too.
+        var fence = openFence(atEndOf: removingEscapeCodes(preceding))
+        return Pass.allCases.reduce(text) { text, pass in
+            switch pass {
+            case .commonIndent:
+                // The indent about to go moves this text's lines to the
+                // left and the fence's opening line, in `preceding`, not
+                // at all. The fence moves with them, so a marker further
+                // in than a closing line may be still is.
+                fence?.column -= commonIndent(of: lines(text)).utf16.count
+                return pass.apply(text)
+            case .tables:
+                return convertingTables(text, in: fence)
+            case .escapeCodes, .trailingWhitespace:
+                return pass.apply(text)
+            }
+        }
     }
 
     /// What a run on a note puts in place of each non-empty selected range,
@@ -121,19 +138,25 @@ public enum PastedTextCleanup {
     /// relative indentation, inside a code fence too, is kept.
     public static func removingCommonIndent(_ text: String) -> String {
         var all = lines(text)
-        var shared: Substring?
-        for line in all where !line.content.allSatisfy(isIndent) {
-            let own = indent(of: line.content)
-            shared = shared.map { commonPrefix($0, own) } ?? own
-            if shared?.isEmpty == true { return text }
-        }
-        guard let shared, !shared.isEmpty else { return text }
+        let shared = commonIndent(of: all)
+        guard !shared.isEmpty else { return text }
         for index in all.indices {
             // A blank line gives up as much of the indent as it has.
             let drop = commonPrefix(shared, indent(of: all[index].content)).count
             all[index].content.removeFirst(drop)
         }
         return joined(all)
+    }
+
+    /// The leading spaces and tabs every non-blank line shares.
+    static func commonIndent(of lines: [Line]) -> Substring {
+        var shared: Substring?
+        for line in lines where !line.content.allSatisfy(isIndent) {
+            let own = indent(of: line.content)
+            shared = shared.map { commonPrefix($0, own) } ?? own
+            if shared?.isEmpty == true { break }
+        }
+        return shared ?? ""
     }
 
     // MARK: - Trailing whitespace
@@ -193,6 +216,8 @@ public enum PastedTextCleanup {
 
     /// An open code fence: its marker, how many of them, how far in
     /// from the line's start they stand, and how many block quotes deep.
+    /// The column is below zero for a fence opened in front of a selection
+    /// whose lines have lost more indent than the fence stands in.
     typealias Fence = (marker: Character, length: Int, column: Int, quotes: Int)
 
     /// What a fence can stand behind on its line: block quote and list
