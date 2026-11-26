@@ -446,6 +446,13 @@ import Testing
         // What is between the borders is still not a table.
         "see a | b\n+---+---+\n| a | b |\n+---+---+\n",
         "see a | b\n++---+---+\n+| a | b |\n+| c | d |\n++---+---+\n",
+        // A diff whose changed rows stand outside the borders: what is
+        // between the borders is the diff's context lines.
+        "-| a | b |\n+| a | x |\n +---+---+\n | c | d |\n | e | f |\n +---+---+\n-| g | h |\n+| g | y |\n",
+        " +---+---+\n | c | d |\n | e | f |\n +---+---+\n-| g | h |\n",
+        "+| a | x |\n +---+---+\n | c | d |\n | e | f |\n +---+---+\n",
+        "- | a | b |\n+ | a | x |\n  +---+---+\n  | c | d |\n  | e | f |\n  +---+---+\n",
+        "-│ a │ b │\n+│ a │ x │\n ┌───┬───┐\n │ c │ d │\n │ e │ f │\n └───┴───┘\n",
     ])
     func aBlockWithLinesOutsideItsBordersIsStillLeftAloneWithoutEvidence(_ text: String) {
         #expect(clean(text) == text)

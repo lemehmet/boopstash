@@ -345,7 +345,11 @@ public enum PastedTextCleanup {
     /// only with evidence that the lines outside it are not the table's
     /// own: its rows are closed at both ends and those lines are not (a
     /// table with open rows has its header above its first border, and a
-    /// closed row under the last border is a row).
+    /// closed row under the last border is a row). A line outside that
+    /// starts with `+` or `-` may be a changed row in a diff of the table
+    /// (`-| a | b |` is not closed only because of its marker), and what
+    /// is between the borders is then the diff's context lines: the block
+    /// is left alone.
     static func table(in block: [Line], box: Bool) -> (lines: Range<Int>, rows: [String])? {
         if let rows = markdownTable(block, box: box) { return (block.indices, rows) }
         let kinds = block.map { kind(of: $0.content) }
@@ -354,7 +358,8 @@ public enum PastedTextCleanup {
         let separators: Set<Character> = box ? boxVerticals : ["|"]
         let outside = block.indices.filter { !inside.contains($0) }
         guard !outside.isEmpty, outside.allSatisfy({ index in
-            kinds[index] != .markdownRule && !isClosed(block[index].content.trimmingCharacters(in: .whitespaces), by: separators)
+            let text = block[index].content.trimmingCharacters(in: .whitespaces)
+            return kinds[index] != .markdownRule && !isClosed(text, by: separators) && !text.hasPrefix("+") && !text.hasPrefix("-")
         }) else { return nil }
         return markdownTable(Array(block[inside]), box: box, framed: true).map { (inside, $0) }
     }
