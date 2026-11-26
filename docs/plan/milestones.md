@@ -137,7 +137,7 @@ is in review, work lands on `main` and waits.
   CloudKit Production schema, and checked against a 0.4.1 client in
   Development (it must ignore labels and not strip them).
 
-## Next release — a note record says which upload it is (release gate open)
+## Next release — a note record says which upload it is (release gate closed 2026-11-26)
 
 - **Upload identity** (ADR 0015, #291). Each note record built for sending
   carries `uploadID`, a random encrypted value, remembered locally until
@@ -171,7 +171,15 @@ is in review, work lands on `main` and waits.
      Deploy Schema Changes, and confirm `Note.uploadID` is in the
      Production schema.
 
-  When done, record the date here and mark the gate closed.
+  **Closed on 2026-11-26 by the maintainer.** Steps 1, 2 and 4 were done:
+  the seed build ran, `Note.uploadID` showed in the Development schema, and
+  the schema changes were deployed to Production. Step 3 was not run: the
+  maintainer accepted, without the check, that 0.4.6 ignores the field and
+  does not strip it, on the reasoning in ADR 0015 (an older client sets
+  only the keys of its own schema, as 0.4.1 left `labelIDs` alone). If a
+  note saved by a newer build is ever seen without `uploadID` after an
+  older client saved it, that reasoning was wrong and this is where to
+  look first.
 
 ## Later
 

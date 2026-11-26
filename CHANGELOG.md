@@ -129,10 +129,9 @@ breaking changes may land in a minor release.
   differs. Devices on 0.4.5 or 0.4.6 keep syncing and leave the value
   alone; on a note a newer version has saved they can make a "(conflict)"
   copy where they would have recognised their own upload.
-  **Release gate: the new field `Note.uploadID` must be deployed to the
-  CloudKit Production schema before any release that contains this
-  change, or note saves from it are rejected by iCloud (see
-  `docs/plan/milestones.md`).**
+  The new field `Note.uploadID` was deployed to the CloudKit Production
+  schema on 2026-11-26, which a release with this change needs (see
+  `docs/plan/milestones.md`).
 - **With iCloud sync on, a note a newer BoopStash has added a field to no
   longer gets a needless "(conflict)" copy.** A note sent from here whose
   confirmation was lost, and which was edited here again, is recognised
