@@ -38,7 +38,9 @@ extension SyncRecord {
     /// A digest of every field but the dates, which do not come back from
     /// the server exactly as sent: the same for a record this device built
     /// and that record coming back, different once another device changed
-    /// its text, title, settings or labels (#229).
+    /// its text, title, settings or labels (#229). It does not tell two
+    /// saves of the same content apart: the store pairs it with the record's
+    /// edit date for that (`NoteStore.editStamp`, #232).
     public var contentDigest: String {
         let parts: [[String]] = encrypted.keys.sorted().compactMap { key in
             switch encrypted[key] {

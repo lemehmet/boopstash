@@ -249,6 +249,134 @@ import Testing
         #expect(systemFields == serverFields, "sent over the server's record")
     }
 
+    /// #232: the upload's acknowledgement is lost and a newer edit is saved
+    /// here; meanwhile another device changes the note and then puts it back
+    /// as this device uploaded it. Only that last record is fetched, so the
+    /// change in between is never seen. It has everything the upload had but
+    /// its edit date, so it is another device's save: the server's text wins
+    /// and the edit here is kept as a copy, not sent over it without notice.
+    @Test func aForeignRevertToAnUploadedRecordStillMakesACopy() throws {
+        let base = note("base", title: "Plan")
+        let name = base.id.uuidString.lowercased()
+        let uploaded = try #require(try unacknowledgedUpload(of: base))
+        var mine = try #require(try store.note(id: base.id))
+        mine.body = "second edit"
+        mine.updatedAt = base.updatedAt.addingTimeInterval(20)
+        try store.save(mine)
+        var reverted = try #require(SyncMapping.note(from: uploaded))
+        reverted.updatedAt = base.updatedAt.addingTimeInterval(15)
+        let record = SyncMapping.record(for: reverted)
+        #expect(record.contentDigest == uploaded.contentDigest, "the same but for its dates")
+
+        let copy = try #require(try store.applyServerRecord(record, systemFields: fields, changeTag: "tag-3"))
+        #expect(copy.body == "second edit" && copy.title == "Plan (conflict)")
+        #expect(try store.note(id: base.id)?.body == "first edit")
+        #expect(try store.note(id: copy.id) == copy)
+        // The server has moved past every record sent from here: the upload
+        // itself, delivered late, is no longer this device's own either.
+        var again = try #require(try store.note(id: base.id))
+        again.body = "third edit"
+        again.updatedAt = base.updatedAt.addingTimeInterval(30)
+        try store.save(again)
+        #expect(try store.pendingSave(kind: .note, name: name) != nil)
+        #expect(try store.applyServerRecord(uploaded, systemFields: fields, changeTag: "tag-4") != nil)
+    }
+
+    /// The edit date of an upload coming back may be rounded on the way
+    /// (#229): within `NoteStore.uploadDateTolerance` it is still this
+    /// device's own, and past it it is not.
+    @Test func anOwnUploadIsKnownByItsEditDateWithinTheTolerance() throws {
+        let base = note("base", title: "Plan")
+        let name = base.id.uuidString.lowercased()
+        let uploaded = try #require(try unacknowledgedUpload(of: base))
+        var mine = try #require(try store.note(id: base.id))
+        mine.body = "second edit"
+        mine.updatedAt = base.updatedAt.addingTimeInterval(20)
+        try store.save(mine)
+        let sentAt = try #require(SyncMapping.note(from: uploaded)).updatedAt
+        func echo(off seconds: TimeInterval) throws -> SyncRecord {
+            var note = try #require(SyncMapping.note(from: uploaded))
+            note.updatedAt = sentAt.addingTimeInterval(seconds)
+            return SyncMapping.record(for: note)
+        }
+
+        // A change tag of its own for each: with the tag the store already
+        // holds, the record is taken for unchanged before its date is looked at.
+        for (offset, tag) in [(-NoteStore.uploadDateTolerance / 2, "tag-2"), (NoteStore.uploadDateTolerance / 2, "tag-3")] {
+            #expect(try store.applyServerRecord(try echo(off: offset), systemFields: fields, changeTag: tag) == nil)
+            #expect(try store.note(id: base.id)?.body == "second edit")
+            #expect(try store.notes(matching: NoteQuery()).count == 1, "no conflict copy")
+            #expect(try pendingNames() == ["save Note \(name)"])
+        }
+        #expect(try store.applyServerRecord(try echo(off: NoteStore.uploadDateTolerance * 2), systemFields: fields, changeTag: "tag-4") != nil)
+    }
+
+    /// A record without an edit date is not one this device built.
+    @Test func aRecordWithoutAnEditDateIsNotAnOwnUpload() throws {
+        let base = note("base", title: "Plan")
+        var uploaded = try #require(try unacknowledgedUpload(of: base))
+        var mine = try #require(try store.note(id: base.id))
+        mine.body = "second edit"
+        mine.updatedAt = base.updatedAt.addingTimeInterval(20)
+        try store.save(mine)
+        uploaded.encrypted["updatedAt"] = nil
+
+        let copy = try #require(try store.applyServerRecord(uploaded, systemFields: fields, changeTag: "tag-2"))
+        #expect(copy.body == "second edit")
+    }
+
+    /// The same text sent twice, with another in between, is two uploads:
+    /// either may be what the server holds, and both are this device's own.
+    @Test func theSameContentBuiltTwiceIsRememberedTwice() throws {
+        let base = note("base", title: "Plan")
+        let name = base.id.uuidString.lowercased()
+        let first = try #require(try unacknowledgedUpload(of: base))
+        var mine = try #require(try store.note(id: base.id))
+        for (body, seconds) in [("other", 20.0), ("first edit", 30.0)] {
+            mine.body = body
+            mine.updatedAt = base.updatedAt.addingTimeInterval(seconds)
+            try store.save(mine)
+            _ = try #require(try store.pendingSave(kind: .note, name: name))
+        }
+        guard case .save(let second, _, _)? = try store.pendingSave(kind: .note, name: name) else {
+            Issue.record("not pending")
+            return
+        }
+        #expect(second.contentDigest == first.contentDigest && second != first)
+        mine.body = "newest"
+        mine.updatedAt = base.updatedAt.addingTimeInterval(40)
+        try store.save(mine)
+
+        #expect(try store.applyServerRecord(first, systemFields: fields, changeTag: "tag-2") == nil)
+        #expect(try store.applyServerRecord(second, systemFields: fields, changeTag: "tag-3") == nil)
+        #expect(try store.note(id: base.id)?.body == "newest")
+        #expect(try store.notes(matching: NoteQuery()).count == 1, "no conflict copy")
+    }
+
+    /// Uploads remembered before they carried an edit date (v12) cannot be
+    /// told from another device's revert, so the migration forgets them: the
+    /// record coming back is merged, with a copy, and nothing is lost.
+    @Test func uploadsRememberedWithoutADateAreForgotten() throws {
+        let queue = try DatabaseQueue(configuration: NoteStore.configuration)
+        try NoteStore.migrator.migrate(queue, upTo: "v12-sync-uploads")
+        let old = note("first edit", title: "Plan")
+        let uploaded = SyncMapping.record(for: old)
+        try queue.write { db in
+            try old.insert(db)
+            try db.execute(sql: "INSERT INTO syncUpload (noteID, digest) VALUES (?, ?)", arguments: [old.id, uploaded.contentDigest])
+        }
+        let migrated = try NoteStore(queue, attachmentsDirectory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString))
+        #expect(try migrated.note(id: old.id) == old)
+        var mine = old
+        mine.body = "second edit"
+        mine.updatedAt = old.updatedAt.addingTimeInterval(20)
+        try migrated.save(mine)
+
+        let copy = try #require(try migrated.applyServerRecord(uploaded, systemFields: fields, changeTag: "tag-2"))
+        #expect(copy.body == "second edit")
+        #expect(try migrated.note(id: old.id)?.body == "first edit")
+    }
+
     /// A body this device never built is still another device's edit, also
     /// with an upload unacknowledged; once it is merged, the bodies sent
     /// before are forgotten, and one of them coming back is foreign too.

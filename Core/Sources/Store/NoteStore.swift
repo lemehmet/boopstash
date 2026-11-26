@@ -446,6 +446,23 @@ public final class NoteStore: Sendable {
                 t.primaryKey(["noteID", "digest"])
             }
         }
+        migrator.registerMigration("v13-sync-upload-dates") { db in
+            // An upload is remembered with its edit date as well (#232): a
+            // digest alone also matches another device putting the note back
+            // as it was uploaded. `editedAt` is the record's `updatedAt` in
+            // seconds since 1970, a number so it can be compared within a
+            // tolerance. Rows from v12 have no date and cannot be checked, so
+            // they are forgotten: the worst that follows is a merge that
+            // keeps this device's text as a copy. Local only; the CloudKit
+            // schema is unchanged.
+            try db.drop(table: "syncUpload")
+            try db.create(table: "syncUpload") { t in
+                t.column("noteID", .blob).notNull().references("note", onDelete: .cascade)
+                t.column("digest", .text).notNull()
+                t.column("editedAt", .double).notNull()
+                t.primaryKey(["noteID", "digest", "editedAt"])
+            }
+        }
         return migrator
     }
 

@@ -115,6 +115,13 @@ breaking changes may land in a minor release.
 
 ### Fixed
 
+- **With iCloud sync on, another device putting a note back as it was is
+  no longer overwritten without notice.** After an upload whose
+  confirmation was lost, a note edited here again could be sent over
+  another device's later save when that save had the same text as the
+  upload (a change there, then a revert). Such a save is now merged like
+  any other: its text wins and the edit made here is kept as a
+  "(conflict)" copy (#232).
 - **Mac: the workbench's script keeps its font and text colour after the
   editor was emptied.** A draft from Generate or a starting point from
   Start From that went into an editor with nothing in it (after deleting
