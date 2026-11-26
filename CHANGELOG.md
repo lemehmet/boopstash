@@ -215,6 +215,11 @@ breaking changes may land in a minor release.
   script, and BoopStash took that for the model's reasoning and cut the
   script there, leaving half of it or "no script". Reasoning is now
   dropped only outside the reply's code blocks (#281).
+- **Mac: in the workbench, Check Again's answer stays.** A slower check
+  it had cancelled could finish afterwards and put its older answer in
+  the window, leaving Generate enabled or disabled wrongly until the next
+  check (#282). A request cancelled while the sample is taken is not made
+  (#277).
 
 ## v0.4.6 — 2026-11-10
 

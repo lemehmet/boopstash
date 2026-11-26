@@ -382,12 +382,15 @@ final class ScriptWorkbenchSession {
     /// Asks the generator, if there is one, whether it can be used,
     /// without waiting for the answer: a generator that is slow to say
     /// delays the prompt row and nothing else. An answer that comes after
-    /// the workbench closed is dropped. Asking sends nothing anywhere.
+    /// the workbench closed is dropped, and so is the answer to a check
+    /// that Check Again cancelled (#282): however late it comes, it does
+    /// not take the place of the newer check's answer, and the note is
+    /// not read for it. Asking sends nothing anywhere.
     private func checkAvailability() {
         guard let generator, checking == nil, !isClosed else { return }
         checking = Task { [weak self] in
             let availability = await generator.availability()
-            guard let self, !self.isClosed else { return }
+            guard let self, !self.isClosed, !Task.isCancelled else { return }
             self.destination = ScriptGeneration.destination(availability)
             self.unavailableReason = ScriptGeneration.unavailableReason(availability)
             self.readTarget()
