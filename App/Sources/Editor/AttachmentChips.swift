@@ -105,11 +105,14 @@ extension BoopTextView {
             let label = url == nil
                 ? (match.alt.isEmpty ? "Missing image" : "\(match.alt) (missing)")
                 : (match.alt.isEmpty ? "Image" : match.alt)
+            // Looked up once for the reference: the file is asked which
+            // version it is (#296).
+            let image = url.flatMap(thumbnail)
             for (index, segment) in segments.enumerated() {
                 // Only the first segment of a wrapped reference carries the
                 // thumbnail and label; the rest just cover its text.
                 let chip = ChipView(frame: segment.integral, reference: match.range,
-                                    label: index == 0 ? label : nil, image: url.flatMap(thumbnail), missing: url == nil,
+                                    label: index == 0 ? label : nil, image: image, missing: url == nil,
                                     background: background, fill: fill, text: text)
                 // The editor takes focus first: Copy and Quick Look go
                 // through the responder chain, which starts there.
@@ -149,23 +152,46 @@ extension BoopTextView {
     /// The chip's picture: from the cache, or nil while a small thumbnail
     /// is decoded off the main thread, which then rebuilds the chips (#95).
     /// The full image is never loaded for a chip.
+    ///
+    /// The cached picture is of one version of the file (#296). When the
+    /// file at the URL is another one now (iCloud replaced it, or it was
+    /// removed and written again), it is decoded again; until that is
+    /// ready the chip keeps the picture it had, rather than blinking to an
+    /// icon and back.
     private func thumbnail(_ url: URL) -> NSImage? {
-        if let cached = Self.thumbnails.object(forKey: url as NSURL) { return cached }
-        if let waiting = Self.decoding[url] {
-            waiting.add(self)
-            return nil
-        }
-        let waiting = NSHashTable<BoopTextView>.weakObjects()
+        guard let version = FileVersion(of: url) else { return nil }
+        let cached = Self.thumbnails.object(forKey: url as NSURL)
+        if let cached, cached.version == version { return cached.image }
+        let waiting = Self.decoding[url] ?? .weakObjects()
         waiting.add(self)
         Self.decoding[url] = waiting
+        // Noted now: the cache may let the old picture go before the decode
+        // is done, and the chip drawn with it would still show it.
+        if cached != nil { Self.decodes.showedEarlierPicture(url) }
+        guard Self.decodes.begin(url, version: version) else { return cached?.image }
         Task {
             let decoded = await Task.detached(priority: .utility) { Self.downsampled(url, maxPixels: 160) }.value
+            // The file was replaced while this ran: the decode started for
+            // the new one is the one waited for, and this picture, which
+            // may be of the old bytes, is not kept.
+            guard Self.decodes.finish(url, version: version) else { return }
             let views = Self.decoding.removeValue(forKey: url)?.allObjects ?? []
-            guard let (image, cost) = decoded else { return }
-            Self.thumbnails.setObject(image, forKey: url as NSURL, cost: cost)
+            let showedEarlier = Self.decodes.takeShowedEarlierPicture(url)
+            guard let (image, cost) = decoded else {
+                // No picture can be made of the file as it is now: the one
+                // of the file it replaced goes, from the cache and, when a
+                // chip was drawn with it, from the chips. A file that never
+                // had a picture draws nothing again, so asking for one does
+                // not go round in circles.
+                Self.thumbnails.removeObject(forKey: url as NSURL)
+                guard showedEarlier else { return }
+                for view in views { view.scheduleChipUpdate() }
+                return
+            }
+            Self.thumbnails.setObject(ChipThumbnail(image: image, version: version), forKey: url as NSURL, cost: cost)
             for view in views { view.scheduleChipUpdate() }
         }
-        return nil
+        return cached?.image
     }
 
     /// A thumbnail at most `maxPixels` on its longer side, read with ImageIO
@@ -367,6 +393,18 @@ extension BoopTextView {
     override func endPreviewPanelControl(_ panel: QLPreviewPanel!) {
         panel.dataSource = nil
         quickLookSource = nil
+    }
+}
+
+/// A chip's cached thumbnail, and the version of the file it was made
+/// from (#296).
+final class ChipThumbnail {
+    let image: NSImage
+    let version: FileVersion
+
+    init(image: NSImage, version: FileVersion) {
+        self.image = image
+        self.version = version
     }
 }
 

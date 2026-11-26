@@ -8,6 +8,7 @@ it, or where it came from. An iOS companion syncs through your own iCloud.
 > [`docs/plan/milestones.md`](docs/plan/milestones.md) and the decisions behind
 > it are in [`docs/adr/`](docs/adr/).
 
+<!-- help:mac -->
 ## Install
 
 With [Homebrew](https://brew.sh):
@@ -26,6 +27,7 @@ SHA-256 checksum:
 shasum -a 256 -c BoopStash-0.1.1.zip.sha256
 ```
 
+<!-- help:end -->
 ## What it is for
 
 [Boop](https://github.com/IvanMathy/Boop) is a superb scratch pad: a buffer to
@@ -42,6 +44,7 @@ changes three things:
 
 Boop's scripts keep working.
 
+<!-- help:mac -->
 ## Command line
 
 The app carries a sandboxed `boopstash` command. The Homebrew cask puts
@@ -64,6 +67,7 @@ once. Open BoopStash once first; it moves its notes where the command can
 reach them. Like the app, the command has no network
 access and can't read files you name; it only reads what is piped in.
 
+<!-- help:end -->
 ## Privacy
 
 - Your notes stay on your devices and in your own iCloud. There is no
@@ -99,6 +103,7 @@ macOS 26 or newer. The iOS companion needs iOS 26. On-device titles need Apple
 Silicon with Apple Intelligence turned on; without it, titles fall back to
 simple rules.
 
+<!-- help:mac -->
 ## Building from source
 
 Requires Xcode 26 or newer and [mise](https://mise.jdx.dev), which pins
@@ -118,6 +123,7 @@ mise exec -- tuist test BoopstashCore   # unit tests
 mise exec -- tuist build Boopstash      # the macOS app
 ```
 
+<!-- help:end -->
 ## Acknowledgements
 
 BoopStash is inspired by [Boop](https://github.com/IvanMathy/Boop) by Ivan

@@ -39,11 +39,151 @@ import Testing
     // MARK: The file
 
     @Test func aMissingUnreadableOrBlankFileIsNoPage() {
-        #expect(HelpPage.markdown(from: nil) == nil)
-        #expect(HelpPage.markdown(from: Data()) == nil)
-        #expect(HelpPage.markdown(from: Data(" \n\n".utf8)) == nil)
-        #expect(HelpPage.markdown(from: Data([0xFF, 0xFE, 0xFD])) == nil, "not UTF-8")
-        #expect(HelpPage.markdown(from: Data("# Title\n".utf8)) == "# Title\n")
+        for platform in HelpPage.Platform.allCases {
+            #expect(HelpPage.markdown(from: nil, for: platform) == nil)
+            #expect(HelpPage.markdown(from: Data(), for: platform) == nil)
+            #expect(HelpPage.markdown(from: Data(" \n\n".utf8), for: platform) == nil)
+            #expect(HelpPage.markdown(from: Data([0xFF, 0xFE, 0xFD]), for: platform) == nil, "not UTF-8")
+            #expect(HelpPage.markdown(from: Data("# Title\n".utf8), for: platform) == "# Title\n")
+        }
+        // Nothing of the file is for the phone: no page, not a blank one.
+        let macOnly = Data("<!-- help:mac -->\n# Install\n<!-- help:end -->\n".utf8)
+        #expect(HelpPage.markdown(from: macOnly, for: .ios) == nil)
+        #expect(HelpPage.markdown(from: macOnly, for: .mac) == "# Install\n")
+    }
+
+    // MARK: Parts for one platform (#263)
+
+    static let marked = """
+        # App
+
+        For everyone.
+
+        <!-- help:mac -->
+        ## Install
+
+        ```sh
+        brew install app
+        ```
+
+        <!-- help:end -->
+
+        ## Privacy
+
+        Stays here.
+
+        <!-- help:ios -->
+        ## Share sheet
+
+        <!-- help:end -->
+        <!-- help:mac -->
+        ## Building
+
+        <!-- help:end -->
+        ## License
+        """
+
+    /// The scenario of #263: on iOS the Mac's install, command-line and
+    /// build parts are gone; on the Mac the page is the README without its
+    /// marker lines.
+    @Test func aPageLeavesOutThePartsMarkedForAnotherPlatform() {
+        #expect(HelpPage.page(Self.marked, for: .ios) == """
+            # App
+
+            For everyone.
+
+
+            ## Privacy
+
+            Stays here.
+
+            ## Share sheet
+
+            ## License
+            """)
+        #expect(HelpPage.page(Self.marked, for: .mac) == """
+            # App
+
+            For everyone.
+
+            ## Install
+
+            ```sh
+            brew install app
+            ```
+
+
+            ## Privacy
+
+            Stays here.
+
+            ## Building
+
+            ## License
+            """)
+    }
+
+    @Test func noPageShowsAMarkerAndTheMacsIsTheFileWithoutThem() {
+        let lines = Self.marked.split(separator: "\n", omittingEmptySubsequences: false)
+        let unmarked = lines.filter { !$0.hasPrefix("<!-- help:") }.joined(separator: "\n")
+        #expect(HelpPage.page(unmarked, for: .mac) == unmarked, "a file without markers is its own page")
+        #expect(HelpPage.page(unmarked, for: .ios) == unmarked)
+        for platform in HelpPage.Platform.allCases {
+            #expect(!HelpPage.page(Self.marked, for: platform).contains("help:"))
+        }
+    }
+
+    @Test func aMarkerIsACommentAloneOnItsLine() {
+        #expect(HelpPage.marker("<!-- help:mac -->") == .only(.mac))
+        #expect(HelpPage.marker("  <!--help:ios-->  ") == .only(.ios))
+        #expect(HelpPage.marker("<!-- help: end -->") == .end)
+        #expect(HelpPage.marker("<!-- help:mac -->\r") == .only(.mac), "a file with Windows line ends")
+        for line in ["<!-- help:windows -->", "<!-- note -->", "<!-- help:mac --> text", "text <!-- help:end -->",
+                     "<!-- help:mac", "help:mac", "<!---->", "<!-->", ""] {
+            #expect(HelpPage.marker(Substring(line)) == nil, "\(line)")
+        }
+        // What is no marker is a line of the page, on every platform.
+        #expect(HelpPage.page("a\n<!-- help:windows -->\nb", for: .ios) == "a\n<!-- help:windows -->\nb")
+        #expect(HelpPage.page("a\r\n<!-- help:mac -->\r\nb\r\n<!-- help:end -->\r\nc", for: .ios) == "a\nc")
+    }
+
+    @Test func aMarkerInsideAFenceIsCode() {
+        let text = """
+            Mark a part like this:
+
+            ```html
+            <!-- help:mac -->
+            ```
+
+            ~~~~
+            ```
+            <!-- help:end -->
+            ~~~
+            ~~~~
+            after
+            """
+        #expect(HelpPage.page(text, for: .ios) == text)
+        #expect(HelpPage.markersAreBalanced(text))
+        // A fence inside a part goes with it, its closing line included.
+        #expect(HelpPage.page("a\n<!-- help:mac -->\n```\ncode\n```\n<!-- help:end -->\nb", for: .ios) == "a\nb")
+    }
+
+    @Test func aPartThatIsNeverEndedRunsToTheEndAndPartsDoNotNest() {
+        #expect(HelpPage.page("a\n<!-- help:mac -->\nb\nc", for: .ios) == "a")
+        #expect(HelpPage.page("a\n<!-- help:mac -->\nb\nc", for: .mac) == "a\nb\nc")
+        // The second part takes over from the first; one end ends it.
+        let nested = "a\n<!-- help:mac -->\nb\n<!-- help:ios -->\nc\n<!-- help:end -->\nd\n<!-- help:end -->\ne"
+        #expect(HelpPage.page(nested, for: .mac) == "a\nb\nd\ne")
+        #expect(HelpPage.page(nested, for: .ios) == "a\nc\nd\ne")
+        #expect(HelpPage.page("<!-- help:end -->\na", for: .ios) == "a", "an end with nothing to end")
+    }
+
+    @Test func balanceIsWhatTheREADMEIsHeldTo() {
+        #expect(HelpPage.markersAreBalanced(Self.marked))
+        #expect(HelpPage.markersAreBalanced("no markers"))
+        #expect(!HelpPage.markersAreBalanced("<!-- help:mac -->\nnever ended"))
+        #expect(!HelpPage.markersAreBalanced("<!-- help:end -->"))
+        #expect(!HelpPage.markersAreBalanced("<!-- help:mac -->\n<!-- help:ios -->\n<!-- help:end -->"))
     }
 
     // MARK: Links
@@ -99,10 +239,34 @@ import Testing
 
     /// The file both apps bundle. Checked for what any README must satisfy,
     /// not for what this one says, so editing it needs no other change.
-    @Test func theRepositorysREADMERendersWithNothingToLoad() async throws {
-        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent().appendingPathComponent("README.md")
-        let markdown = try #require(HelpPage.markdown(from: try Data(contentsOf: url)))
+    static func readme() throws -> Data {
+        try Data(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("README.md"))
+    }
+
+    /// The README's marks (#263), checked for their shape and not for what
+    /// they enclose: every part is ended, no page shows a mark (the preview
+    /// would draw the comment as written), the Mac's page is the whole file
+    /// but for its marker lines, and the phone's has something left.
+    @Test func theRepositorysREADMEMarksItsPartsSoundly() async throws {
+        let text = try #require(String(data: try Self.readme(), encoding: .utf8))
+        #expect(HelpPage.markersAreBalanced(text))
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+        let mac = try #require(HelpPage.markdown(from: Data(text.utf8), for: .mac))
+        #expect(mac == lines.filter { HelpPage.marker($0) == nil }.joined(separator: "\n"))
+        let ios = try #require(HelpPage.markdown(from: Data(text.utf8), for: .ios))
+        for page in [mac, ios] {
+            let out = await MarkdownPreview.blocks(for: page, linkBase: HelpPage.linkBase)
+            #expect(out.contains { if case .heading = $0 { true } else { false } })
+            #expect(!out.contains { if case .rawHTML(let html) = $0 { html.contains("help:") } else { false } })
+        }
+        // A part for the Mac alone is not on the phone's page.
+        if lines.contains(where: { HelpPage.marker($0) == .only(.mac) }) { #expect(ios.count < mac.count) }
+    }
+
+    @Test(arguments: HelpPage.Platform.allCases)
+    func theRepositorysREADMERendersWithNothingToLoad(on platform: HelpPage.Platform) async throws {
+        let markdown = try #require(HelpPage.markdown(from: try Self.readme(), for: platform))
         let out = await MarkdownPreview.blocks(for: markdown, linkBase: HelpPage.linkBase)
         #expect(out.contains { if case .heading = $0 { true } else { false } })
         for image in Self.images(in: out) {
