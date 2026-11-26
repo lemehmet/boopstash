@@ -22,6 +22,15 @@ import Testing
         FileManager.default.fileExists(atPath: store.fileURL(for: attachment).path)
     }
 
+    /// An image is where it is only with its row and its file both here.
+    @Test func anImageWithoutItsFileOrItsRowIsNowhere() throws {
+        let attachment = try store.addAttachment(png, contentType: "public.png", noteID: nil)
+        #expect(store.presentFileURL(forAttachment: attachment.id) == store.fileURL(for: attachment))
+        try FileManager.default.removeItem(at: store.fileURL(for: attachment))
+        #expect(store.presentFileURL(forAttachment: attachment.id) == nil, "the row outlived its file")
+        #expect(store.presentFileURL(forAttachment: UUID()) == nil, "no row")
+    }
+
     // MARK: References
 
     @Test func referencesRoundTrip() {

@@ -136,7 +136,8 @@ extension NoteDetail {
         // newer than what was last saved.
         EditorView(noteID: note.id, revision: model.remoteRevisions[note.id] ?? 0, attachmentsRevision: model.attachmentsRevision, initialText: model.note(id: note.id)?.body ?? note.body,
                    noteTitle: model.note(id: note.id)?.title ?? note.title, keymap: keymap, syntax: syntax, appearance: appearance, showMessage: { model.banner = $0 }, jsFormat: { [runner = model.scriptRunner] request in await runner.format(request) }, attachmentURL: { [store = model.store] id in
-            (try? store.attachment(id: id)).map { store.fileURL(for: $0) }
+            // Nil without the file as without the row: the chip says missing.
+            store.presentFileURL(forAttachment: id)
         }, imageText: { await model.imageText(of: $0) },
            storeImage: { [id = note.id] data, type in model.addImage(data, type: type, to: id) }, onFocusChange: { model.editorFocusMayHaveChanged() },
            onLanguage: { language = $0 }) { text in

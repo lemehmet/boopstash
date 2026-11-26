@@ -50,7 +50,7 @@ struct CopyImageTextTests {
         window.makeFirstResponder(view)
         view.load(text)
         // As NoteDetail wires the editor.
-        view.attachmentURL = { [store = model.store] id in (try? store.attachment(id: id)).map { store.fileURL(for: $0) } }
+        view.attachmentURL = { [store = model.store] id in store.presentFileURL(forAttachment: id) }
         view.imageText = { [model] in await model.imageText(of: $0) }
         view.showMessage = { [messages] in messages.all.append($0) }
         view.updateChips()
@@ -170,8 +170,10 @@ struct CopyImageTextTests {
         let url = model.store.fileURL(for: image)
         try FileManager.default.removeItem(at: url)
         #expect(try await eventually { !model.canCopyImageText }, "the file went")
+        #expect(try await eventually { view.chipViews.first?.accessibilityLabel() == "Missing image" }, "and its chip says so")
         try Data([1, 2, 3]).write(to: url, options: .atomic)
         #expect(try await eventually { model.canCopyImageText }, "the file is back")
+        #expect(try await eventually { view.chipViews.first?.accessibilityLabel() == "Image" }, "and so does its chip")
 
         // The editor's own record followed too: leaving the image is still
         // a change it reports.

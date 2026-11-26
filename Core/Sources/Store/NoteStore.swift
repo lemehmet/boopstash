@@ -592,6 +592,13 @@ public final class NoteStore: Sendable {
         FileManager.default.fileExists(atPath: fileURL(for: attachment).path)
     }
 
+    /// Where the image is, when its row and its file are both here; nil for
+    /// an image that is missing either, which is then shown as missing.
+    public func presentFileURL(forAttachment id: UUID) -> URL? {
+        guard let attachment = try? attachment(id: id), hasFile(for: attachment) else { return nil }
+        return fileURL(for: attachment)
+    }
+
     /// Attachments not yet through text recognition, oldest first.
     public func attachmentsAwaitingRecognition(limit: Int = 50) throws -> [NoteAttachment] {
         try writer.read { db in
