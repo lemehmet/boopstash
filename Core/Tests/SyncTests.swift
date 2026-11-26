@@ -300,13 +300,15 @@ import Testing
             return SyncMapping.record(for: note)
         }
 
-        for offset in [-NoteStore.uploadDateTolerance / 2, NoteStore.uploadDateTolerance / 2] {
-            #expect(try store.applyServerRecord(try echo(off: offset), systemFields: fields, changeTag: "tag-2") == nil)
+        // A change tag of its own for each: with the tag the store already
+        // holds, the record is taken for unchanged before its date is looked at.
+        for (offset, tag) in [(-NoteStore.uploadDateTolerance / 2, "tag-2"), (NoteStore.uploadDateTolerance / 2, "tag-3")] {
+            #expect(try store.applyServerRecord(try echo(off: offset), systemFields: fields, changeTag: tag) == nil)
             #expect(try store.note(id: base.id)?.body == "second edit")
             #expect(try store.notes(matching: NoteQuery()).count == 1, "no conflict copy")
             #expect(try pendingNames() == ["save Note \(name)"])
         }
-        #expect(try store.applyServerRecord(try echo(off: NoteStore.uploadDateTolerance * 2), systemFields: fields, changeTag: "tag-3") != nil)
+        #expect(try store.applyServerRecord(try echo(off: NoteStore.uploadDateTolerance * 2), systemFields: fields, changeTag: "tag-4") != nil)
     }
 
     /// A record without an edit date is not one this device built.
