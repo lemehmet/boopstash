@@ -115,6 +115,14 @@ breaking changes may land in a minor release.
 
 ### Fixed
 
+- **With iCloud sync on, a note a newer BoopStash has added a field to no
+  longer gets a needless "(conflict)" copy.** A note sent from here whose
+  confirmation was lost, and which was edited here again, is recognised
+  as this device's own when it comes back. A field this version does not
+  know, written by a newer version on another device and kept on the
+  server, made it look like another device's edit, so the edit here was
+  set aside as a copy. Only the fields this version writes are compared
+  now; the other field stays on the server untouched (#233).
 - **With iCloud sync on, another device putting a note back as it was is
   no longer overwritten without notice.** After an upload whose
   confirmation was lost, a note edited here again could be sent over

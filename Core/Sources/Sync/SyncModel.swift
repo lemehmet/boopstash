@@ -35,14 +35,27 @@ public struct SyncRecord: Equatable, Sendable {
 }
 
 extension SyncRecord {
-    /// A digest of every field but the dates, which do not come back from
-    /// the server exactly as sent: the same for a record this device built
-    /// and that record coming back, different once another device changed
-    /// its text, title, settings or labels (#229). It does not tell two
-    /// saves of the same content apart: the store pairs it with the record's
-    /// edit date for that (`NoteStore.editStamp`, #232).
+    /// A digest of every field this app version writes
+    /// (`SyncMapping.schemaFields`) but the dates, which do not come back
+    /// from the server exactly as sent: the same for a record this device
+    /// built and that record coming back, different once another device
+    /// changed its text, title, settings or labels (#229). It does not tell
+    /// two saves of the same content apart: the store pairs it with the
+    /// record's edit date for that (`NoteStore.editStamp`, #232).
+    ///
+    /// A field outside the schema is left out (#233). The adapter leaves a
+    /// newer app version's fields on the server and reads them back, so the
+    /// record coming back can hold more than the one built here, which never
+    /// does; counting them made every such record look foreign. The digest
+    /// of a record built here is therefore what it always was, and uploads
+    /// remembered before this rule are still found. A field added to the
+    /// schema later changes the digest only of records that carry it: an
+    /// upload remembered by the version before is then not found when the
+    /// server's record has the new field, and is merged, which keeps both
+    /// texts.
     public var contentDigest: String {
-        let parts: [[String]] = encrypted.keys.sorted().compactMap { key in
+        let known = SyncMapping.schemaFields[kind] ?? []
+        let parts: [[String]] = encrypted.keys.filter(known.contains).sorted().compactMap { key in
             switch encrypted[key] {
             case .string(let value)?: [key, "s", value]
             case .bool(let value)?: [key, "b", value ? "1" : "0"]
