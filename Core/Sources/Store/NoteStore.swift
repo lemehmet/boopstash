@@ -463,6 +463,23 @@ public final class NoteStore: Sendable {
                 t.primaryKey(["noteID", "digest", "editedAt"])
             }
         }
+        migrator.registerMigration("v14-sync-upload-identity") { db in
+            // An upload is remembered by the identity its record carries
+            // (`SyncMapping.uploadIDField`, #291, ADR 0015), with its digest
+            // and edit date as before. Rows from v13 name uploads that went
+            // up without one, so no record coming back can be matched to
+            // them by it, and they are forgotten: the worst that follows is
+            // a merge that keeps this device's text as a copy. This table is
+            // local only; the field itself is in the CloudKit schema.
+            try db.drop(table: "syncUpload")
+            try db.create(table: "syncUpload") { t in
+                t.column("noteID", .blob).notNull().references("note", onDelete: .cascade)
+                t.column("uploadID", .text).notNull()
+                t.column("digest", .text).notNull()
+                t.column("editedAt", .double).notNull()
+                t.primaryKey(["noteID", "uploadID"])
+            }
+        }
         return migrator
     }
 

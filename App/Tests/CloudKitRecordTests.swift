@@ -38,6 +38,34 @@ struct CloudKitRecordTests {
         #expect(SyncMapping.note(from: back) == note)
     }
 
+    /// A note upload's identity (ADR 0015) is an encrypted field like the
+    /// rest: nothing of it in the clear, and it reads back as sent.
+    @Test func theUploadIdentityTravelsEncryptedAndRoundTrips() throws {
+        let identity = "0b6f3c58-1d67-4d0c-9a57-3a52f0f7f3c1"
+        let sync = SyncMapping.record(for: note, uploadID: identity)
+        let record = LiveSyncEngine.ckRecord(from: sync, systemFields: nil)
+        #expect(record.encryptedValues[SyncMapping.uploadIDField] as? String == identity)
+        #expect(record[SyncMapping.uploadIDField] == nil, "nothing in the clear")
+        #expect(!record.recordID.recordName.contains(identity))
+        let back = try #require(LiveSyncEngine.syncRecord(from: record))
+        #expect(back == sync)
+        #expect(SyncMapping.uploadID(from: back) == identity)
+        #expect(SyncMapping.note(from: back) == note)
+    }
+
+    /// A record of this version always says what its identity is: one built
+    /// without it clears the server's, so a stale one is never left beside
+    /// content it did not go up with. A client from before identities does
+    /// not know the key and leaves it, as `pinned` is left here.
+    @Test func aRecordWithoutAnIdentityClearsTheServers() throws {
+        let sync = SyncMapping.record(for: note)
+        let record = LiveSyncEngine.ckRecord(from: sync, systemFields: serverSystemFields("Note", sync.name))
+        #expect(record.changedKeys().contains(SyncMapping.uploadIDField))
+        #expect(record.encryptedValues[SyncMapping.uploadIDField] == nil)
+        let sent = LiveSyncEngine.ckRecord(from: SyncMapping.record(for: note, uploadID: "a"), systemFields: serverSystemFields("Note", sync.name))
+        #expect(sent.encryptedValues[SyncMapping.uploadIDField] as? String == "a")
+    }
+
     @Test func aLabelTravelsEncrypted() throws {
         let label = NoteLabel(name: "Bug", color: "#b60205", details: "Broken", createdAt: Date(timeIntervalSince1970: 1_000))
         let record = LiveSyncEngine.ckRecord(from: SyncMapping.record(for: label), systemFields: nil)

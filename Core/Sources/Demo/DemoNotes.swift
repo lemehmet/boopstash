@@ -34,7 +34,9 @@ public enum DemoNotes {
     /// One note, one image and one label with every field the sync records
     /// can carry set, in an in-memory store: syncing it from a development build
     /// creates the complete CloudKit schema in the Development environment,
-    /// to be deployed to Production (see CONTRIBUTING ▸ iCloud schema).
+    /// to be deployed to Production (see CONTRIBUTING ▸ iCloud schema). The
+    /// note's upload identity (ADR 0015) is not set here: the store gives it
+    /// to the record when the engine asks for it, as for any note.
     /// Made-up content, like the rest.
     public static func schemaSeedStore() throws -> NoteStore {
         let store = try NoteStore.inMemory()

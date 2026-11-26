@@ -6,7 +6,9 @@ import GRDB
 /// them as local ones. The local store stays the source of truth (ADR 0002).
 extension NoteStore {
     /// Local changes not yet acknowledged: saves of labels, notes and
-    /// attachments, then deletions.
+    /// attachments, then deletions. A look at what is waiting, not what is
+    /// sent: a note's record here has no upload identity, which only
+    /// `pendingSave` gives it and writes down.
     public func pendingSyncChanges(limit: Int = 200) throws -> [SyncChange] {
         try writer.read { db in
             var changes: [SyncChange] = []
@@ -73,10 +75,18 @@ extension NoteStore {
 
     /// The save to send for one record, built now; nil when it has nothing
     /// to send (acknowledged, or deleted, meanwhile). A note's record is
-    /// remembered as sent, by its `contentDigest` and its edit date, until
-    /// the note is back in step, so the record coming back is known as this
-    /// device's own even if its acknowledgement is lost (#229), and another
-    /// device's record with the same content is not (#232).
+    /// given an upload identity (`SyncMapping.uploadIDField`, ADR 0015) and
+    /// remembered as sent, by that identity, its `contentDigest` and its
+    /// edit date, until the note is back in step, so the record coming back
+    /// is known as this device's own even if its acknowledgement is lost
+    /// (#229), and another device's record with the same content is not
+    /// (#232, #291).
+    ///
+    /// The identity is new for every record that differs from those already
+    /// remembered; the same record built again (a send tried again) keeps
+    /// the one it had, so a retry sends what was sent and the table holds
+    /// one row for each record that can be on the server, not one for each
+    /// attempt.
     public func pendingSave(kind: SyncRecord.Kind, name: String) throws -> SyncChange? {
         guard let id = UUID(uuidString: name) else { return nil }
         guard kind == .note else { return try writer.read { db in try buildSave(kind, id, db) } }
@@ -85,12 +95,17 @@ extension NoteStore {
         // applied meanwhile forgets it after, never before (#229).
         guard try hasPendingSave(kind: .note, name: name) else { return nil }
         return try writer.write { db in
-            let change = try buildSave(.note, id, db)
-            if case .save(let record, _, _)? = change, let editedAt = Self.editStamp(of: record) {
-                try db.execute(sql: "INSERT OR IGNORE INTO syncUpload (noteID, digest, editedAt) VALUES (?, ?, ?)",
-                               arguments: [id, record.contentDigest, editedAt])
-            }
-            return change
+            // Without an edit date the record could not be matched when it
+            // comes back: it goes without an identity, and is nobody's upload.
+            guard case .save(var record, let systemFields, let version)? = try buildSave(.note, id, db) else { return nil }
+            guard let editedAt = Self.editStamp(of: record) else { return .save(record, systemFields: systemFields, version: version) }
+            let digest = record.contentDigest
+            let uploadID = try String.fetchOne(db, sql: "SELECT uploadID FROM syncUpload WHERE noteID = ? AND digest = ? AND editedAt = ?",
+                                               arguments: [id, digest, editedAt]) ?? SyncMapping.newUploadID()
+            try db.execute(sql: "INSERT OR IGNORE INTO syncUpload (noteID, uploadID, digest, editedAt) VALUES (?, ?, ?, ?)",
+                           arguments: [id, uploadID, digest, editedAt])
+            record.encrypted[SyncMapping.uploadIDField] = .string(uploadID)
+            return .save(record, systemFields: systemFields, version: version)
         }
     }
 
@@ -130,18 +145,22 @@ extension NoteStore {
     /// acknowledgement back into a conflict copy (#229).
     static let uploadDateTolerance: TimeInterval = 1
 
-    /// What tells one upload from another with the same content (#232): the
-    /// record's `updatedAt`, in seconds since 1970. A device stamps it when
-    /// the note's text is edited, so another device saving the same content
-    /// later, after such an edit this device never saw, carries another
-    /// one. A save that is not an edit keeps `updatedAt` as it is, so the
-    /// note keeps its place in the list: labelling is one (`NoteStore+Labels`),
-    /// and so is any caller's save of a note with its date untouched, such as
-    /// a setting of the note. A change of that kind made and undone on
-    /// another device comes back equal to the upload in every field, this
-    /// one included, and still passes for it: nothing in the record tells
-    /// the two apart, and what the server then holds is what this device
-    /// sent.
+    /// What tells one save from another with the same content when both
+    /// carry the same upload identity (#232): the record's `updatedAt`, in
+    /// seconds since 1970. A device stamps it when the note's text is
+    /// edited, so a client from before upload identities (ADR 0015), which
+    /// leaves this device's identity on the record it saves, is still told
+    /// apart when it edits the text and puts it back. A save that is not an
+    /// edit keeps `updatedAt` as it is, so the note keeps its place in the
+    /// list: labelling is one (`NoteStore+Labels`), and so is any caller's
+    /// save of a note with its date untouched, such as a setting of the note
+    /// or a generated title. A change of that kind made and undone on
+    /// another device is told from the upload by its identity, which every
+    /// record a current client builds carries anew (#291). Only such a
+    /// change made and undone by a client from before identities comes back
+    /// equal to the upload in every field, this device's identity included,
+    /// and passes for it: nothing in the record tells the two apart, and
+    /// what the server then holds is what this device sent.
     /// Nil for a record without the field, which is then nobody's upload.
     static func editStamp(of record: SyncRecord) -> Double? {
         record.encrypted["updatedAt"]?.date?.timeIntervalSince1970
@@ -203,20 +222,28 @@ extension NoteStore {
     /// own upload coming back: the server has not changed since, so unsent
     /// edits here are kept and sent, with no merge and no copy (#215). So is
     /// one this device built for sending since the note was last in step,
-    /// acknowledged or not (#229): the same content (`contentDigest`) with
-    /// the edit date it was sent with, give or take `uploadDateTolerance`.
-    /// The server's metadata is then taken, so the next send is not refused
-    /// again. The same content with another edit date is another device's
-    /// save, such as an edit this device never fetched followed by a
-    /// revert, and is merged like any other (#232). A save that also has
-    /// the upload's edit date, as after a change that is not an edit (a
-    /// label, say) was made and undone elsewhere, cannot be told from the
-    /// upload (`editStamp`). Fields this app version does not know take no
-    /// part: the upload coming back with a newer version's field beside it
-    /// is still this device's own, and so is a save elsewhere that changed
-    /// nothing else and kept the edit date (#233). Sending the edits here
-    /// then leaves such a field on the server as it is, since the adapter
-    /// never writes it.
+    /// acknowledged or not (#229): a record carrying an upload identity
+    /// remembered here (`SyncMapping.uploadIDField`, ADR 0015), with the
+    /// content (`contentDigest`) and the edit date that identity was sent
+    /// with, give or take `uploadDateTolerance`. All three, never the
+    /// identity alone: a client from before identities leaves the server's
+    /// value where it is while it changes the rest, so this device's
+    /// identity can come back on a record that is not its upload. The
+    /// server's metadata is then taken, so the next send is not refused
+    /// again.
+    ///
+    /// Everything else is another device's save and is merged like any
+    /// other: a record with no identity (an older client's, on a note no
+    /// current client saved before), one with an identity not remembered
+    /// here, also when its content and edit date are an upload's, as after a
+    /// label, a syntax setting or a generated title was changed and put back
+    /// elsewhere (#291), and one with this device's identity whose content
+    /// or edit date is not what went with it (#232). What cannot be told
+    /// from the upload is said at `editStamp`. Fields this app version does
+    /// not know take no part: the upload coming back with a newer version's
+    /// field beside it is still this device's own (#233). Sending the edits
+    /// here then leaves such a field on the server as it is, since the
+    /// adapter never writes it.
     public func applyServerRecord(_ record: SyncRecord, systemFields: Data, changeTag: String? = nil, assetData: Data? = nil,
                                   now: Date = Date()) throws -> Note? {
         // Deleted here, deletion not yet sent: a stale save from the server
@@ -287,10 +314,11 @@ extension NoteStore {
                 guard try !Self.isTombstoned(record, db) else { return nil }
                 let row = try Row.fetchOne(db, sql: """
                     SELECT syncPending, syncAcknowledged, syncSystemFields IS NOT NULL AND syncChangeTag = ? AS unchangedSince,
-                        EXISTS (SELECT 1 FROM syncUpload WHERE noteID = note.id AND digest = ?
+                        EXISTS (SELECT 1 FROM syncUpload WHERE noteID = note.id AND uploadID = ? AND digest = ?
                                 AND ABS(editedAt - ?) <= ?) AS sentHere
                     FROM note WHERE id = ?
-                    """, arguments: [changeTag, record.contentDigest, Self.editStamp(of: record), Self.uploadDateTolerance, server.id])
+                    """, arguments: [changeTag, SyncMapping.uploadID(from: record), record.contentDigest, Self.editStamp(of: record),
+                                     Self.uploadDateTolerance, server.id])
                 let changedHere = row.map { ($0["syncPending"] as Int) > ($0["syncAcknowledged"] as Int) } ?? false
                 if changedHere, changeTag != nil, row?["unchangedSince"] == true {
                     // The server still holds what this device last sent: the

@@ -266,7 +266,9 @@ import Testing
         try store.save(mine)
         var reverted = try #require(SyncMapping.note(from: uploaded))
         reverted.updatedAt = base.updatedAt.addingTimeInterval(15)
-        let record = SyncMapping.record(for: reverted)
+        // As a client from before upload identities leaves it: this device's
+        // identity is still on the record (ADR 0015), so only the date tells.
+        let record = SyncMapping.record(for: reverted, uploadID: SyncMapping.uploadID(from: uploaded))
         #expect(record.contentDigest == uploaded.contentDigest, "the same but for its dates")
 
         let copy = try #require(try store.applyServerRecord(record, systemFields: fields, changeTag: "tag-3"))
@@ -298,7 +300,7 @@ import Testing
         func echo(off seconds: TimeInterval) throws -> SyncRecord {
             var note = try #require(SyncMapping.note(from: uploaded))
             note.updatedAt = sentAt.addingTimeInterval(seconds)
-            return SyncMapping.record(for: note)
+            return SyncMapping.record(for: note, uploadID: SyncMapping.uploadID(from: uploaded))
         }
 
         // A change tag of its own for each: with the tag the store already
@@ -344,6 +346,7 @@ import Testing
             return
         }
         #expect(second.contentDigest == first.contentDigest && second != first)
+        #expect(SyncMapping.uploadID(from: second) != SyncMapping.uploadID(from: first), "each its own identity")
         mine.body = "newest"
         mine.updatedAt = base.updatedAt.addingTimeInterval(40)
         try store.save(mine)
@@ -437,14 +440,14 @@ import Testing
     }
 
     /// A note with every field set, and its record: every key of the note
-    /// schema is in it.
-    func fullRecord() -> SyncRecord {
+    /// schema is in it, the upload identity too unless `uploadID` is nil.
+    func fullRecord(uploadID: String? = "0b6f3c58-1d67-4d0c-9a57-3a52f0f7f3c1") -> SyncRecord {
         var full = note("base", title: "Plan")
         full.sourceBundleID = "com.example.terminal"
         full.sourceAppName = "Terminal"
         full.modelTitledHash = "abc"
         full.syntaxOverride = "json"
-        return SyncMapping.record(for: full, labelIDs: [UUID()])
+        return SyncMapping.record(for: full, labelIDs: [UUID()], uploadID: uploadID)
     }
 
     /// A value of the same kind that is not `value`.
@@ -459,7 +462,9 @@ import Testing
     }
 
     /// #233: the digest covers every field of this version's schema but the
-    /// dates, each of them changed or taken away, and nothing outside it: a
+    /// dates and the upload identity (ADR 0015), which says which upload a
+    /// record is and is checked beside the digest, each of them changed or
+    /// taken away, and nothing outside it: a
     /// field a newer app version wrote, which the adapter reads back with
     /// the rest, does not make this device's own upload look foreign.
     @Test func theContentDigestCoversEveryKnownFieldAndNoUnknownOne() throws {
@@ -475,6 +480,9 @@ import Testing
             if case .date = value {
                 #expect(other.contentDigest == digest, "\(key) is a date")
                 #expect(without.contentDigest == digest, "\(key) is a date")
+            } else if key == SyncMapping.uploadIDField {
+                #expect(other.contentDigest == digest, "\(key) is not content")
+                #expect(without.contentDigest == digest, "\(key) is not content")
             } else {
                 #expect(other.contentDigest != digest, "\(key) changed")
                 #expect(without.contentDigest != digest, "\(key) taken away")
@@ -510,7 +518,13 @@ import Testing
     /// record never held a field outside the schema, so the uploads
     /// remembered before the change (`syncUpload`, v13) are still found.
     @Test func theContentDigestOfABuiltRecordIsWhatItWasBeforeUnknownFieldsWereLeftOut() throws {
-        let record = fullRecord()
+        // As records were built then: without an upload identity, which
+        // changes no digest either.
+        let record = fullRecord(uploadID: nil)
+        #expect(fullRecord().contentDigest != record.contentDigest, "another note's labels")
+        var identified = record
+        identified.encrypted[SyncMapping.uploadIDField] = .string("0b6f3c58-1d67-4d0c-9a57-3a52f0f7f3c1")
+        #expect(identified.contentDigest == record.contentDigest)
         // What it was: every key the record holds but the dates.
         let parts: [[String]] = record.encrypted.keys.sorted().compactMap { key in
             switch record.encrypted[key] {
@@ -638,6 +652,340 @@ import Testing
         reverted.updatedAt = base.updatedAt.addingTimeInterval(15)
 
         #expect(try store.applyServerRecord(SyncMapping.record(for: reverted), systemFields: fields, changeTag: "tag-3") != nil)
+    }
+
+    // MARK: Upload identity (#291, ADR 0015)
+
+    /// What another device on this version leaves on the server after it
+    /// fetched `uploaded`, made a change that is not an edit, sent it, and
+    /// put the note back as it was: only this last record is fetched here.
+    func roundTripElsewhere(_ uploaded: SyncRecord, change: (NoteStore, UUID) throws -> Void,
+                            undo: (NoteStore, UUID) throws -> Void) throws -> SyncRecord {
+        let other = try NoteStore.inMemory()
+        let id = try #require(UUID(uuidString: uploaded.name))
+        try other.applyServerRecord(uploaded, systemFields: fields, changeTag: "tag-2")
+        try change(other, id)
+        guard case .save(let changed, _, let version)? = try other.pendingSave(kind: .note, name: uploaded.name) else {
+            throw CancellationError()
+        }
+        #expect(changed.contentDigest != uploaded.contentDigest, "the change is in the record")
+        try other.acknowledgeSave(kind: .note, name: uploaded.name, version: version, systemFields: fields, changeTag: "tag-3")
+        try undo(other, id)
+        guard case .save(let restored, _, _)? = try other.pendingSave(kind: .note, name: uploaded.name) else {
+            throw CancellationError()
+        }
+        let ids = [uploaded, changed, restored].map(SyncMapping.uploadID(from:))
+        #expect(!ids.contains(nil) && Set(ids).count == 3, "every record built carries an identity of its own")
+        return restored
+    }
+
+    /// Saves a note as it is but for `edit`: its edit date stays, as with
+    /// every save that is not an edit of the text.
+    func set(_ store: NoteStore, _ id: UUID, _ edit: (inout Note) -> Void) throws {
+        var note = try #require(try store.note(id: id))
+        edit(&note)
+        try store.save(note)
+    }
+
+    /// #291: the upload's acknowledgement is lost and a newer edit is saved
+    /// here; meanwhile another device makes a change that is not an edit, so
+    /// the edit date stays (a label, the syntax setting, a generated title),
+    /// and undoes it. The record fetched equals the upload in every field
+    /// the note has, the date included, but it is not that upload: it is
+    /// merged, the server's text wins and the edit here is kept as a copy.
+    @Test(arguments: ["label", "syntax", "title"])
+    func aNonEditChangeMadeAndUndoneElsewhereIsNotTakenForTheUpload(kind: String) throws {
+        let base = note("base", title: "Plan")
+        let name = base.id.uuidString.lowercased()
+        let uploaded = try #require(try unacknowledgedUpload(of: base))
+        var mine = try #require(try store.note(id: base.id))
+        mine.body = "second edit"
+        mine.updatedAt = base.updatedAt.addingTimeInterval(20)
+        try store.save(mine)
+
+        let fetched: SyncRecord
+        switch kind {
+        case "label":
+            var label: NoteLabel?
+            fetched = try roundTripElsewhere(uploaded, change: { other, id in
+                label = try other.createLabel(name: "urgent", color: LabelColor.palette[0])
+                try other.assignLabel(try #require(label).id, to: id)
+            }, undo: { other, id in try other.unassignLabel(try #require(label).id, from: id) })
+        case "syntax":
+            fetched = try roundTripElsewhere(uploaded, change: { other, id in try set(other, id) { $0.syntaxOverride = "json" } },
+                                             undo: { other, id in try set(other, id) { $0.syntaxOverride = nil } })
+        default:
+            fetched = try roundTripElsewhere(uploaded, change: { other, id in
+                try set(other, id) { $0.title = "Generated"; $0.modelTitledHash = Note.contentHash($0.body) }
+            }, undo: { other, id in try set(other, id) { $0.title = "Plan"; $0.modelTitledHash = nil } })
+        }
+        #expect(fetched.contentDigest == uploaded.contentDigest, "the same content")
+        #expect(NoteStore.editStamp(of: fetched) == NoteStore.editStamp(of: uploaded), "and the same edit date")
+
+        let copy = try #require(try store.applyServerRecord(fetched, systemFields: fields, changeTag: "tag-4"))
+        #expect(copy.body == "second edit" && copy.title == "Plan (conflict)", "the edit here is not lost")
+        #expect(try store.note(id: base.id)?.body == "first edit")
+        #expect(try store.note(id: copy.id) == copy)
+        #expect(try pendingNames().contains("save Note \(copy.id.uuidString.lowercased())"), "the copy is sent")
+        // The server has moved past every record sent from here.
+        var again = try #require(try store.note(id: base.id))
+        again.body = "third edit"
+        again.updatedAt = base.updatedAt.addingTimeInterval(30)
+        try store.save(again)
+        #expect(try store.pendingSave(kind: .note, name: name) != nil)
+        #expect(try store.applyServerRecord(uploaded, systemFields: fields, changeTag: "tag-5") != nil)
+    }
+
+    /// The upload as other clients can leave it on the server, with nothing
+    /// else changed: without an identity, or with one this device never made.
+    /// Neither is this device's upload.
+    @Test(arguments: [nil, "5e0c2a1d-7b1f-4c1e-8a44-0f2f4e7d9b10", ""])
+    func aRecordWithoutThisDevicesIdentityIsForeign(identity: String?) throws {
+        let base = note("base", title: "Plan")
+        let uploaded = try #require(try unacknowledgedUpload(of: base))
+        var mine = try #require(try store.note(id: base.id))
+        mine.body = "second edit"
+        mine.updatedAt = base.updatedAt.addingTimeInterval(20)
+        try store.save(mine)
+        var theirs = uploaded
+        theirs.encrypted[SyncMapping.uploadIDField] = identity.map(SyncValue.string)
+        #expect(theirs.contentDigest == uploaded.contentDigest)
+
+        let copy = try #require(try store.applyServerRecord(theirs, systemFields: fields, changeTag: "tag-2"))
+        #expect(copy.body == "second edit")
+        #expect(try store.note(id: base.id)?.body == "first edit")
+    }
+
+    /// An identity that is not a string is no identity.
+    @Test func anIdentityOfAnotherTypeIsNone() throws {
+        var record = SyncMapping.record(for: note("x"), uploadID: "a")
+        #expect(SyncMapping.uploadID(from: record) == "a")
+        record.encrypted[SyncMapping.uploadIDField] = .int(7)
+        #expect(SyncMapping.uploadID(from: record) == nil)
+        record.encrypted[SyncMapping.uploadIDField] = .strings(["a"])
+        #expect(SyncMapping.uploadID(from: record) == nil)
+    }
+
+    /// A client from before identities fetched this device's upload and
+    /// changed something else. It sets only its own keys, so the server
+    /// keeps the identity this device sent (the adapter, and ADR 0011 for
+    /// `labelIDs`): the record comes back with this device's identity and
+    /// is not its upload. The identity alone would keep the edit here and
+    /// send it over the other device's change; with the content beside it
+    /// the record is merged. Changes that keep the edit date, and an edit.
+    @Test(arguments: ["labelIDs", "syntaxOverride", "title", "body"])
+    func thisDevicesIdentityLeftOnAnotherClientsSaveIsNotItsUpload(key: String) throws {
+        let base = note("base", title: "Plan")
+        let uploaded = try #require(try unacknowledgedUpload(of: base))
+        var mine = try #require(try store.note(id: base.id))
+        mine.body = "second edit"
+        mine.updatedAt = base.updatedAt.addingTimeInterval(20)
+        try store.save(mine)
+        var theirs = uploaded
+        let label = UUID()
+        switch key {
+        case "labelIDs": theirs.encrypted[key] = .strings([label.uuidString.lowercased()])
+        case "syntaxOverride": theirs.encrypted[key] = .string("json")
+        case "title": theirs.encrypted[key] = .string("Generated")
+        default:
+            theirs.encrypted[key] = .string("their edit")
+            theirs.encrypted["updatedAt"] = .date(base.updatedAt.addingTimeInterval(15))
+        }
+        #expect(SyncMapping.uploadID(from: theirs) == SyncMapping.uploadID(from: uploaded), "this device's identity, kept")
+
+        let copy = try #require(try store.applyServerRecord(theirs, systemFields: fields, changeTag: "tag-2"))
+        #expect(copy.body == "second edit", "the edit here is kept as a copy")
+        let merged = try #require(try store.note(id: base.id))
+        #expect(merged.body == (key == "body" ? "their edit" : "first edit"), "the server's text")
+        // Their change is kept. The settings follow the newer edit, which is
+        // this device's (`SyncMerge`), so the syntax setting is this one's.
+        switch key {
+        case "labelIDs": #expect(try store.writer.read { db in try NoteStore.labelIDs(of: base.id, db) } == [])
+            #expect(try store.writer.read { db in try UUID.fetchSet(db, sql: "SELECT labelID FROM noteLabel WHERE noteID = ?", arguments: [base.id]) } == [label],
+                    "kept until its label arrives")
+        case "title": #expect(merged.title == "Generated")
+        default: break
+        }
+    }
+
+    /// What identities do not close (ADR 0015): a client from before them
+    /// makes a change that is not an edit and undoes it. Its saves leave
+    /// this device's identity on the server, so the record equals the upload
+    /// in every field and passes for it. The server then holds exactly what
+    /// this device sent, and the edit here is sent over it.
+    @Test func aNonEditRoundTripByAClientFromBeforeIdentitiesStillPassesForTheUpload() throws {
+        let base = note("base", title: "Plan")
+        let name = base.id.uuidString.lowercased()
+        let uploaded = try #require(try unacknowledgedUpload(of: base))
+        var mine = try #require(try store.note(id: base.id))
+        mine.body = "second edit"
+        mine.updatedAt = base.updatedAt.addingTimeInterval(20)
+        try store.save(mine)
+        // Label on, label off, by a client that never touches `uploadID`.
+        var labelled = uploaded
+        labelled.encrypted[SyncMapping.labelIDsField] = .strings([UUID().uuidString.lowercased()])
+        var restored = labelled
+        restored.encrypted[SyncMapping.labelIDsField] = nil
+
+        #expect(restored == uploaded)
+        #expect(try store.applyServerRecord(restored, systemFields: fields, changeTag: "tag-3") == nil)
+        #expect(try store.note(id: base.id)?.body == "second edit")
+        #expect(try pendingNames() == ["save Note \(name)"])
+    }
+
+    /// The same record built again, as when a send is tried again, keeps its
+    /// identity, and is remembered once; a record that differs gets a new
+    /// one. Identities are random: nothing of the note is in them, and two
+    /// notes with the same content get different ones.
+    @Test func anIdentityNamesOneRecord() throws {
+        let base = note("base", title: "Plan")
+        let name = base.id.uuidString.lowercased()
+        let first = try #require(try unacknowledgedUpload(of: base))
+        guard case .save(let retried, _, _)? = try store.pendingSave(kind: .note, name: name) else {
+            Issue.record("not pending")
+            return
+        }
+        #expect(retried == first, "a retry sends what was sent")
+        #expect(try uploadRows() == 1)
+        let label = try store.createLabel(name: "urgent", color: LabelColor.palette[0])
+        try store.assignLabel(label.id, to: base.id)
+        guard case .save(let labelled, _, _)? = try store.pendingSave(kind: .note, name: name) else {
+            Issue.record("not pending")
+            return
+        }
+        let firstID = try #require(SyncMapping.uploadID(from: first)), labelledID = try #require(SyncMapping.uploadID(from: labelled))
+        #expect(firstID != labelledID && UUID(uuidString: firstID) != nil && UUID(uuidString: labelledID) != nil)
+        #expect(try uploadRows() == 2)
+        // Back as it was first built: that record, with the identity it had.
+        try store.unassignLabel(label.id, from: base.id)
+        guard case .save(let back, _, _)? = try store.pendingSave(kind: .note, name: name) else {
+            Issue.record("not pending")
+            return
+        }
+        #expect(back == first)
+        #expect(try uploadRows() == 2)
+
+        var twin = base
+        twin.id = UUID()
+        try store.save(twin)
+        var other = base
+        other.id = UUID()
+        try store.save(other)
+        guard case .save(let one, _, _)? = try store.pendingSave(kind: .note, name: twin.id.uuidString.lowercased()),
+              case .save(let two, _, _)? = try store.pendingSave(kind: .note, name: other.id.uuidString.lowercased())
+        else {
+            Issue.record("not pending")
+            return
+        }
+        #expect(one.contentDigest == two.contentDigest)
+        #expect(SyncMapping.uploadID(from: one) != SyncMapping.uploadID(from: two))
+        for record in [first, labelled, one, two] {
+            let id = try #require(SyncMapping.uploadID(from: record))
+            #expect(!id.contains(record.name) && !record.name.contains(id))
+        }
+    }
+
+    func uploadRows() throws -> Int {
+        try store.writer.read { db in try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM syncUpload") ?? 0 }
+    }
+
+    /// Only a record built for sending carries an identity, and a device
+    /// keeps none it receives: the note read from a record has no place for
+    /// it, a record that describes a note for comparing has none, so the
+    /// server's identity never makes a merged note look different from the
+    /// server's, and the next record built here carries this device's own.
+    @Test func aReceivedIdentityIsNotKeptOrSentOn() throws {
+        let base = note("base", title: "Plan")
+        let name = base.id.uuidString.lowercased()
+        let theirs = SyncMapping.record(for: base, uploadID: "5e0c2a1d-7b1f-4c1e-8a44-0f2f4e7d9b10")
+        try store.applyServerRecord(theirs, systemFields: fields, changeTag: "tag-1")
+        #expect(try pendingNames().isEmpty, "in step")
+        #expect(try uploadRows() == 0)
+        #expect(SyncMapping.note(from: theirs) == base)
+        #expect(SyncMapping.uploadID(from: SyncMapping.record(for: base)) == nil)
+        for case .save(let record, _, _) in try store.pendingSyncChanges() { #expect(SyncMapping.uploadID(from: record) == nil) }
+
+        // Changed here to what the server then holds: merged, and in step.
+        var mine = base
+        mine.syntaxOverride = "json"
+        try store.save(mine)
+        var same = mine
+        same.updatedAt = base.updatedAt
+        let server = SyncMapping.record(for: same, uploadID: "9d1b7a52-3f0e-4a6b-b1b3-6c8f2d4e5a77")
+        #expect(try store.applyServerRecord(server, systemFields: fields, changeTag: "tag-2") == nil)
+        #expect(try pendingNames().isEmpty, "the same as the server's, whatever its identity")
+
+        mine.body = "edited"
+        mine.updatedAt = base.updatedAt.addingTimeInterval(10)
+        try store.save(mine)
+        guard case .save(let built, _, _)? = try store.pendingSave(kind: .note, name: name) else {
+            Issue.record("not pending")
+            return
+        }
+        let id = try #require(SyncMapping.uploadID(from: built))
+        #expect(id != "5e0c2a1d-7b1f-4c1e-8a44-0f2f4e7d9b10" && id != "9d1b7a52-3f0e-4a6b-b1b3-6c8f2d4e5a77")
+    }
+
+    /// Uploads remembered by the version before (v13: digest and edit date,
+    /// no identity) went up without one and cannot be matched by it, so the
+    /// migration forgets them. The record coming back, as that version sent
+    /// it or with an identity another client left on it, is merged with a
+    /// copy, and nothing is lost.
+    @Test(arguments: [nil, "5e0c2a1d-7b1f-4c1e-8a44-0f2f4e7d9b10"])
+    func uploadsRememberedWithoutAnIdentityAreForgotten(identity: String?) throws {
+        let queue = try DatabaseQueue(configuration: NoteStore.configuration)
+        try NoteStore.migrator.migrate(queue, upTo: "v13-sync-upload-dates")
+        let old = note("first edit", title: "Plan")
+        let uploaded = SyncMapping.record(for: old)
+        try queue.write { db in
+            try old.insert(db)
+            try db.execute(sql: "INSERT INTO syncUpload (noteID, digest, editedAt) VALUES (?, ?, ?)",
+                           arguments: [old.id, uploaded.contentDigest, old.updatedAt.timeIntervalSince1970])
+        }
+        let migrated = try NoteStore(queue, attachmentsDirectory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString))
+        #expect(try migrated.note(id: old.id) == old)
+        #expect(try migrated.writer.read { db in try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM syncUpload") } == 0)
+        #expect(try migrated.writer.read { db in try db.columns(in: "syncUpload").map(\.name) } == ["noteID", "uploadID", "digest", "editedAt"])
+        var mine = old
+        mine.body = "second edit"
+        mine.updatedAt = old.updatedAt.addingTimeInterval(20)
+        try migrated.save(mine)
+
+        let back = SyncMapping.record(for: old, uploadID: identity)
+        let copy = try #require(try migrated.applyServerRecord(back, systemFields: fields, changeTag: "tag-2"))
+        #expect(copy.body == "second edit")
+        #expect(try migrated.note(id: old.id)?.body == "first edit")
+    }
+
+    /// The identity stays in the record and in the local table. Nothing made
+    /// from a note can carry it, since a note has no such field: not its
+    /// description, not its encoding, not the problem report about it.
+    @Test func anIdentityIsNowhereButTheRecord() throws {
+        let base = note("base", title: "Plan")
+        let uploaded = try #require(try unacknowledgedUpload(of: base))
+        let identity = try #require(SyncMapping.uploadID(from: uploaded))
+        let stored = try #require(try store.note(id: base.id))
+        #expect(!String(reflecting: stored).contains(identity))
+        #expect(!String(decoding: try JSONEncoder().encode(stored), as: UTF8.self).contains(identity))
+        let columns = try store.writer.read { db in try db.columns(in: "note").map(\.name) }
+        #expect(!columns.contains { $0.lowercased().contains("upload") }, "not kept with the note")
+
+        let selected = ProblemReport.SelectedNote(id: stored.id, body: stored.body, language: nil, languageDetected: false,
+                                                  attachments: 0, folds: 0, preview: .hidden)
+        let report = ProblemReport(createdAt: Date(timeIntervalSince1970: 1_000), environment: ProblemReportTests.environment,
+                                   note: selected, list: ProblemReportTests.list, logLines: [])
+        #expect(!report.markdown(timeZone: ProblemReportTests.utc).contains(identity))
+        // What the adapter logs of a record is its name, and of a failure the
+        // error: a refused write of this table does not quote its values.
+        do {
+            try store.writer.write { db in
+                try db.execute(sql: "INSERT INTO syncUpload (noteID, uploadID, digest, editedAt) VALUES (?, ?, NULL, 0)",
+                               arguments: [base.id, identity])
+            }
+            Issue.record("the insert should fail")
+        } catch {
+            #expect(!error.localizedDescription.contains(identity) && !String(describing: error).contains(identity))
+        }
     }
 
     @Test func aUserTitleBeatsAGeneratedOne() {
@@ -961,7 +1309,8 @@ import Testing
             Issue.record("not built")
             return
         }
-        #expect(record == SyncMapping.record(for: mine))
+        let uploadID = try #require(SyncMapping.uploadID(from: record), "built for sending: it carries its identity")
+        #expect(record == SyncMapping.record(for: mine, uploadID: uploadID))
         #expect(try store.hasPendingSave(kind: .note, name: name))
         try store.acknowledgeSave(kind: .note, name: name, version: version, systemFields: fields)
         #expect(try store.pendingSave(kind: .note, name: name) == nil)
@@ -1028,13 +1377,22 @@ import Testing
     /// it creates the whole schema to deploy (#142). The mapping writes
     /// only declared fields, so a field added there fails here until the
     /// seed sets it.
+    ///
+    /// The records are built as the engine asks for them (`pendingSave`),
+    /// which is where a note's upload identity comes from (ADR 0015): the
+    /// seed build sends exactly these.
     @Test func theSchemaSeedCarriesEveryField() throws {
         let seed = try DemoNotes.schemaSeedStore()
         var seen: [SyncRecord.Kind: Set<String>] = [:]
-        for case .save(let record, _, _) in try seed.pendingSyncChanges() {
+        for pending in try seed.currentPendingSyncNames().saves {
+            guard case .save(let record, _, _)? = try seed.pendingSave(kind: pending.kind, name: pending.name) else {
+                Issue.record("\(pending.kind.rawValue) not built")
+                continue
+            }
             seen[record.kind, default: []].formUnion(record.encrypted.keys)
         }
         #expect(seen == SyncMapping.schemaFields)
+        #expect(seen[.note]?.contains(SyncMapping.uploadIDField) == true)
     }
 
     @Test func theEngineStateIsKept() throws {
