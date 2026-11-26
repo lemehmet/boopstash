@@ -15,6 +15,10 @@ struct HelpTests {
 
     @Test func theBundledREADMEIsThereAndRendersWithNothingToLoad() async throws {
         let markdown = try #require(LiveHelp.markdown)
+        // The Mac's page (#263): the whole README, without the lines that
+        // mark its parts, which the preview would show as written.
+        #expect(LiveHelp.platform == .mac)
+        #expect(!markdown.contains("<!-- help:"))
         let blocks = await MarkdownPreview.blocks(for: markdown, linkBase: HelpPage.linkBase)
         #expect(!blocks.isEmpty)
         // The preview has no block that loads anything: a picture in the

@@ -131,6 +131,12 @@ breaking changes may land in a minor release.
   old picture. The thumbnail is now of the file as it is (its number,
   date and size are compared, nothing more is read), and a thumbnail
   still being made of the old file is dropped when it arrives.
+- **iOS: Help leaves out what is only for the Mac (#263).** Settings ▸
+  Help showed the whole README: installing with Homebrew, the
+  command-line tool and building from source among it. Those parts are
+  now marked in the README with comments GitHub does not show, and the
+  iOS page leaves them out; the Mac's page and the README on GitHub read
+  as before.
 - **Mac: Clean Up Pasted Text on a selection keeps the code fence the
   selection starts in (#259).** A table selected inside a fence was
   converted, although cleaning the whole note leaves it alone, in two
