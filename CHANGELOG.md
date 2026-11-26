@@ -125,6 +125,12 @@ breaking changes may land in a minor release.
   from that window's editor, and the sheet hangs on the note's window,
   which comes forward. From the note's window, or a sheet on it, nothing
   changes.
+- **Mac: an image chip shows the new picture when its file is replaced
+  (#296).** A chip's thumbnail was kept by the file's address alone, so
+  an image iCloud replaced, or one removed and written again, kept its
+  old picture. The thumbnail is now of the file as it is (its number,
+  date and size are compared, nothing more is read), and a thumbnail
+  still being made of the old file is dropped when it arrives.
 - **Mac: Clean Up Pasted Text on a selection keeps the code fence the
   selection starts in (#259).** A table selected inside a fence was
   converted, although cleaning the whole note leaves it alone, in two

@@ -40,16 +40,20 @@ final class BoopTextView: NSTextView {
     /// one (#95).
     var chipScrollObserver: NSObjectProtocol?
     /// Small thumbnails, decoded off the main thread, kept within a memory
-    /// budget (#95).
-    @MainActor static let thumbnails: NSCache<NSURL, NSImage> = {
-        let cache = NSCache<NSURL, NSImage>()
+    /// budget (#95). One per URL, with the version of the file it is of
+    /// (#296): a file replaced at its URL is decoded again.
+    @MainActor static let thumbnails: NSCache<NSURL, ChipThumbnail> = {
+        let cache = NSCache<NSURL, ChipThumbnail>()
         cache.totalCostLimit = 32 * 1024 * 1024
         return cache
     }()
-    /// Thumbnails being decoded, with every editor waiting for each: all
-    /// of them rebuild their chips when it is ready, and a rebuild does not
-    /// start another decode.
+    /// Every editor waiting for a thumbnail that is being decoded: all of
+    /// them rebuild their chips when it is ready.
     @MainActor static var decoding: [URL: NSHashTable<BoopTextView>] = [:]
+    /// The decodes under way, each for one version of its file: a rebuild
+    /// does not start another for the same version, and a decode of bytes
+    /// since replaced is dropped (#296).
+    @MainActor static var decodes = ThumbnailDecodes<URL, FileVersion>()
 
     private var foldScrollObserver: NSObjectProtocol?
 
