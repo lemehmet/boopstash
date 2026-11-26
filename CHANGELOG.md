@@ -115,6 +115,16 @@ breaking changes may land in a minor release.
 
 ### Fixed
 
+- **Mac: Report a Problem with the script workbench in front is about
+  the note (#289).** Since the workbench became a window of its own, a
+  report asked for from it pictured the workbench and read no editor, so
+  the note's facts lacked its folds and its highlighting as shown. The
+  workbench now stands for its note's window, by choice: the screenshot
+  is of the note's window (what the sheet's words promise, and without
+  the script, the diff or what would be sent to a model), the facts come
+  from that window's editor, and the sheet hangs on the note's window,
+  which comes forward. From the note's window, or a sheet on it, nothing
+  changes.
 - **Mac: Clean Up Pasted Text on a selection keeps the code fence the
   selection starts in (#259).** A table selected inside a fence was
   converted, although cleaning the whole note leaves it alone, in two

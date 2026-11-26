@@ -40,6 +40,9 @@ struct ScriptWorkbenchLayoutStore {
 @MainActor
 final class ScriptWorkbenchWindow: NSObject, NSWindowDelegate {
     let window: NSWindow
+    /// The workbench this is the window of: how a window is known to be
+    /// one note's workbench (#289). Weak: the session holds this.
+    private(set) weak var session: ScriptWorkbenchSession?
     private let layout: ScriptWorkbenchLayoutStore
     /// The window is closing or closed: by its close button, or by `close`.
     private var closing = false
@@ -53,6 +56,7 @@ final class ScriptWorkbenchWindow: NSObject, NSWindowDelegate {
     ///   - onClose: the window was closed by the user.
     init(session: ScriptWorkbenchSession, title: String, layout: ScriptWorkbenchLayoutStore, noteWindow: NSWindow?,
          onClose: @escaping () -> Void) {
+        self.session = session
         self.layout = layout
         self.onClose = onClose
         let size = ScriptWorkbenchLayout.defaultSize

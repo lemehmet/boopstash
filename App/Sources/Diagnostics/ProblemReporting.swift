@@ -146,11 +146,31 @@ extension AppModel {
 /// The sheet and its flow, from the Help menu.
 @MainActor
 enum ProblemReportSheet {
+    /// What a window is to a report: a sheet, a note's script workbench
+    /// (its window's delegate is the workbench's, while it is open), or a
+    /// window to describe as it is.
+    static func role(of window: NSWindow) -> ProblemReport.WindowRole<NSWindow> {
+        if let parent = window.sheetParent { return .sheet(on: parent) }
+        if let workbench = window.delegate as? ScriptWorkbenchWindow { return .workbench(note: workbench.session?.editor?.window) }
+        return .subject
+    }
+
+    /// The window a report describes when `key` is the key window and
+    /// `main` the main one. With the script workbench in front it is the
+    /// note's window (#289); which, and why, is Core's
+    /// (`ProblemReport.subjectWindow`).
+    static func subject(key: NSWindow?, main: NSWindow?) -> NSWindow? {
+        ProblemReport.subjectWindow(key: key, main: main, role: role(of:))
+    }
+
     /// Takes the screenshot and the facts now, while the window is as the
     /// user left it, then asks. The sheet hangs on the window the user was
-    /// in; with none, it is a dialog and there is no screenshot.
+    /// in, or on the note's window when that was the note's script
+    /// workbench, which the screenshot and the facts are then of too; with
+    /// none, it is a dialog and there is no screenshot.
     static func run(model: AppModel) {
-        let window = NSApp.keyWindow.map { $0.sheetParent ?? $0 } ?? NSApp.mainWindow
+        let key = NSApp.keyWindow
+        let window = subject(key: key, main: NSApp.mainWindow)
         let screenshot = window.flatMap(LiveDiagnostics.png(of:))
         let environment = model.problemReportEnvironment()
         let note = model.problemReportNote(editor: window.flatMap(LiveDiagnostics.editor(in:)))
@@ -198,6 +218,10 @@ enum ProblemReportSheet {
             }
         }
         if let window {
+            // Asked for from the workbench: the note's window comes forward
+            // with the sheet, or the question would open behind the
+            // window the user is looking at.
+            if window !== (key.map { $0.sheetParent ?? $0 } ?? NSApp.mainWindow) { window.makeKeyAndOrderFront(nil) }
             alert.beginSheetModal(for: window, completionHandler: finish)
         } else {
             finish(alert.runModal())
