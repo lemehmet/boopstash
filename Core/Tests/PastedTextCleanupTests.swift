@@ -22,6 +22,16 @@ import Testing
     | bee | 22 |
     """
 
+    static let ruledTable = """
+    +------+-------+
+    | Name | Count |
+    +------+-------+
+    | ant  | 1     |
+    +------+-------+
+    """
+
+    static let ruledTableInMarkdown = "| Name | Count |\n| --- | --- |\n| ant | 1 |"
+
     // MARK: Escape codes
 
     @Test func coloursAndCursorCodesAreRemoved() {
@@ -394,6 +404,24 @@ import Testing
     ])
     func whatIsNotConvincinglyATableIsLeftAlone(_ text: String) {
         #expect(clean(text) == text)
+    }
+
+    // MARK: A fence opener that reads as a row (#260)
+
+    @Test func aFenceOpenerWithAPipeInItsInfoStringIsNotARow() {
+        // One row above a border is not a table, and the fence is a fence.
+        let text = "a | b\n----+----\n``` |\nc | d\n```\n"
+        #expect(clean(text) == text)
+        let twoRows = "a | b\n----+----\n``` |\nc | d\ne | f\n```\n"
+        #expect(clean(twoRows) == twoRows)
+    }
+
+    @Test(arguments: ["``` |", "```sh | tee", "~~~ a|b", "~~~~ x | y", "- ``` |"])
+    func aTableStraightAboveAFenceWithAPipeInItsInfoStringIsConverted(_ opener: String) {
+        let fenced = "\(opener)\n g | h\n----+----\n i | j\n k | l\n"
+        #expect(clean(" a | b\n----+----\n c | d\n e | f\n" + fenced) == "| a | b |\n| --- | --- |\n| c | d |\n| e | f |\n" + fenced)
+        #expect(clean(Self.ruledTable + "\n" + fenced) == Self.ruledTableInMarkdown + "\n" + fenced)
+        #expect(clean(Self.boxTable + "\n" + fenced) == Self.markdownTable + "\n" + fenced)
     }
 
     // MARK: Together

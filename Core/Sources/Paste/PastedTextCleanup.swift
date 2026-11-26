@@ -286,6 +286,9 @@ public enum PastedTextCleanup {
             while end < all.count {
                 let next = kind(of: all[end].content)
                 guard next != .other, next.isBox == first.isBox else { break }
+                // A fence's opening line ends the run whatever it reads
+                // as: a pipe in its info string makes it look like a row.
+                guard !Self.fence(after: all[end].content, in: fence).fenced else { break }
                 end += 1
             }
             let block = Array(all[index..<end])

@@ -115,6 +115,11 @@ breaking changes may land in a minor release.
 
 ### Fixed
 
+- **Mac: Clean Up Pasted Text no longer takes a code fence's opening
+  line for a table row (#260).** An opening line with a pipe after the
+  backticks or tildes, straight under a row and a rule, was rewritten as
+  a row together with the code under it. It now ends the table above it
+  and the fence is left as it is.
 - **Mac: Copy Text from Image and Insert Text Below in the Edit menu
   follow the image's file (#251).** With an image selected, the two
   commands stayed off when iCloud brought the image afterwards, and stayed
