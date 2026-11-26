@@ -70,6 +70,16 @@ struct ChipThumbnailTests {
         return .other
     }
 
+    /// An image as it comes from another device that has read its text
+    /// already (none). One not read yet is read here, which is a change
+    /// made here: the store then keeps this device's file until that
+    /// change is sent, and a file that arrives meanwhile is not taken
+    /// (#121). Whether the reading got in before the next arrival was a
+    /// matter of timing, and on CI it did.
+    func image() -> NoteAttachment {
+        NoteAttachment(noteID: nil, contentType: "public.png", byteSize: 0, recognizedText: "")
+    }
+
     /// An image iCloud brought, unchanged here: the next version of its
     /// record replaces its file.
     func arrive(_ attachment: NoteAttachment, _ data: Data) throws {
@@ -82,7 +92,7 @@ struct ChipThumbnailTests {
     /// the chip shows the new one. Nothing here reloads the editor or
     /// tells it to look again.
     @Test func aReplacedFileGetsANewThumbnail() async throws {
-        let attachment = NoteAttachment(noteID: nil, contentType: "public.png", byteSize: 0)
+        let attachment = image()
         try arrive(attachment, try png(.red))
         let (window, view) = host("text " + AttachmentReference.markdown(for: attachment.id, alt: "plot"))
         defer { window.close() }
@@ -92,8 +102,8 @@ struct ChipThumbnailTests {
         let before = try #require(FileVersion(of: url))
 
         try arrive(attachment, try png(.blue))
-        // Told apart from the first by what the file system says of it,
-        // here where the app runs, whatever the two files' sizes.
+        // The store took the file, and it is told apart from the first by
+        // what the file system says of it, the two being the same size.
         #expect(FileVersion(of: url) != before, "the replaced file is another version")
         #expect(model.store.presentFileURL(forAttachment: attachment.id) == url, "the same URL")
         #expect(try await eventually { shade(view) == .blue }, "the new picture")
@@ -106,7 +116,7 @@ struct ChipThumbnailTests {
     /// A file removed and written again with another image underneath the
     /// app, as the store removes and writes one.
     @Test func aFileRemovedAndWrittenAgainGetsANewThumbnail() async throws {
-        let attachment = NoteAttachment(noteID: nil, contentType: "public.png", byteSize: 0)
+        let attachment = image()
         try arrive(attachment, try png(.red))
         let (window, view) = host("text " + AttachmentReference.markdown(for: attachment.id))
         defer { window.close() }
@@ -123,7 +133,7 @@ struct ChipThumbnailTests {
     /// whichever decode finishes last, the chip ends on the new picture
     /// and stays there.
     @Test func aDecodeUnderWayForTheOldBytesDoesNotPutTheOldThumbnailBack() async throws {
-        let attachment = NoteAttachment(noteID: nil, contentType: "public.png", byteSize: 0)
+        let attachment = image()
         // Large, so that its decode is still running when the file changes.
         try arrive(attachment, try png(.red, width: 3000, height: 2000))
         let (window, view) = host("text " + AttachmentReference.markdown(for: attachment.id))
@@ -144,7 +154,7 @@ struct ChipThumbnailTests {
     /// A file that stops being an image loses the picture of the image it
     /// replaced, and asking again does not go round in circles.
     @Test func aFileThatIsNoLongerAnImageLosesItsThumbnail() async throws {
-        let attachment = NoteAttachment(noteID: nil, contentType: "public.png", byteSize: 0)
+        let attachment = image()
         try arrive(attachment, try png(.red))
         let (window, view) = host("text " + AttachmentReference.markdown(for: attachment.id))
         defer { window.close() }
@@ -161,7 +171,7 @@ struct ChipThumbnailTests {
     /// that picture and still loses it. Nothing but the decode's end draws
     /// the chips again here; the folder is not watched.
     @Test func aFileThatIsNoLongerAnImageLosesAThumbnailTheCacheLetGo() async throws {
-        let attachment = NoteAttachment(noteID: nil, contentType: "public.png", byteSize: 0)
+        let attachment = image()
         try arrive(attachment, try png(.red))
         let (window, view) = host("text " + AttachmentReference.markdown(for: attachment.id), watching: false)
         defer { window.close() }

@@ -10,31 +10,19 @@ public struct FileVersion: Hashable, Sendable {
     /// The file's number on its volume: a file moved into place over
     /// another has its own.
     public var fileNumber: UInt64?
-    /// When the file itself last changed, its bytes or anything kept
-    /// about it: the system sets this and nothing can put it back, so it
-    /// tells a file whose new bytes were given the old file's number, date
-    /// and size. It also moves when only something about the file changed,
-    /// which costs one more look at the same bytes.
-    public var changed: Date?
 
-    public init(modified: Date?, size: Int64?, fileNumber: UInt64?, changed: Date? = nil) {
+    public init(modified: Date?, size: Int64?, fileNumber: UInt64?) {
         self.modified = modified
         self.size = size
         self.fileNumber = fileNumber
-        self.changed = changed
     }
 
     /// The version of the file at `url` now, or nil when there is none.
-    /// One call to the system, which reads none of the file's bytes.
-    public init?(of url: URL) {
-        var status = stat()
-        guard url.withUnsafeFileSystemRepresentation({ path in path.map { stat($0, &status) == 0 } ?? false }) else { return nil }
-        self.init(modified: Self.date(status.st_mtimespec), size: Int64(status.st_size), fileNumber: UInt64(status.st_ino),
-                  changed: Self.date(status.st_ctimespec))
-    }
-
-    private static func date(_ time: timespec) -> Date {
-        Date(timeIntervalSince1970: TimeInterval(time.tv_sec) + TimeInterval(time.tv_nsec) / 1_000_000_000)
+    public init?(of url: URL, fileManager: FileManager = .default) {
+        guard let attributes = try? fileManager.attributesOfItem(atPath: url.path) else { return nil }
+        self.init(modified: attributes[.modificationDate] as? Date,
+                  size: (attributes[.size] as? NSNumber)?.int64Value,
+                  fileNumber: (attributes[.systemFileNumber] as? NSNumber)?.uint64Value)
     }
 }
 

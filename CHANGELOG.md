@@ -129,7 +129,7 @@ breaking changes may land in a minor release.
   (#296).** A chip's thumbnail was kept by the file's address alone, so
   an image iCloud replaced, or one removed and written again, kept its
   old picture. The thumbnail is now of the file as it is (its number,
-  dates and size are compared, nothing more is read), and a thumbnail
+  date and size are compared, nothing more is read), and a thumbnail
   still being made of the old file is dropped when it arrives. A file
   that is no longer an image loses the old picture, also when the
   picture had meanwhile been dropped from memory.

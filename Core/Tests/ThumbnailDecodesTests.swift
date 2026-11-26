@@ -104,16 +104,5 @@ import Testing
         try Data([7, 8, 9, 10]).write(to: url, options: .atomic)
         let third = try #require(FileVersion(of: url))
         #expect(third != second && third.size == 4)
-
-        // New bytes with everything that can be put back put back: the
-        // same file, written in place, the same size, its date set to what
-        // it was. The system's own record of the change still tells.
-        let handle = try FileHandle(forWritingTo: url)
-        try handle.write(contentsOf: Data([4, 3, 2, 1]))
-        try handle.close()
-        try FileManager.default.setAttributes([.modificationDate: try #require(third.modified)], ofItemAtPath: url.path)
-        let fourth = try #require(FileVersion(of: url))
-        #expect(fourth.fileNumber == third.fileNumber && fourth.size == third.size)
-        #expect(fourth.changed != third.changed && fourth != third)
     }
 }

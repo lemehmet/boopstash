@@ -116,6 +116,10 @@ struct ProblemReportWindowFlowTests {
         let session = workbench(on: view)
         let own = try #require(session.window)
         session.close(refocus: false)
+        // Asked of the closed workbench's own window: it is described as
+        // it is, like any window, and does not stand for the note's.
+        #expect(ProblemReportSheet.subject(key: own, main: window) === own)
+        #expect(ProblemReportSheet.subject(key: nil, main: own) === own)
         #expect(ProblemReportSheet.subject(key: window, main: own) === window)
     }
 }
