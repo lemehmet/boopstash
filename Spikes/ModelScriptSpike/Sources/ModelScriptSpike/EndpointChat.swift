@@ -16,6 +16,8 @@ struct Endpoint {
     var temperature: Double
     var topP: Double
     var maxTokens: Int
+    /// Seconds one request may take in all, from sending it to the end of
+    /// the reply. It is also the request's idle timeout.
     var timeout: TimeInterval
     /// More fields for the request body, as the server at hand wants them:
     /// how a model's reasoning is switched off differs from one server to
@@ -33,7 +35,8 @@ enum EndpointError: Error, CustomStringConvertible {
     /// that reasons first spent the whole allowance on its reasoning.
     case cutOff
     case transport(String)
-    /// The request ran past its time limit.
+    /// The request ran past its time limit: the whole of it, or the wait
+    /// for the next byte.
     case timedOut
 
     var description: String {
@@ -72,7 +75,11 @@ final class EndpointChat {
         let data: Data
         let response: URLResponse
         do {
-            (data, response) = try await URLSession.shared.data(for: request)
+            // The request's own timeout is idle time only; the deadline is
+            // what stops a server that keeps sending.
+            (data, response) = try await Deadline.data(for: request, within: endpoint.timeout)
+        } catch is DeadlineExceeded {
+            throw EndpointError.timedOut
         } catch {
             // By the error's code: its description is in the system's language.
             if (error as? URLError)?.code == .timedOut { throw EndpointError.timedOut }

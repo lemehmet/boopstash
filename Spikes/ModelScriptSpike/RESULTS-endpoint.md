@@ -64,5 +64,31 @@ without a script.
 MODEL_SPIKE_API_KEY=<key, if the server wants one> \
 swift run -c release --package-path Spikes/ModelScriptSpike ModelScriptSpike \
   --endpoint <base URL> --model <model name> --variations baseline \
+  [--max-tokens 8192] [--timeout <seconds>] \
   [--extra-body '{"chat_template_kwargs":{"enable_thinking":false}}']
 ```
+
+`--max-tokens` and `--timeout` are for the reasoning-on run at the larger
+cap; see the note below for what is known of the timeouts.
+
+## Notes added after the runs
+
+Nothing above was changed: the figures are the runs' own.
+
+### 2026-11-25: the timeout, and what the tool has since changed
+
+- **The timeout was not recorded.** The report did not state it when
+  these runs were made, and which `--timeout` each run was given was not
+  written down. What is known: the default was 120 s, and it was then an
+  idle timeout (the wait for the next byte), not a limit on the whole
+  request. The reasoning-on run at the 8,192-token cap took about four
+  minutes per attempt and ended as "cut off at the token limit", so it
+  must have been given a `--timeout` above the default; its value is not
+  known. Whether any other run was given one is not known either; their
+  median times, in the table, are well under the default. The report now
+  states the limit, which is now on the whole request.
+- **Scoring.** The tool now also drops reasoning that ends in a lone
+  `</think>`, leaves a run the script runner failed on out of the
+  figures, and refuses `model` in `--extra-body`. None is known to bear
+  on a figure above: the failures described are wrong outputs and
+  replies cut off at the limit.

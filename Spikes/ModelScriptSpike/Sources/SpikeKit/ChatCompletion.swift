@@ -52,7 +52,13 @@ public enum ChatCompletion {
     /// server: empty content, no content at all (the reasoning went to a
     /// field of its own), or content that is reasoning still open, a
     /// `<think>` without its end. Whatever stands before that open tag is
-    /// an answer and is kept.
+    /// an answer and is kept. Reasoning that closed with a lone `</think>`
+    /// and had nothing after it is empty content, and cut off too.
+    ///
+    /// One shape cannot be told: when the opening tag was in the prompt
+    /// and the limit fell inside the reasoning, the content is reasoning
+    /// with no tag at all, which reads like any other text. It is returned
+    /// as content and judged as it stands.
     public static func reply(in data: Data) -> Reply {
         guard let choice = firstChoice(in: data) else { return .none }
         let limited = choice["finish_reason"] as? String == "length"
@@ -74,10 +80,47 @@ public enum ChatCompletion {
         return (text("temperature"), text("top_p"), text("max_tokens"))
     }
 
+    /// The request fields an extra field may not replace. `model` would
+    /// make the report name a model that was not the one asked; `messages`
+    /// would replace the prompt being measured; `stream` would change the
+    /// reply into a shape that is not read here.
+    public static let reservedFields = ["messages", "model", "stream"]
+
+    /// The reserved fields among the extra ones, sorted.
+    public static func refusedExtraFields(in extra: [String: Any]) -> [String] {
+        reservedFields.filter { extra[$0] != nil }
+    }
+
+    /// The report's words for an endpoint's generation settings, as they
+    /// are sent: an extra request field may replace a standard one, and
+    /// the report states what went out. The extra fields are written as
+    /// given, values and all, so that a run can be repeated; the README
+    /// and the help say so, as a credential does not belong there.
+    public static func settingsLine(temperature: Double, topP: Double, maxTokens: Int, timeout: TimeInterval,
+                                    extra: [String: Any]) -> String {
+        let sent = effective(body(model: "", messages: [], temperature: temperature, topP: topP, maxTokens: maxTokens, extra: extra))
+        let seconds = timeout == timeout.rounded() && abs(timeout) < 1e9 ? "\(Int(timeout))" : "\(timeout)"
+        var text = "temperature \(sent.temperature), top-p \(sent.topP), replies capped at \(sent.maxTokens) tokens"
+            + ", each request limited to \(seconds) s in total"
+        if !extra.isEmpty {
+            let json = (try? JSONSerialization.data(withJSONObject: extra, options: [.sortedKeys, .withoutEscapingSlashes]))
+                .flatMap { String(data: $0, encoding: .utf8) } ?? ""
+            text += ", extra request fields as given \(json)"
+        }
+        return text
+    }
+
     /// Some servers put the reasoning in the content, between `<think>`
-    /// tags. An opening tag that never closes is left as it is.
+    /// tags. Some chat templates put the opening tag in the prompt, so
+    /// the content is the reasoning, a lone `</think>`, then the answer:
+    /// a closing tag with no opening one before it ends the reasoning,
+    /// and everything up to it goes. An opening tag that never closes is
+    /// left as it is.
     public static func withoutThinking(_ text: String) -> String {
         var text = text
+        if let close = text.range(of: "</think>"), text.range(of: "<think>", range: text.startIndex..<close.lowerBound) == nil {
+            text.removeSubrange(text.startIndex..<close.upperBound)
+        }
         while let open = text.range(of: "<think>"),
               let close = text.range(of: "</think>", range: open.upperBound..<text.endIndex) {
             text.removeSubrange(open.lowerBound..<close.upperBound)

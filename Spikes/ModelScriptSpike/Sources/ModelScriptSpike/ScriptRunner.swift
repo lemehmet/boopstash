@@ -1,5 +1,6 @@
 import Foundation
 import JavaScriptCore
+import SpikeKit
 
 /// Runs a script much as the app's script service does (ADR 0007): a fresh
 /// `JSContext` with Boop's `state` object, in a sandboxed process of its own
@@ -13,7 +14,7 @@ import JavaScriptCore
 /// system's pure-computation profile (no files, no network) rather than by
 /// the App Sandbox, which a SwiftPM executable cannot carry.
 enum ScriptRunner {
-    static let timeLimit: TimeInterval = 2
+    static let timeLimit = ScriptRun.timeLimit
 
     struct Request: Codable {
         var source: String
@@ -25,15 +26,11 @@ enum ScriptRunner {
         var errors: [String]
     }
 
-    enum Outcome {
-        case finished(Response)
-        case timedOut
-        case crashed(String)
-    }
-
     /// Parent side: start the child, give it the request, kill it if it is
-    /// still running at the time limit.
-    static func run(source: String, text: String) -> Outcome {
+    /// still running at the time limit. A child that could not be started,
+    /// or that ended without a result, is the runner's failure and is
+    /// reported as that, never as the script's error.
+    static func run(source: String, text: String) -> ScriptRun {
         let child = Process()
         child.executableURL = URL(fileURLWithPath: CommandLine.arguments[0])
         child.arguments = ["--run-script"]
@@ -41,7 +38,7 @@ enum ScriptRunner {
         child.standardInput = input
         child.standardOutput = output
         child.standardError = FileHandle.nullDevice
-        do { try child.run() } catch { return .crashed("could not start the runner: \(error.localizedDescription)") }
+        do { try child.run() } catch { return .runnerFailed("could not start the runner: \(error.localizedDescription)") }
 
         let killed = Flag()
         let watchdog = DispatchWorkItem {
@@ -58,9 +55,12 @@ enum ScriptRunner {
 
         // A complete response wins: a child that finished as the watchdog
         // fired has still finished. Only a run with no result is timed out.
-        if let response = try? JSONDecoder().decode(Response.self, from: data) { return .finished(response) }
+        if let response = try? JSONDecoder().decode(Response.self, from: data) {
+            return .finished(output: response.output, errors: response.errors)
+        }
         if killed.isSet { return .timedOut }
-        return .crashed("the runner exited with status \(child.terminationStatus) and no result")
+        let how = child.terminationReason == .uncaughtSignal ? "was ended by signal" : "exited with status"
+        return .runnerFailed("the runner \(how) \(child.terminationStatus) and no result")
     }
 
     /// Whether the child's sandbox refuses a file read and a socket, asked
