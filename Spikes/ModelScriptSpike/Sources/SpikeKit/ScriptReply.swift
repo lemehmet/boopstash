@@ -15,6 +15,15 @@ public enum ScriptReply {
         return blocks.isEmpty && definesMain(bare) ? bare : nil
     }
 
+    /// Whether two replies carry the same script: both hold one, and the
+    /// two are equal but for the space around them. Replies without a
+    /// script are never "the same script", however alike they are, and a
+    /// failed call has no reply and repeats nothing.
+    public static func sameScript(_ first: String, _ second: String) -> Bool {
+        guard let one = extract(first), let other = extract(second) else { return false }
+        return one.trimmingCharacters(in: .whitespacesAndNewlines) == other.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     /// The bodies of the reply's ``` blocks, without the fences and the
     /// language tag. A last block that was never closed (a reply cut off at
     /// the token cap) counts, whatever came before it.

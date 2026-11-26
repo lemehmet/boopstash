@@ -100,3 +100,32 @@ Up to three different first-try failures of each kind per fixture.
   - 1 of 12 lines right; line 2 was `    ERR_NONE = 0,`, expected `    [ERR_NONE] = "ERR_NONE",`
   - 0 of 12 lines right; line 1 was `ERR_NONE`, expected `static const char *const error_names[] = {`
   - 0 of 12 lines right; line 1 was ``, expected `static const char *const error_names[] = {`
+
+## Notes added after the run
+
+Nothing above was changed: the figures are the run's own, as the tool
+counted them then.
+
+### 2026-11-25: two counts the tool has since changed
+
+- **"The same script again"** (the per-fixture column and the 126 in the
+  totals). When this run was made, two identical replies that held no
+  script were counted as the same script again. The tool now counts a
+  retry only when both replies hold a script and the scripts are equal.
+  Only retries whose first reply had no script can be affected: 39, all
+  on `string-table`, where 15 of 50 retries are counted. The figures of
+  the other three fixtures stand (30, 39 and 42), and by today's count
+  the total lies between 111 and 126 and `string-table`'s between 0 and
+  15. The replies were not kept with this report, so the exact figure
+  needs a new run. The finding does not rest on it: the retry fixed
+  none of the 191.
+- **Script errors.** When this run was made, a failure of the script
+  runner itself (the child process not starting, or ending without a
+  result) was counted as a script error and sent back to the model for a
+  retry. The tool now runs the script again and, if the runner keeps
+  failing, leaves the run out of every figure and lists it as a runner
+  error. Every script error quoted above is a JavaScript error or a
+  posted error; a runner failure would read "the runner exited with
+  status … and no result" or "could not start the runner", and none is
+  quoted. Up to three messages per fixture are quoted, though, so the
+  report cannot show that none of the 71 was one.

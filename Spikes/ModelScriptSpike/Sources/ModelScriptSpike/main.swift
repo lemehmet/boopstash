@@ -11,115 +11,58 @@ func say(_ line: String) {
     FileHandle.standardError.write(Data((line + "\n").utf8))
 }
 
+let arguments = Array(CommandLine.arguments.dropFirst())
+
 func value(of flag: String) -> String? {
-    guard let at = CommandLine.arguments.firstIndex(of: flag), at + 1 < CommandLine.arguments.count else { return nil }
-    return CommandLine.arguments[at + 1]
+    SpikeArguments.value(of: flag, in: arguments)
 }
 
-if CommandLine.arguments.contains("--help") {
-    print("""
-    ModelScriptSpike [--runs N] [--fixtures id,id] [--variations id,id] [--out report.md] [--dump directory] [--selfcheck]
-                     [--endpoint URL --model NAME [--temperature T] [--top-p P] [--max-tokens N] [--timeout S] [--extra-body JSON]]
-      --runs        runs per fixture and variation (default 10)
-      --fixtures    \(Fixture.all.map(\.id).joined(separator: ", ")) (default all)
-      --variations  \(Variation.all.map(\.id).joined(separator: ", ")) (default all)
-      --out         also write the report to this file
-      --dump        write every prompt-reply-outcome to this directory
-      --selfcheck   check the fixtures and the runner without the model, then stop
-      --endpoint    measure a model behind an OpenAI-compatible API at this base URL, not the on-device one;
-                    its key, if it needs one, is read from MODEL_SPIKE_API_KEY. The URL is not written to the report.
-      --model       the model's name at that endpoint (required with --endpoint)
-      --temperature, --top-p, --max-tokens, --timeout
-                    generation settings for the endpoint (defaults 0.2, 1.0, 2048, 120 s)
-      --extra-body  a JSON object merged into each request, for what the server at hand needs,
-                    such as '{"chat_template_kwargs":{"enable_thinking":false}}' to switch off a model's reasoning
-    """)
+let usage = """
+ModelScriptSpike [--runs N] [--fixtures id,id] [--variations id,id] [--out report.md] [--dump directory] [--selfcheck]
+                 [--endpoint URL --model NAME [--temperature T] [--top-p P] [--max-tokens N] [--timeout S] [--extra-body JSON]]
+  --runs        runs per fixture and variation (default 10)
+  --fixtures    \(Fixture.all.map(\.id).joined(separator: ", ")) (default all)
+  --variations  \(Variation.all.map(\.id).joined(separator: ", ")) (default all)
+  --out         also write the report to this file
+  --dump        write every prompt-reply-outcome to this directory
+  --selfcheck   check the fixtures and the runner without the model, then stop
+  --endpoint    measure a model behind an OpenAI-compatible API at this base URL, not the on-device one;
+                its key, if it needs one, is read from MODEL_SPIKE_API_KEY. The URL is not written to the report.
+  --model       the model's name at that endpoint (required with --endpoint)
+  --temperature, --top-p, --max-tokens
+                generation settings for the endpoint (defaults 0.2, 1.0, 2048)
+  --timeout     seconds one request may take in all, from sending it to the end of the reply (default 120, at most 86400);
+                it is written to the report
+  --extra-body  a JSON object merged into each request, for what the server at hand needs,
+                such as '{"chat_template_kwargs":{"enable_thinking":false}}' to switch off a model's reasoning.
+                It is written to the report as given, values and all: never put a key or a password in it.
+                It may not set model, messages or stream.
+The options from --model on are for --endpoint only.
+Exit status: 0 measured; 1 the self-check failed or the on-device model is unavailable;
+2 the command line was refused; 3 measured, but the script runner failed on some runs.
+"""
+
+if arguments.contains("--help") {
+    print(usage)
     exit(0)
 }
 
-/// How one attempt ended.
-enum Outcome {
-    case pass
-    case noScript(reply: String)
-    case scriptError(String)
-    case timedOut
-    case wrong(line: Int, expected: String?, actual: String?, matching: Int, of: Int, head: String)
-    case modelError(String)
-
-    var passed: Bool { if case .pass = self { true } else { false } }
-
-    var kind: String {
-        switch self {
-        case .pass: "pass"
-        case .noScript: "no script in the reply"
-        case .scriptError: "script error"
-        case .timedOut: "timed out"
-        case .wrong: "wrong output"
-        case .modelError: "model error"
-        }
-    }
-
-    var detail: String {
-        switch self {
-        case .pass: ""
-        case .noScript(let reply): "reply began: \(reply.prefix(80).replacingOccurrences(of: "\n", with: "⏎"))"
-        case .scriptError(let message): Self.short(message)
-        case .timedOut: "killed after \(Int(ScriptRunner.timeLimit)) s"
-        case .wrong(let line, let expected, let actual, let matching, let of, _):
-            "\(matching) of \(of) lines right; line \(line) was \(Self.quoted(actual)), expected \(Self.quoted(expected))"
-        case .modelError(let name): name
-        }
-    }
-
-    /// One line of at most 120 characters, for the report.
-    static func short(_ text: String) -> String {
-        let line = text.replacingOccurrences(of: "\n", with: "⏎")
-        return line.count > 120 ? line.prefix(120) + "…" : line
-    }
-
-    /// A line in backticks, or the words for a line past the end.
-    static func quoted(_ line: String?) -> String {
-        line.map { "`\(short($0))`" } ?? "nothing (past the end)"
-    }
-
-    var retryProblem: RetryProblem? {
-        switch self {
-        case .pass, .modelError: nil
-        case .noScript: .noScript
-        case .scriptError(let message): .error(message)
-        case .timedOut: .timedOut
-        case .wrong(let line, let expected, let actual, _, _, let head):
-            .wrongOutput(line: line, expected: expected, actual: actual, head: head)
-        }
-    }
+// Before anything runs: a command line that is not understood measures
+// nothing. "--endpoint" with its value missing would otherwise measure the
+// on-device model.
+if let problem = SpikeArguments.problem(in: arguments) {
+    say(problem)
+    say(usage)
+    exit(2)
 }
 
 /// Extract the script from a reply, run it on the fixture's whole input and
-/// score it. Nothing here throws or traps: a bad reply is an outcome.
+/// score it; see `Judge`. A runner that fails is asked again, and a script
+/// it never ran is a runner error, not the model's script error.
 func judge(_ reply: String, _ fixture: Fixture) -> Outcome {
-    guard let script = ScriptReply.extract(reply) else { return .noScript(reply: reply) }
-    switch ScriptRunner.run(source: script, text: fixture.input) {
-    case .timedOut: return .timedOut
-    case .crashed(let why): return .scriptError(why)
-    case .finished(let response):
-        guard let output = response.output else { return .scriptError(response.errors.joined(separator: "; ")) }
-        switch Score.compare(actual: output, expected: fixture.expected) {
-        case .pass: return .pass
-        case .wrong(let line, let expected, let actual, let matching, let of):
-            let head = output.split(separator: "\n", omittingEmptySubsequences: false).prefix(6).joined(separator: "\n")
-            return .wrong(line: line, expected: expected, actual: actual, matching: matching, of: of, head: head)
-        }
+    Judge.judge(reply, input: fixture.input, expected: fixture.expected) { source, text in
+        ScriptRunner.run(source: source, text: text)
     }
-}
-
-struct Run {
-    var first: Outcome
-    var firstSeconds: Double
-    var retry: Outcome?
-    var retrySeconds: Double?
-    /// The retry sent back the script of the first try, unchanged.
-    var retryRepeated = false
-    var passedInTheEnd: Bool { first.passed || retry?.passed == true }
 }
 
 // MARK: Self-check: the fixtures and the runner, without the model
@@ -132,19 +75,11 @@ for fixture in Fixture.all {
         selfCheckFailed = true
     }
 }
-let probes: [(String, String, String)] = [
-    ("function main(state) { while (true) {} }", "timed out", "a script that loops"),
-    ("function main(state) { state.text = ; }", "script error", "a script that does not parse"),
-    ("function main(state) { state.text = state.text.missing.length; }", "script error", "a script that throws"),
-    ("function main(state) { state.postError('no'); state.text = ''; }", "script error", "a script that posts an error"),
-    ("function main(state) { state.text = require('fs').readFileSync('/etc/hosts', 'utf8'); }", "script error", "a script that asks for require"),
-    ("Sorry, I can't write that.", "no script in the reply", "a reply with no script"),
-    ("function main(state) { state.text = 'nope'; }", "wrong output", "a script that writes the wrong text"),
-]
-for (reply, kind, what) in probes {
-    let outcome = judge(reply, Fixture.urls)
-    if outcome.kind != kind {
-        say("self-check: \(what) was reported as \(outcome.kind), not \(kind)")
+// Each probe must be reported as its kind and, for a script error, with
+// the script's own message: that is what tells it from a runner crash.
+for probe in Probe.all {
+    if let problem = probe.problem(with: judge(probe.reply, Fixture.urls)) {
+        say("self-check: \(problem)")
         selfCheckFailed = true
     }
 }
@@ -153,35 +88,26 @@ if !ScriptRunner.sandboxHolds() {
     selfCheckFailed = true
 }
 if selfCheckFailed { exit(1) }
-say("self-check passed: \(Fixture.all.count) reference scripts, \(probes.count) failure probes, the runner's sandbox holds")
-if CommandLine.arguments.contains("--selfcheck") { exit(0) }
+say("self-check passed: \(Fixture.all.count) reference scripts, \(Probe.all.count) failure probes, the runner's sandbox holds")
+if arguments.contains("--selfcheck") { exit(0) }
 
 // MARK: The measurement
 
-let endpoint: Endpoint? = value(of: "--endpoint").map { text in
-    // "localhost:8080" parses with "localhost" as its scheme: only http
-    // and https are endpoints.
-    guard let base = URL(string: text), ChatCompletion.isEndpoint(base), let model = value(of: "--model"), !model.isEmpty else {
-        say("--endpoint needs an http or https URL with a host, such as http://localhost:8080, and --model a name")
-        exit(2)
-    }
-    var extra: [String: Any] = [:]
-    if let text = value(of: "--extra-body") {
-        guard let object = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any] else {
-            say("--extra-body needs a JSON object")
-            exit(2)
-        }
-        extra = object
-    }
-    return Endpoint(base: base, model: model, key: ProcessInfo.processInfo.environment["MODEL_SPIKE_API_KEY"],
-                    temperature: value(of: "--temperature").flatMap(Double.init) ?? 0.2,
-                    topP: value(of: "--top-p").flatMap(Double.init) ?? 1.0,
-                    maxTokens: value(of: "--max-tokens").flatMap(Int.init) ?? 2048,
-                    timeout: value(of: "--timeout").flatMap(Double.init) ?? 120,
-                    extraBody: extra)
+// The arguments were checked above, so every value here parses.
+let endpoint: Endpoint? = value(of: "--endpoint").flatMap { URL(string: $0) }.map { base in
+    Endpoint(base: base, model: value(of: "--model") ?? "", key: ProcessInfo.processInfo.environment["MODEL_SPIKE_API_KEY"],
+             temperature: value(of: "--temperature").flatMap(Double.init) ?? 0.2,
+             topP: value(of: "--top-p").flatMap(Double.init) ?? 1.0,
+             maxTokens: value(of: "--max-tokens").flatMap(Int.init) ?? 2048,
+             timeout: value(of: "--timeout").flatMap(Double.init) ?? 120,
+             extraBody: value(of: "--extra-body").flatMap(SpikeArguments.extraBody) ?? [:])
 }
 
-if endpoint == nil {
+if let endpoint {
+    if !endpoint.extraBody.isEmpty {
+        say("The --extra-body fields are written to the report as given. A key belongs in MODEL_SPIKE_API_KEY, never there.")
+    }
+} else {
     guard ModelChat.availability == "available" else {
         say("The on-device model is \(ModelChat.availability). The spike needs a Mac with Apple Intelligence on, or --endpoint.")
         exit(1)
@@ -242,16 +168,6 @@ enum Chat {
     }
 }
 
-/// Whether two replies carry the same script: the scripts when both have
-/// one, otherwise the replies themselves. A failed call has no reply and
-/// repeats nothing.
-func sameScript(_ first: String, _ second: String) -> Bool {
-    func body(_ reply: String) -> String {
-        (ScriptReply.extract(reply) ?? reply).trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-    return !second.isEmpty && body(first) == body(second)
-}
-
 var results: [String: [Run]] = [:]
 let started = Date()
 for fixture in fixtures {
@@ -268,12 +184,14 @@ for fixture in fixtures {
             let (first, firstReply, firstSeconds) = await attempt(chat, prompt, fixture)
             var run = Run(first: first, firstSeconds: firstSeconds)
             var log = "## prompt\n\(prompt)\n\n## reply (\(String(format: "%.1f", firstSeconds)) s)\n\(firstReply)\n\n## outcome\n\(first.kind) \(first.detail)\n"
+            // A runner error has no retry problem: the model is not asked
+            // to fix what was not its script's doing.
             if let problem = first.retryProblem {
                 let again = Prompts.retry(problem)
                 let (second, secondReply, secondSeconds) = await attempt(chat, again, fixture)
                 run.retry = second
                 run.retrySeconds = secondSeconds
-                run.retryRepeated = sameScript(firstReply, secondReply)
+                run.retryRepeated = ScriptReply.sameScript(firstReply, secondReply)
                 log += "\n## retry prompt\n\(again)\n\n## retry reply (\(String(format: "%.1f", secondSeconds)) s)\n\(secondReply)\n\n## retry outcome\n\(second.kind) \(second.detail)\n"
             }
             results[key, default: []].append(run)
@@ -300,18 +218,27 @@ func tally(_ outcomes: [Outcome]) -> String {
     return kinds.isEmpty ? "none" : kinds.joined(separator: ", ")
 }
 
-/// The endpoint's generation settings as they are sent: an extra request
-/// field may replace a standard one, and the report states what went out.
+/// The endpoint's generation settings as they are sent, and the time limit.
 func describe(_ endpoint: Endpoint) -> String {
-    let body = ChatCompletion.body(model: endpoint.model, messages: [], temperature: endpoint.temperature, topP: endpoint.topP,
-                                   maxTokens: endpoint.maxTokens, extra: endpoint.extraBody)
-    let sent = ChatCompletion.effective(body)
-    var text = "temperature \(sent.temperature), top-p \(sent.topP), replies capped at \(sent.maxTokens) tokens"
-    if !endpoint.extraBody.isEmpty {
-        let json = (try? JSONSerialization.data(withJSONObject: endpoint.extraBody, options: [.sortedKeys])).flatMap { String(data: $0, encoding: .utf8) } ?? ""
-        text += ", extra request fields \(json)"
-    }
-    return text
+    ChatCompletion.settingsLine(temperature: endpoint.temperature, topP: endpoint.topP, maxTokens: endpoint.maxTokens,
+                                timeout: endpoint.timeout, extra: endpoint.extraBody)
+}
+
+/// The runs of one fixture in one variation whose first try counts: all
+/// but those the script runner failed on at the first try. The first-try
+/// figures are of these.
+func firstScored(_ fixture: Fixture, _ variation: Variation) -> [Run] {
+    (results["\(fixture.id)|\(variation.id)"] ?? []).filter(\.firstIsScored)
+}
+
+/// The runs whose end counts: no runner failure on either try. The
+/// figures after the retry and about the retry are of these.
+func scored(_ fixture: Fixture, _ variation: Variation) -> [Run] {
+    (results["\(fixture.id)|\(variation.id)"] ?? []).filter(\.isScored)
+}
+
+func unscored(_ fixture: Fixture, _ variation: Variation) -> [Run] {
+    (results["\(fixture.id)|\(variation.id)"] ?? []).filter { !$0.isScored }
 }
 
 let system = ProcessInfo.processInfo.operatingSystemVersionString
@@ -332,36 +259,50 @@ var report = """
 """
 for fixture in fixtures {
     for variation in variations {
-        let runs = results["\(fixture.id)|\(variation.id)"] ?? []
-        let first = runs.filter(\.first.passed).count
+        let firsts = firstScored(fixture, variation)
+        let runs = scored(fixture, variation)
+        let first = firsts.filter(\.first.passed).count
         let end = runs.filter(\.passedInTheEnd).count
-        let seconds = runs.map(\.firstSeconds)
-        report += "| \(fixture.id) | \(variation.id) | \(first)/\(runs.count) | \(end)/\(runs.count) | \(String(format: "%.1f", median(seconds))) | \(String(format: "%.1f", seconds.max() ?? 0)) | \(tally(runs.map(\.first))) |\n"
+        let seconds = firsts.map(\.firstSeconds)
+        report += "| \(fixture.id) | \(variation.id) | \(first)/\(firsts.count) | \(end)/\(runs.count) | \(String(format: "%.1f", median(seconds))) | \(String(format: "%.1f", seconds.max() ?? 0)) | \(tally(firsts.map(\.first))) |\n"
     }
 }
 
 report += "\n## Per fixture, all variations together\n\n| Fixture | First try | After one retry | Retries that fixed it | Retries with the same script again |\n|---|---|---|---|---|\n"
 for fixture in fixtures {
-    let runs = variations.flatMap { results["\(fixture.id)|\($0.id)"] ?? [] }
+    let firsts = variations.flatMap { firstScored(fixture, $0) }
+    let runs = variations.flatMap { scored(fixture, $0) }
     let retried = runs.filter { $0.retry != nil }
-    report += "| \(fixture.id) | \(runs.filter(\.first.passed).count)/\(runs.count) | \(runs.filter(\.passedInTheEnd).count)/\(runs.count) | \(retried.filter(\.passedInTheEnd).count)/\(retried.count) | \(retried.filter(\.retryRepeated).count)/\(retried.count) |\n"
+    report += "| \(fixture.id) | \(firsts.filter(\.first.passed).count)/\(firsts.count) | \(runs.filter(\.passedInTheEnd).count)/\(runs.count) | \(retried.filter(\.passedInTheEnd).count)/\(retried.count) | \(retried.filter(\.retryRepeated).count)/\(retried.count) |\n"
 }
 
-let everyRun = fixtures.flatMap { fixture in variations.flatMap { results["\(fixture.id)|\($0.id)"] ?? [] } }
+let everyFirst = fixtures.flatMap { fixture in variations.flatMap { firstScored(fixture, $0) } }
+let everyRun = fixtures.flatMap { fixture in variations.flatMap { scored(fixture, $0) } }
 let everyRetry = everyRun.filter { $0.retry != nil }
+let everyUnscored = fixtures.flatMap { fixture in variations.flatMap { unscored(fixture, $0) } }
+let notScored = everyUnscored.count
+let notScoredOnTheRetry = everyUnscored.filter(\.firstIsScored).count
+// The count alone when there are none; what it means when there are some.
+let runnerErrorLine = notScored == 0 ? "Runner errors: 0." : """
+Runner errors: \(notScored) runs, \(notScored - notScoredOnTheRetry) on the first try and \(notScoredOnTheRetry) on the retry. \
+On each, every one of the script runner's \(Judge.runnerAttempts) attempts at the script failed, which says nothing of the script. \
+A run with one on the first try is in no figure of this report and got no retry. \
+A run with one on the retry keeps its first try in the first-try figures and is left out of those after and about the retry.
+"""
 report += """
 
 ## Totals
 
-- First tries: \(everyRun.filter(\.first.passed).count) of \(everyRun.count) pass. Failures: \(tally(everyRun.map(\.first))).
-- Retries: \(everyRetry.count) (a model error is not retried). Fixed: \(everyRetry.filter(\.passedInTheEnd).count). The same script again: \(everyRetry.filter(\.retryRepeated).count).
+- First tries: \(everyFirst.filter(\.first.passed).count) of \(everyFirst.count) pass. Failures: \(tally(everyFirst.map(\.first))).
+- Retries: \(everyRetry.count) (a model error is not retried). Fixed: \(everyRetry.filter(\.passedInTheEnd).count). The same script again: \(everyRetry.filter(\.retryRepeated).count) (both replies held a script, and the two scripts were equal).
+- \(runnerErrorLine)
 - Seconds are to the complete first reply, whether or not it held a script.
 
 """
 
 report += "\n## How failures look\n\nUp to three different first-try failures of each kind per fixture.\n"
 for fixture in fixtures {
-    let failures = variations.flatMap { results["\(fixture.id)|\($0.id)"] ?? [] }.map(\.first).filter { !$0.passed }
+    let failures = variations.flatMap { firstScored(fixture, $0) }.map(\.first).filter { !$0.passed }
     guard !failures.isEmpty else { continue }
     report += "\n### \(fixture.id)\n\n"
     for (kind, group) in Dictionary(grouping: failures, by: \.kind).sorted(by: { $0.key < $1.key }) {
@@ -371,7 +312,27 @@ for fixture in fixtures {
     }
 }
 
+if notScored > 0 {
+    report += "\n## Runner errors\n\nRuns left out of figures above, wholly or from the retry on (see Totals). Run these cells again before the report is used."
+        + " A script that itself brings the runner down every time lands here too: if a cell does so again, read its replies (`--dump`).\n\n"
+        + "| Fixture | Variation | Runs | On the first try | On the retry | What the runner said |\n|---|---|---|---|---|---|\n"
+    for fixture in fixtures {
+        for variation in variations {
+            let runs = unscored(fixture, variation)
+            guard !runs.isEmpty else { continue }
+            var seen: [String] = []
+            for message in runs.flatMap(\.runnerErrors).map(Outcome.short) where !seen.contains(message) { seen.append(message) }
+            let onRetry = runs.filter(\.firstIsScored).count
+            report += "| \(fixture.id) | \(variation.id) | \(runs.count) | \(runs.count - onRetry) | \(onRetry) | \(seen.joined(separator: "; ")) |\n"
+        }
+    }
+}
+
 print(report)
 if let out = value(of: "--out") {
     do { try report.write(toFile: out, atomically: true, encoding: .utf8) } catch { say("could not write \(out): \(error.localizedDescription)") }
+}
+if notScored > 0 {
+    say("\(notScored) runs were not scored in full: the script runner failed on them. The report lists them.")
+    exit(3)
 }
