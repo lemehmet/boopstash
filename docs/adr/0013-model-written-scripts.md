@@ -105,6 +105,14 @@ a script that ran past the time limit. 191 were retried (a model error is
 not), none was fixed, and 126 retries sent the same script again. These
 figures are the Totals section of `RESULTS.md`.
 
+Note, 2026-11-26: the 126 is an upper bound. When the run was made, a
+retry that repeated a reply holding no script was counted as "the same
+script again" too (#271). Counted as the tool counts now (both replies
+hold a script, and the scripts are equal), the figure lies between 111 and
+126; only the `string-table` fixture is affected. The bounds are in the
+notes of `RESULTS.md`. That the retry fixed none of the 191 does not rest
+on it.
+
 Four earlier runs the same day, made while review corrected the harness
 (the runner sandboxed, the seconds narrowed to the model's own, the retry
 wording and the reply extraction fixed), agree: 0 of 160 first tries without
@@ -150,8 +158,9 @@ refuses a file read and a connection), so the failures are the model's.
   back with the JSON escapes resolved, so `split("\n")` holds a real line
   break and does not parse; eight guided runs ended in `decodingFailure`
   after 17 seconds.
-- **The retry does not help.** It fixed none of 191 failures, and in 126 of
-  them the model sent the same script back.
+- **The retry does not help.** It fixed none of 191 failures, and in up to
+  126 of them (at least 111; see the note above) the model sent the same
+  script back.
 - **Nothing varied enough to matter.** Wording, the whole text as the
   sample, and showing the wanted output for the sample all stayed within
   one pass in ten of each other.

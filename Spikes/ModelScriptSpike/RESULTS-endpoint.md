@@ -82,10 +82,12 @@ Nothing above was changed: the figures are the runs' own.
   written down. What is known: the default was 120 s, and it was then an
   idle timeout (the wait for the next byte), not a limit on the whole
   request. The reasoning-on run at the 8,192-token cap took about four
-  minutes per attempt and ended as "cut off at the token limit", so it
-  must have been given a `--timeout` above the default; its value is not
-  known. Whether any other run was given one is not known either; their
-  median times, in the table, are well under the default. The report now
+  minutes per attempt and ended as "cut off at the token limit". That
+  does not say which `--timeout` it was given: an idle timeout is not
+  tripped while the server keeps sending, so the default may have been
+  enough, or a longer one may have been passed. Whether any other run
+  was given one is not known either; their median times, in the table,
+  are well under the default. The report now
   states the limit, which is now on the whole request.
 - **Scoring.** The tool now also drops reasoning that ends in a lone
   `</think>`, leaves a run the script runner failed on out of the
