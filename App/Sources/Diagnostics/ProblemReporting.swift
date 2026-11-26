@@ -219,9 +219,13 @@ enum ProblemReportSheet {
         }
         if let window {
             // Asked for from the workbench: the note's window comes forward
-            // with the sheet, or the question would open behind the
-            // window the user is looking at.
-            if window !== (key.map { $0.sheetParent ?? $0 } ?? NSApp.mainWindow) { window.makeKeyAndOrderFront(nil) }
+            // with the sheet, out of the Dock if it was there, or the
+            // question would open behind the window the user is looking
+            // at, or where it cannot be seen at all.
+            if window !== (key.map { $0.sheetParent ?? $0 } ?? NSApp.mainWindow) {
+                if window.isMiniaturized { window.deminiaturize(nil) }
+                window.makeKeyAndOrderFront(nil)
+            }
             alert.beginSheetModal(for: window, completionHandler: finish)
         } else {
             finish(alert.runModal())

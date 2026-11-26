@@ -165,6 +165,9 @@ extension BoopTextView {
         let waiting = Self.decoding[url] ?? .weakObjects()
         waiting.add(self)
         Self.decoding[url] = waiting
+        // Noted now: the cache may let the old picture go before the decode
+        // is done, and the chip drawn with it would still show it.
+        if cached != nil { Self.decodes.showedEarlierPicture(url) }
         guard Self.decodes.begin(url, version: version) else { return cached?.image }
         Task {
             let decoded = await Task.detached(priority: .utility) { Self.downsampled(url, maxPixels: 160) }.value
@@ -173,11 +176,15 @@ extension BoopTextView {
             // may be of the old bytes, is not kept.
             guard Self.decodes.finish(url, version: version) else { return }
             let views = Self.decoding.removeValue(forKey: url)?.allObjects ?? []
+            let showedEarlier = Self.decodes.takeShowedEarlierPicture(url)
             guard let (image, cost) = decoded else {
                 // No picture can be made of the file as it is now: the one
-                // of the file it replaced goes.
-                guard Self.thumbnails.object(forKey: url as NSURL) != nil else { return }
+                // of the file it replaced goes, from the cache and, when a
+                // chip was drawn with it, from the chips. A file that never
+                // had a picture draws nothing again, so asking for one does
+                // not go round in circles.
                 Self.thumbnails.removeObject(forKey: url as NSURL)
+                guard showedEarlier else { return }
                 for view in views { view.scheduleChipUpdate() }
                 return
             }

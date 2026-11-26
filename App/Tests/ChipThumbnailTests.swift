@@ -35,8 +35,8 @@ struct ChipThumbnailTests {
     }
 
     /// The editor as NoteDetail wires it, focused, with the model watching
-    /// the attachments.
-    func host(_ text: String) -> (NSWindow, BoopTextView) {
+    /// the attachments unless the test looks again itself.
+    func host(_ text: String, watching: Bool = true) -> (NSWindow, BoopTextView) {
         let (scroll, view) = BoopTextView.makeScrollable()
         scroll.frame = NSRect(x: 0, y: 0, width: 2000, height: 300)
         let window = NSWindow(contentRect: scroll.frame, styleMask: [.titled], backing: .buffered, defer: false)
@@ -47,7 +47,7 @@ struct ChipThumbnailTests {
         view.load(text)
         view.attachmentURL = { [store = model.store] id in store.presentFileURL(forAttachment: id) }
         model.keyResponder = { view }
-        model.watchAttachments()
+        if watching { model.watchAttachments() }
         view.updateChips()
         return (window, view)
     }
@@ -89,8 +89,12 @@ struct ChipThumbnailTests {
         #expect(try await eventually { shade(view) == .red }, "the first picture")
         let url = try #require(model.store.presentFileURL(forAttachment: attachment.id))
         let text = view.string
+        let before = try #require(FileVersion(of: url))
 
         try arrive(attachment, try png(.blue))
+        // Told apart from the first by what the file system says of it,
+        // here where the app runs, whatever the two files' sizes.
+        #expect(FileVersion(of: url) != before, "the replaced file is another version")
         #expect(model.store.presentFileURL(forAttachment: attachment.id) == url, "the same URL")
         #expect(try await eventually { shade(view) == .blue }, "the new picture")
         #expect(view.string == text)
@@ -150,5 +154,30 @@ struct ChipThumbnailTests {
         try arrive(attachment, Data([1, 2, 3]))
         #expect(try await eventually { picture(view) == nil && view.chipViews.first?.accessibilityLabel() == "Image" })
         #expect(try await eventually { !BoopTextView.decodes.isDecoding(url) })
+    }
+
+    /// The same, with the cache letting the old picture go while the new
+    /// file is looked at, as it may at any time: the chip was drawn with
+    /// that picture and still loses it. Nothing but the decode's end draws
+    /// the chips again here; the folder is not watched.
+    @Test func aFileThatIsNoLongerAnImageLosesAThumbnailTheCacheLetGo() async throws {
+        let attachment = NoteAttachment(noteID: nil, contentType: "public.png", byteSize: 0)
+        try arrive(attachment, try png(.red))
+        let (window, view) = host("text " + AttachmentReference.markdown(for: attachment.id), watching: false)
+        defer { window.close() }
+        #expect(try await eventually { shade(view) == .red })
+        let url = try #require(model.store.presentFileURL(forAttachment: attachment.id))
+
+        try arrive(attachment, Data([1, 2, 3]))
+        view.updateChips()
+        #expect(shade(view) == .red, "the old picture stays while the file is looked at")
+        #expect(BoopTextView.decodes.isDecoding(url))
+        BoopTextView.thumbnails.removeObject(forKey: url as NSURL)
+        #expect(try await eventually { picture(view) == nil && view.chipViews.first?.accessibilityLabel() == "Image" })
+        #expect(try await eventually { !BoopTextView.decodes.isDecoding(url) })
+        // Asking again makes no picture and does not go round in circles.
+        view.updateChips()
+        #expect(try await eventually { !BoopTextView.decodes.isDecoding(url) })
+        #expect(picture(view) == nil)
     }
 }

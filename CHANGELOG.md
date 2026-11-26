@@ -123,14 +123,16 @@ breaking changes may land in a minor release.
   is of the note's window (what the sheet's words promise, and without
   the script, the diff or what would be sent to a model), the facts come
   from that window's editor, and the sheet hangs on the note's window,
-  which comes forward. From the note's window, or a sheet on it, nothing
-  changes.
+  which comes forward, out of the Dock if it was there. From the note's
+  window, or a sheet on it, nothing changes.
 - **Mac: an image chip shows the new picture when its file is replaced
   (#296).** A chip's thumbnail was kept by the file's address alone, so
   an image iCloud replaced, or one removed and written again, kept its
   old picture. The thumbnail is now of the file as it is (its number,
-  date and size are compared, nothing more is read), and a thumbnail
-  still being made of the old file is dropped when it arrives.
+  dates and size are compared, nothing more is read), and a thumbnail
+  still being made of the old file is dropped when it arrives. A file
+  that is no longer an image loses the old picture, also when the
+  picture had meanwhile been dropped from memory.
 - **iOS: Help leaves out what is only for the Mac (#263).** Settings ▸
   Help showed the whole README: installing with Homebrew, the
   command-line tool and building from source among it. Those parts are
