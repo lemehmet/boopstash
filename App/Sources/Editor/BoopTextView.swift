@@ -15,6 +15,19 @@ final class BoopTextView: NSTextView {
     /// that only make sense in an editor can be disabled elsewhere (#25).
     var onFocusChange: ((Bool) -> Void)?
 
+    /// The editor's undo stack, its own and not the window's. A text
+    /// view's undo actions point at it without keeping it alive, and the
+    /// window outlives every editor it shows (each note gets a new one):
+    /// on the window's stack, ⌘Z after the editor went called into freed
+    /// memory. This one goes when the view does.
+    ///
+    /// The window's Undo and Redo act on the window's stack whatever this
+    /// returns, so the view takes the two commands itself.
+    private let ownUndoManager = UndoManager()
+    override var undoManager: UndoManager? { ownUndoManager }
+    @objc func undo(_ sender: Any?) { ownUndoManager.undo() }
+    @objc func redo(_ sender: Any?) { ownUndoManager.redo() }
+
     // MARK: Chips (#52)
 
     /// An attachment's file, or nil when it is missing; set by the host.
@@ -319,6 +332,7 @@ final class BoopTextView: NSTextView {
 
     override func validateUserInterfaceItem(_ item: any NSValidatedUserInterfaceItem) -> Bool {
         if let action = item.action, Self.refusedToggles.contains(action) { return false }
+        if let undoes = ownUndoManager.validatesUndoOrRedo(item) { return undoes }
         if item.action == #selector(formatDocument(_:)) {
             return isEditable && DocumentFormatter.canFormat(syntax.currentLanguage)
         }
@@ -1158,5 +1172,24 @@ final class BoopTextView: NSTextView {
     /// takes: one undo step, the typing attributes, and the delegate told.
     private func replace(_ range: NSRange, with text: String) {
         insertText(text, replacementRange: range)
+    }
+}
+
+extension UndoManager {
+    /// Whether an Undo or Redo menu item can act on this stack, naming
+    /// the item after the step ("Undo Format") as a window does for its
+    /// own; nil for any other item. For a view with a stack of its own.
+    @MainActor
+    func validatesUndoOrRedo(_ item: any NSValidatedUserInterfaceItem) -> Bool? {
+        switch item.action {
+        case Selector(("undo:")):
+            (item as? NSMenuItem)?.title = undoMenuItemTitle
+            return canUndo
+        case Selector(("redo:")):
+            (item as? NSMenuItem)?.title = redoMenuItemTitle
+            return canRedo
+        default:
+            return nil
+        }
     }
 }

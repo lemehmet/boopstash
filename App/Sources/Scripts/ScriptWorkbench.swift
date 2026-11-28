@@ -611,6 +611,15 @@ final class ScriptTextView: NSTextView {
         [.font: baseFont, .foregroundColor: baseColor]
     }
 
+    /// Its own undo stack, as the note editor's is (`BoopTextView`): the
+    /// session keeps this view across windows, and a window's stack would
+    /// keep actions for a view that has gone. Undo and Redo are the view's
+    /// too: the window's act on the window's stack.
+    private let ownUndoManager = UndoManager()
+    override var undoManager: UndoManager? { ownUndoManager }
+    @objc func undo(_ sender: Any?) { ownUndoManager.undo() }
+    @objc func redo(_ sender: Any?) { ownUndoManager.redo() }
+
     static func makeScrollable() -> (NSScrollView, ScriptTextView) {
         let scroll = NSScrollView()
         scroll.hasVerticalScroller = true
@@ -678,6 +687,7 @@ final class ScriptTextView: NSTextView {
 
     override func validateUserInterfaceItem(_ item: any NSValidatedUserInterfaceItem) -> Bool {
         if let action = item.action, Self.refusedToggles.contains(action) { return false }
+        if let undoes = ownUndoManager.validatesUndoOrRedo(item) { return undoes }
         return super.validateUserInterfaceItem(item)
     }
 

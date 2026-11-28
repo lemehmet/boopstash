@@ -786,8 +786,13 @@ final class FindPanel: NSBox, NSTextFieldDelegate {
     /// Menu commands sent to the first responder while a field has the
     /// keyboard (Format Document, Fold, Paste as Markdown) go to the editor
     /// the widget belongs to; the field editor is not on its way otherwise.
+    ///
+    /// Not Undo and Redo: the editor answers those for its own stack
+    /// (#307), and in a field they are the field's, for what was typed in
+    /// it.
     override func supplementalTarget(forAction action: Selector, sender: Any?) -> Any? {
-        if let view = controller.view, view.responds(to: action) { return view }
+        let fieldsOwn = action == #selector(BoopTextView.undo(_:)) || action == #selector(BoopTextView.redo(_:))
+        if !fieldsOwn, let view = controller.view, view.responds(to: action) { return view }
         return super.supplementalTarget(forAction: action, sender: sender)
     }
 

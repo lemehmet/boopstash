@@ -848,6 +848,21 @@ struct ScriptWorkbenchFlowTests {
         close(window, view)
     }
 
+    @Test func theScriptEditorsUndoIsItsOwnAndNeverAWindows() async {
+        let (window, view) = host(Self.numbers)
+        let session = await workbench(on: view, script: "", generator: FakeGenerator())
+        type("let a = 1", in: session)
+        let scriptWindow = session.scriptView.window
+        #expect(session.scriptView.undoManager?.canUndo == true)
+        #expect(session.scriptView.undoManager !== scriptWindow?.undoManager)
+        #expect(scriptWindow?.undoManager?.canUndo != true, "nothing of the script's is on a window's stack")
+        #expect(view.undoManager?.canUndo == false && window.undoManager?.canUndo == false)
+        // Edit ▸ Undo, as the menu sends it to the first responder.
+        #expect(session.scriptView.tryToPerform(Selector(("undo:")), with: nil))
+        #expect(session.script.isEmpty)
+        close(window, view)
+    }
+
     @Test func afterUndoBackToEmptyTheEditorKeepsItsFontAndColour() async {
         let (window, view) = host(Self.numbers)
         let session = await workbench(on: view, script: "", generator: FakeGenerator())

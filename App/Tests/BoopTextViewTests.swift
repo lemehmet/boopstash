@@ -67,6 +67,59 @@ struct BoopTextViewTests {
         host.close()
     }
 
+    /// A crash in 0.5.0: the editor's edits were on the window's undo
+    /// stack, which outlives the editor, so ⌘Z after a note switch could
+    /// call into a freed text view.
+    @Test func undoIsTheEditorsOwnAndNeverTheWindows() {
+        let host = Host("one")
+        host.view.insertText(" two", replacementRange: NSRange(location: 3, length: 0))
+        #expect(host.view.undoManager != nil && host.view.undoManager !== host.window.undoManager)
+        #expect(host.window.undoManager?.canUndo == false, "nothing of the editor's is on the window's stack")
+        #expect(host.view.undoManager?.canUndo == true)
+        // Edit ▸ Undo, as the menu sends it to the first responder.
+        #expect(host.window.firstResponder === host.view)
+        let undo = NSMenuItem(title: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
+        let redo = NSMenuItem(title: "Redo", action: Selector(("redo:")), keyEquivalent: "Z")
+        #expect(host.view.validateUserInterfaceItem(undo) && !host.view.validateUserInterfaceItem(redo))
+        #expect(host.view.tryToPerform(Selector(("undo:")), with: nil))
+        #expect(host.view.string == "one")
+        #expect(!host.view.validateUserInterfaceItem(undo) && host.view.validateUserInterfaceItem(redo))
+        #expect(host.view.tryToPerform(Selector(("redo:")), with: nil))
+        #expect(host.view.string == "one two")
+        host.close()
+    }
+
+    /// The Edit menu's own Undo is what the editor answers: `undo:` with
+    /// no target, so it goes to the first responder first. (The test
+    /// host's window is never key, so the send itself is the test above.)
+    @Test func theEditMenusUndoIsSentDownTheResponderChain() throws {
+        let action = Selector(("undo:"))
+        func find(in menu: NSMenu?) -> NSMenuItem? {
+            for item in menu?.items ?? [] {
+                if item.action == action { return item }
+                if let found = find(in: item.submenu) { return found }
+            }
+            return nil
+        }
+        let item = try #require(find(in: NSApp.mainMenu), "the main menu has an Undo item")
+        #expect(item.target == nil)
+        let host = Host("one")
+        #expect(host.view.responds(to: action) && host.view.responds(to: Selector(("redo:"))))
+        host.close()
+    }
+
+    @Test func anEditorThatWentLeavesNothingToUndoInItsWindow() {
+        let host = Host("one")
+        host.view.insertText(" two", replacementRange: NSRange(location: 3, length: 0))
+        // As a note switch does: another editor takes the first one's place.
+        let (scroll, next) = BoopTextView.makeScrollable()
+        host.window.contentView = scroll
+        host.window.makeFirstResponder(next)
+        #expect(host.window.undoManager?.canUndo == false)
+        #expect(next.undoManager?.canUndo == false)
+        host.close()
+    }
+
     @Test func pasteWithNoTextChangesNothing() {
         let host = Host("keep")
         host.view.setSelectedRange(NSRange(location: 0, length: 4))
