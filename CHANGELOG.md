@@ -6,6 +6,15 @@ breaking changes may land in a minor release.
 
 ## Unreleased
 
+### Fixed
+
+- **Mac: a crash on ⌘Z.** The editor's undo steps were kept on the
+  window's undo stack, which outlives the editor of any one note, so
+  Undo could reach an editor that was gone. Each note editor, and the
+  script workbench's, now has an undo stack of its own. Undo while the
+  keyboard is in the title or the find field no longer undoes edits in
+  the note.
+
 ## v0.5.0 — 2026-11-26
 
 ### New

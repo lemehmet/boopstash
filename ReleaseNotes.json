@@ -1,6 +1,7 @@
 {
   "appStoreSince": { "mac": "0.3.0", "ios": "0.3.0" },
   "unreleased": [
+    { "on": "mac", "text": "Fixed a crash that Undo (⌘Z) could cause after switching notes." }
   ],
   "releases": [
     {
