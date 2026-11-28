@@ -848,6 +848,33 @@ struct ScriptWorkbenchFlowTests {
         close(window, view)
     }
 
+    // MARK: Going to an error (#309)
+
+    @Test func anErrorsPlaceIsWhereTheCaretGoes() async throws {
+        let (window, view) = host(Self.numbers)
+        let script = "function main(state) {\n  const a = 1\n    null.x\n}\n"
+        let session = await workbench(on: view, script: script)
+        await session.run()
+        let note = try #require(session.result?.notes.first)
+        #expect(note.kind == .error && note.text.contains("(line 3, column "), "\(note)")
+        let location = try #require(note.location)
+        #expect(location.line == 3)
+
+        view.window?.makeFirstResponder(nil)
+        session.showInScript(location)
+        let caret = session.scriptView.selectedRange()
+        let third = (script as NSString).range(of: "    null.x")
+        #expect(caret.length == 0 && NSLocationInRange(caret.location, NSRange(location: third.location, length: third.length + 1)), "\(caret)")
+        #expect(session.scriptView.window?.firstResponder === session.scriptView)
+
+        // The script is shorter than when it ran: the nearest end.
+        deleteAll(session)
+        type("x", in: session)
+        session.showInScript(location)
+        #expect(session.scriptView.selectedRange() == NSRange(location: 1, length: 0))
+        close(window, view)
+    }
+
     @Test func theScriptEditorsUndoIsItsOwnAndNeverAWindows() async {
         let (window, view) = host(Self.numbers)
         let session = await workbench(on: view, script: "", generator: FakeGenerator())

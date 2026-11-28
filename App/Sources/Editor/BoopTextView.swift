@@ -489,7 +489,7 @@ final class BoopTextView: NSTextView {
         }
         if !response.errors.isEmpty {
             NSSound.beep()
-            showMessage?(response.errors.joined(separator: " "))
+            showMessage?(response.shownErrors.joined(separator: " "))
         } else if let info = response.infos.last {
             showMessage?(info)
         }

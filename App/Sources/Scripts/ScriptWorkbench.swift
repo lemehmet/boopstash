@@ -206,6 +206,17 @@ final class ScriptWorkbenchSession {
         scriptView.setSelectedRange(NSRange(location: 0, length: 0))
     }
 
+    /// Puts the caret where an error is in the script (#309) and gives
+    /// the script the keyboard. The script may have changed since the
+    /// run: a place it no longer has is its nearest end.
+    func showInScript(_ location: ScriptErrorLocation) {
+        guard !isClosed else { return }
+        let range = NSRange(location: location.offset(in: script), length: 0)
+        scriptView.setSelectedRange(range)
+        scriptView.scrollRangeToVisible(range)
+        scriptView.window?.makeFirstResponder(scriptView)
+    }
+
     // MARK: Run
 
     /// Runs the script as it is now on the note as it is now, each

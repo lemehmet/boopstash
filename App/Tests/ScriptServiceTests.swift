@@ -42,6 +42,49 @@ struct ScriptServiceTests {
         #expect(response.errors.first?.hasPrefix("[Test] TypeError") == true, "\(response.errors)")
     }
 
+    // MARK: Where an error is (#309)
+
+    @Test func aSyntaxErrorSaysItsLine() async {
+        let source = "function main(state) {\n  state.text = 'x'\n  let = = 1\n}\n"
+        let response = await run(source)
+        #expect(response.errors.first?.hasPrefix("[Test] SyntaxError") == true, "\(response.errors)")
+        #expect(response.errorLocations[0]?.line == 3, "\(response.errorLocations)")
+        #expect(response.shownErrors.first?.contains("(line 3, column ") == true, "\(response.shownErrors)")
+    }
+
+    @Test func anExceptionInMainSaysItsLine() async {
+        let source = "function main(state) {\n  const a = 1\n\n    null.x\n}\n"
+        let response = await run(source)
+        #expect(response.errors.first?.hasPrefix("[Test] TypeError") == true, "\(response.errors)")
+        let location = response.errorLocations[0]
+        #expect(location?.line == 4, "\(response.errorLocations)")
+        // Somewhere in "    null.x", counted from 1.
+        #expect((5...11).contains(location?.column ?? 0), "\(response.errorLocations)")
+    }
+
+    @Test func anExceptionAtTheTopLevelSaysItsLine() async {
+        let response = await run("const a = 1\nmissing()\nfunction main(state) {}\n")
+        #expect(response.errors.first?.hasPrefix("[Test] ReferenceError") == true, "\(response.errors)")
+        #expect(response.errorLocations[0]?.line == 2, "\(response.errorLocations)")
+    }
+
+    @Test func anExceptionInALibrarySaysWhereTheScriptCalledIt() async {
+        // `decode` is not given a string: whatever the library throws, the
+        // place is the script's line, or none; never the library's.
+        let source = "const { decode } = require('@boop/base64')\nfunction main(state) {\n  state.text = decode(null)\n}\n"
+        let response = await run(source)
+        if !response.errors.isEmpty, let location = response.errorLocations[0] {
+            #expect(location.line == 3, "\(response.errorLocations)")
+        }
+    }
+
+    @Test func aPostedErrorAndAThrownStringHaveNoPlace() async {
+        let posted = await run(script("function main(state) { state.postError('bad input') }"))
+        #expect(posted.errors == ["bad input"] && posted.errorLocations.isEmpty)
+        let thrown = await run("function main(state) {\n  throw 'no'\n}\n")
+        #expect(thrown.errors == ["[Test] no"] && thrown.errorLocations.isEmpty, "\(thrown)")
+    }
+
     /// Nothing reaches the network or the disk: none of these exist, and
     /// `require` resolves only Boop's bundled libraries.
     @Test func scriptsHaveNoNetworkFilesOrTimers() async {

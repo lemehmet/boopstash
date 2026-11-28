@@ -75,11 +75,103 @@ public struct ScriptResponse: Codable, Sendable, Equatable {
     public var outputs: [String]
     public var errors: [String]
     public var infos: [String]
+    /// Where in the script an error is (#309), by its index in `errors`.
+    /// An error the script posted, or one from outside the script, has none.
+    public var errorLocations: [Int: ScriptErrorLocation]
 
-    public init(outputs: [String], errors: [String] = [], infos: [String] = []) {
+    public init(outputs: [String], errors: [String] = [], infos: [String] = [], errorLocations: [Int: ScriptErrorLocation] = [:]) {
         self.outputs = outputs
         self.errors = errors
         self.infos = infos
+        self.errorLocations = errorLocations
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        outputs = try container.decode([String].self, forKey: .outputs)
+        errors = try container.decode([String].self, forKey: .errors)
+        infos = try container.decode([String].self, forKey: .infos)
+        // An answer without locations reads as before.
+        errorLocations = try container.decodeIfPresent([Int: ScriptErrorLocation].self, forKey: .errorLocations) ?? [:]
+    }
+
+    /// The errors as they are shown: each with its place in the script
+    /// when it has one, "… (line 12, column 5)".
+    public var shownErrors: [String] {
+        errors.enumerated().map { index, text in
+            errorLocations[index].map { "\(text) (\($0.description))" } ?? text
+        }
+    }
+}
+
+/// A place in a script's source, as JavaScriptCore reports it and as an
+/// editor counts it: both from 1.
+public struct ScriptErrorLocation: Codable, Sendable, Hashable, CustomStringConvertible {
+    public var line: Int
+    public var column: Int
+
+    public init(line: Int, column: Int) {
+        self.line = line
+        self.column = column
+    }
+
+    public var description: String { "line \(line), column \(column)" }
+
+    /// The source URL the script service evaluates the user's script
+    /// under. A bundled library has its file's.
+    public static let scriptURL = "boop://script"
+
+    /// The place in the user's script an exception points at, from the
+    /// exception's `sourceURL`, `line`, `column` and `stack`.
+    ///
+    /// An exception raised in the script has the script's URL and its own
+    /// line. One raised in a library the script called has the library's,
+    /// and the script's place is the first frame of the stack that is in
+    /// the script ("main@boop://script:12:5"). Anything else has no place
+    /// in the script: none is better than a wrong one.
+    public static func make(sourceURL: String?, line: Int?, column: Int?, stack: String?) -> ScriptErrorLocation? {
+        if sourceURL == scriptURL, let line, line >= 1 {
+            return ScriptErrorLocation(line: line, column: max(column ?? 1, 1))
+        }
+        guard let stack else { return nil }
+        for frame in stack.split(whereSeparator: \.isNewline) {
+            guard let match = frame.firstMatch(of: /boop:\/\/script:(\d+):(\d+)$/),
+                  let line = Int(match.1), let column = Int(match.2), line >= 1 else { continue }
+            return ScriptErrorLocation(line: line, column: max(column, 1))
+        }
+        return nil
+    }
+
+    /// The offset in `text`, in UTF-16 units as a text view counts, of
+    /// this place: lines end as JavaScript's do (LF, CR, CRLF, U+2028,
+    /// U+2029). A column past its line's end is the line's end, and a line
+    /// past the text's end is the text's end, so a script edited since
+    /// the error still has somewhere to go. A line or column below 1 is 1.
+    public func offset(in text: String) -> Int {
+        let units = Array(text.utf16)
+        let line = max(line, 1)
+        var index = 0
+        var current = 1
+        while current < line, index < units.count {
+            let unit = units[index]
+            index += 1
+            switch unit {
+            case 0x0D:
+                if index < units.count, units[index] == 0x0A { index += 1 }
+                current += 1
+            case 0x0A, 0x2028, 0x2029:
+                current += 1
+            default:
+                break
+            }
+        }
+        guard current == line else { return units.count }
+        var remaining = max(column, 1) - 1
+        while remaining > 0, index < units.count, ![0x0D, 0x0A, 0x2028, 0x2029].contains(units[index]) {
+            index += 1
+            remaining -= 1
+        }
+        return index
     }
 }
 
