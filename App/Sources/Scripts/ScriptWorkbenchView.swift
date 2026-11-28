@@ -399,7 +399,8 @@ private struct WorkbenchNotes: View {
             VStack(alignment: .leading, spacing: 4) {
                 WorkbenchStatus(session: session)
                 ForEach(session.result?.notes ?? []) { (note: ScriptWorkbenchResult.Note) in
-                    WorkbenchNoteRow(isError: note.kind == .error, text: note.text)
+                    WorkbenchNoteRow(isError: note.kind == .error, text: note.text,
+                                     goTo: note.location.map { location in { session.showInScript(location) } })
                 }
                 if let notice: ScriptWorkbenchSession.Notice = session.notice {
                     WorkbenchNoteRow(isError: notice.isError, text: notice.text)
@@ -429,12 +430,35 @@ private struct WorkbenchStatus: View {
 private struct WorkbenchNoteRow: View {
     let isError: Bool
     let text: String
+    /// Goes to the error's place in the script (#309); nil for a note
+    /// without one.
+    var goTo: (() -> Void)?
 
     var body: some View {
+        if let goTo {
+            // Not selectable text: selecting would take the double click.
+            // Copy is in the menu instead.
+            label
+                .contentShape(Rectangle())
+                .onTapGesture(count: 2, perform: goTo)
+                .help("Double-click to go to the error in the script")
+                .contextMenu {
+                    Button("Go to Error", action: goTo)
+                    Button("Copy") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(text, forType: .string)
+                    }
+                }
+                .accessibilityAction(named: "Go to Error", goTo)
+        } else {
+            label.textSelection(.enabled)
+        }
+    }
+
+    private var label: some View {
         Label(text, systemImage: isError ? "exclamationmark.triangle.fill" : "info.circle")
             .font(.callout)
             .foregroundStyle(isError ? Color.red : Color.primary)
-            .textSelection(.enabled)
             .accessibilityLabel(isError ? "Error: \(text)" : text)
     }
 }

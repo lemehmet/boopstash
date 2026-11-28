@@ -182,3 +182,92 @@ import Testing
         #expect(decoded.states == request.states && decoded.timeLimit == 2)
     }
 }
+
+/// Where a script's error is (#309): read from an exception, counted into
+/// the script's text, and carried in the response.
+@Suite struct ScriptErrorLocationTests {
+    @Test func anExceptionInTheScriptHasItsOwnPlace() {
+        let location = ScriptErrorLocation.make(sourceURL: "boop://script", line: 12, column: 5, stack: nil)
+        #expect(location == ScriptErrorLocation(line: 12, column: 5))
+        #expect(location?.description == "line 12, column 5")
+    }
+
+    @Test func aMissingColumnIsTheLinesStart() {
+        #expect(ScriptErrorLocation.make(sourceURL: "boop://script", line: 3, column: nil, stack: nil) == ScriptErrorLocation(line: 3, column: 1))
+        #expect(ScriptErrorLocation.make(sourceURL: "boop://script", line: 3, column: 0, stack: nil) == ScriptErrorLocation(line: 3, column: 1))
+    }
+
+    @Test func anExceptionInALibraryHasThePlaceTheScriptCalledItFrom() {
+        let stack = "decode@file:///lib/base64.js:40:22\nmain@boop://script:7:19\nglobal code@boop://script:1:1"
+        let location = ScriptErrorLocation.make(sourceURL: "file:///lib/base64.js", line: 40, column: 22, stack: stack)
+        #expect(location == ScriptErrorLocation(line: 7, column: 19))
+    }
+
+    @Test func anExceptionFromOutsideTheScriptHasNoPlace() {
+        #expect(ScriptErrorLocation.make(sourceURL: "file:///lib/base64.js", line: 40, column: 22, stack: "decode@file:///lib/base64.js:40:22") == nil)
+        #expect(ScriptErrorLocation.make(sourceURL: nil, line: nil, column: nil, stack: nil) == nil)
+        #expect(ScriptErrorLocation.make(sourceURL: "boop://script", line: 0, column: 1, stack: nil) == nil)
+        // A frame that only mentions the URL is not one in the script.
+        #expect(ScriptErrorLocation.make(sourceURL: nil, line: nil, column: nil, stack: "f@file:///boop://script:1:2/x.js:9:9") == nil)
+        #expect(ScriptErrorLocation.make(sourceURL: "file:///lib.js", line: 40, column: 1, stack: "f@file:///boop://script:9:9") == nil)
+        #expect(ScriptErrorLocation.make(sourceURL: nil, line: nil, column: nil, stack: "f@https://x/?u=boop://script:9:9") == nil)
+        // A frame that is only the URL, as global code's can be.
+        #expect(ScriptErrorLocation.make(sourceURL: nil, line: nil, column: nil, stack: "boop://script:4:2") == ScriptErrorLocation(line: 4, column: 2))
+    }
+
+    @Test(arguments: [
+        (1, 1, 0), (1, 3, 2), (2, 1, 4), (3, 2, 9),
+        // A column past the line's end is the line's end.
+        (1, 99, 3), (2, 99, 7),
+        // The last line, and past it.
+        (3, 99, 11), (4, 1, 11), (99, 1, 11),
+        // Not a place: the start.
+        (0, 1, 0), (1, 0, 0),
+    ])
+    func aPlaceIsAnOffsetInTheText(line: Int, column: Int, offset: Int) {
+        #expect(ScriptErrorLocation(line: line, column: column).offset(in: "abc\ndef\nxyz") == offset)
+    }
+
+    @Test func linesEndAsJavaScriptsDo() {
+        // CRLF is one line end; CR, U+2028 and U+2029 are each one.
+        let text = "a\r\nb\rc\u{2028}d\u{2029}e"
+        #expect(ScriptErrorLocation(line: 2, column: 1).offset(in: text) == 3)
+        #expect(ScriptErrorLocation(line: 3, column: 1).offset(in: text) == 5)
+        #expect(ScriptErrorLocation(line: 4, column: 1).offset(in: text) == 7)
+        #expect(ScriptErrorLocation(line: 5, column: 1).offset(in: text) == 9)
+        // A column past a CRLF line's end stops before the CR.
+        #expect(ScriptErrorLocation(line: 1, column: 9).offset(in: text) == 1)
+        // A text that ends with a line end has an empty last line.
+        #expect(ScriptErrorLocation(line: 2, column: 1).offset(in: "a\n") == 2)
+        #expect(ScriptErrorLocation(line: 1, column: 1).offset(in: "") == 0)
+    }
+
+    @Test func offsetsCountUTF16AsATextViewDoes() {
+        #expect(ScriptErrorLocation(line: 2, column: 2).offset(in: "😀\nab") == 4)
+    }
+
+    @Test func aResponseCarriesThePlaceAndShowsIt() throws {
+        let response = ScriptResponse(outputs: [], errors: ["[Test] SyntaxError: Unexpected token '}'", "bad input"],
+                                      errorLocations: [0: ScriptErrorLocation(line: 12, column: 5)])
+        #expect(response.shownErrors == ["[Test] SyntaxError: Unexpected token '}' (line 12, column 5)", "bad input"])
+        let read = try JSONDecoder().decode(ScriptResponse.self, from: JSONEncoder().encode(response))
+        #expect(read == response)
+    }
+
+    @Test func anAnswerWithoutPlacesStillReads() throws {
+        let old = Data(#"{"outputs":["x"],"errors":["e"],"infos":[]}"#.utf8)
+        let read = try JSONDecoder().decode(ScriptResponse.self, from: old)
+        #expect(read == ScriptResponse(outputs: ["x"], errors: ["e"]))
+        #expect(read.shownErrors == ["e"])
+    }
+
+    @Test func theWorkbenchsNotesCarryThePlace() {
+        let response = ScriptResponse(outputs: [], errors: ["[W] ReferenceError: x", "posted"], infos: ["fyi"],
+                                      errorLocations: [0: ScriptErrorLocation(line: 2, column: 3)])
+        let notes = ScriptWorkbenchResult.make(response: response, fullText: "t", selections: []).notes
+        #expect(notes.map(\.text) == ["[W] ReferenceError: x (line 2, column 3)", "posted", "fyi"])
+        #expect(notes.map(\.location) == [ScriptErrorLocation(line: 2, column: 3), nil, nil])
+        #expect(notes.map(\.kind) == [.error, .error, .info])
+        #expect(Set(notes.map(\.id)).count == 3)
+    }
+}

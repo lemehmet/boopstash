@@ -1,6 +1,7 @@
 {
   "appStoreSince": { "mac": "0.3.0", "ios": "0.3.0" },
   "unreleased": [
+    { "on": "mac", "text": "A script that fails says the line and column of the error. In the script workbench, double-click the error to go there." },
     { "on": "mac", "text": "Fixed a crash that Undo (⌘Z) could cause after switching notes." }
   ],
   "releases": [

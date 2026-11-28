@@ -246,6 +246,15 @@ public struct ScriptWorkbenchResult: Sendable {
         public var id: Int
         public var kind: Kind
         public var text: String
+        /// Where in the script an error is (#309), when it is known.
+        public var location: ScriptErrorLocation?
+
+        public init(id: Int, kind: Kind, text: String, location: ScriptErrorLocation? = nil) {
+            self.id = id
+            self.kind = kind
+            self.text = text
+            self.location = location
+        }
     }
 
     /// The replacements Keep applies, in the coordinates of the text the
@@ -262,8 +271,10 @@ public struct ScriptWorkbenchResult: Sendable {
     public var canKeep: Bool { edits != nil && !content.isEmpty }
 
     public static func make(response: ScriptResponse, fullText: String, selections: [NSRange], context: Int = 3) -> ScriptWorkbenchResult {
-        let texts = response.errors.map { (Note.Kind.error, $0) } + response.infos.map { (Note.Kind.info, $0) }
-        let notes = texts.enumerated().map { Note(id: $0.offset, kind: $0.element.0, text: $0.element.1) }
+        let shown = response.shownErrors
+        let errors = shown.indices.map { Note(id: $0, kind: .error, text: shown[$0], location: response.errorLocations[$0]) }
+        let infos = response.infos.enumerated().map { Note(id: shown.count + $0.offset, kind: .info, text: $0.element) }
+        let notes = errors + infos
         let empty = DiffReviewContent(parts: [])
         guard response.errors.isEmpty else {
             return ScriptWorkbenchResult(edits: nil, content: empty, notes: notes, status: "The script failed. Nothing to keep.")

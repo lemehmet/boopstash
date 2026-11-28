@@ -6,6 +6,17 @@ breaking changes may land in a minor release.
 
 ## Unreleased
 
+### New
+
+- **Mac: a script's error says where it is (#309).** A syntax error or
+  an exception in a script is shown with its line and column in the
+  script, "SyntaxError: Unexpected token '}' (line 12, column 5)", in
+  the workbench and when a script is run from the picker. In the
+  workbench, double-clicking the error puts the caret there; Go to Error
+  in its menu does the same, and Copy copies the message. An error the
+  script posted itself, or one raised outside the script, has no place
+  and is shown as before.
+
 ### Fixed
 
 - **Mac: a crash on ⌘Z.** The editor's undo steps were kept on the

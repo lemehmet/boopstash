@@ -51,7 +51,7 @@ final class ScriptHost: NSObject, ScriptServiceProtocol {
         for state in request.states {
             let execution = ScriptExecution(state: state, messages: messages)
             let context = makeContext(name: request.scriptName, messages: messages)
-            context.evaluateScript(request.source, withSourceURL: URL(string: "boop://script"))
+            context.evaluateScript(request.source, withSourceURL: URL(string: ScriptErrorLocation.scriptURL))
             guard messages.errors.isEmpty else { break }
             guard let main = context.objectForKeyedSubscript("main"), !main.isUndefined else {
                 messages.errors.append("The script has no main function.")
@@ -61,19 +61,44 @@ final class ScriptHost: NSObject, ScriptServiceProtocol {
             outputs.append(execution.state.text ?? "")
         }
         // A run that failed changes nothing; what it posted is still shown.
-        return ScriptResponse(outputs: messages.errors.isEmpty ? outputs : [], errors: messages.errors, infos: messages.infos)
+        return ScriptResponse(outputs: messages.errors.isEmpty ? outputs : [], errors: messages.errors, infos: messages.infos,
+                              errorLocations: messages.locations)
     }
 
     final class Messages {
         var errors: [String] = []
         var infos: [String] = []
+        /// Where an exception is in the script (#309), by its index in
+        /// `errors`.
+        var locations: [Int: ScriptErrorLocation] = [:]
+    }
+
+    /// The place in the script an exception points at. A thrown value
+    /// that is not an object (`throw "no"`) has none.
+    static func location(of exception: JSValue?) -> ScriptErrorLocation? {
+        guard let exception, exception.isObject else { return nil }
+        func string(_ key: String) -> String? {
+            guard let value = exception.objectForKeyedSubscript(key), value.isString else { return nil }
+            return value.toString()
+        }
+        func number(_ key: String) -> Int? {
+            guard let value = exception.objectForKeyedSubscript(key), value.isNumber else { return nil }
+            return Int(value.toInt32())
+        }
+        return ScriptErrorLocation.make(sourceURL: string("sourceURL"), line: number("line"), column: number("column"), stack: string("stack"))
     }
 
     static func makeContext(name: String, messages: Messages) -> JSContext {
         let context = JSContext()!
         context.name = name
         context.exceptionHandler = { _, exception in
-            messages.errors.append("[\(name)] \(exception?.toString() ?? "Unknown error")")
+            // Both read before either is kept: a getter or `toString` that
+            // throws runs this handler again in between, and its error must
+            // not take this one's index or place.
+            let location = location(of: exception)
+            let text = "[\(name)] \(exception?.toString() ?? "Unknown error")"
+            if let location { messages.locations[messages.errors.count] = location }
+            messages.errors.append(text)
         }
         // `require('@boop/<module>')`: Boop's bundled libraries, wrapped as
         // CommonJS modules the way Boop wraps them. Nothing else resolves.
