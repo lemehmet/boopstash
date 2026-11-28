@@ -6,6 +6,8 @@ breaking changes may land in a minor release.
 
 ## Unreleased
 
+## v0.5.1 — 2026-11-28
+
 ### New
 
 - **Mac: a script's error says where it is (#309).** A syntax error or
