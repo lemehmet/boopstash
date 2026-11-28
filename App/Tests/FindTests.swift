@@ -497,6 +497,30 @@ struct FindTests {
         host.close()
     }
 
+    /// Undo in a field is the field's (#307): the widget hands the editor
+    /// its other commands, not this one, so ⌘Z there never undoes the note.
+    @Test func undoInAWidgetFieldIsNotTheEditors() {
+        let host = Host("one")
+        host.view.insertText(" two", replacementRange: NSRange(location: 3, length: 0))
+        host.view.perform(.find)
+        #expect(host.view.find.panel?.hasFocus == true)
+        for action in [#selector(BoopTextView.undo(_:)), #selector(BoopTextView.redo(_:))] {
+            var responder = host.window.firstResponder
+            var target: NSResponder?
+            while let current = responder, target == nil {
+                if let supplemental = current.supplementalTarget(forAction: action, sender: nil) as? NSResponder, supplemental.responds(to: action) {
+                    target = supplemental
+                } else if current.responds(to: action) {
+                    target = current
+                }
+                responder = current.nextResponder
+            }
+            #expect(target === host.window, "\(String(describing: target))")
+        }
+        #expect(host.view.string == "one two")
+        host.close()
+    }
+
     @Test func menuActionsReachTheEditorFromAWidgetField() {
         let host = Host("chain")
         host.view.perform(.find)
