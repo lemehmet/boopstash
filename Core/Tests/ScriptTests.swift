@@ -209,6 +209,10 @@ import Testing
         #expect(ScriptErrorLocation.make(sourceURL: "boop://script", line: 0, column: 1, stack: nil) == nil)
         // A frame that only mentions the URL is not one in the script.
         #expect(ScriptErrorLocation.make(sourceURL: nil, line: nil, column: nil, stack: "f@file:///boop://script:1:2/x.js:9:9") == nil)
+        #expect(ScriptErrorLocation.make(sourceURL: "file:///lib.js", line: 40, column: 1, stack: "f@file:///boop://script:9:9") == nil)
+        #expect(ScriptErrorLocation.make(sourceURL: nil, line: nil, column: nil, stack: "f@https://x/?u=boop://script:9:9") == nil)
+        // A frame that is only the URL, as global code's can be.
+        #expect(ScriptErrorLocation.make(sourceURL: nil, line: nil, column: nil, stack: "boop://script:4:2") == ScriptErrorLocation(line: 4, column: 2))
     }
 
     @Test(arguments: [

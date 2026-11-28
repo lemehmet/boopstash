@@ -135,7 +135,9 @@ public struct ScriptErrorLocation: Codable, Sendable, Hashable, CustomStringConv
         }
         guard let stack else { return nil }
         for frame in stack.split(whereSeparator: \.isNewline) {
-            guard let match = frame.firstMatch(of: /boop:\/\/script:(\d+):(\d+)$/),
+            // The frame's URL is the script's: the whole frame, or what
+            // follows its function's `@`; never one inside another URL.
+            guard let match = frame.firstMatch(of: /(?:^|@)boop:\/\/script:(\d+):(\d+)$/),
                   let line = Int(match.1), let column = Int(match.2), line >= 1 else { continue }
             return ScriptErrorLocation(line: line, column: max(column, 1))
         }
