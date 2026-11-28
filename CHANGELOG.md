@@ -17,6 +17,15 @@ breaking changes may land in a minor release.
   script posted itself, or one raised outside the script, has no place
   and is shown as before.
 
+- **iOS: paste an image, and take its text (#310).** With an image on
+  the clipboard and no text, Paste in a note stores the image and puts
+  its reference at the caret, and From Clipboard makes a note of it, as
+  the Mac does; text still wins when both are there. With the caret on
+  an image's reference, the edit menu has Copy Text from Image and
+  Insert Text Below, which puts the text read from the image on the line
+  under it. The clipboard is read only inside Paste and From Clipboard,
+  and the image's text is read on the device.
+
 ### Fixed
 
 - **Mac: a crash on ⌘Z.** The editor's undo steps were kept on the

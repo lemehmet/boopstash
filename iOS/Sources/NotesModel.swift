@@ -1,6 +1,7 @@
 import BoopstashCore
 import Observation
 import UIKit
+import UniformTypeIdentifiers
 
 /// The iOS app's state: the list for the current query, and edits through
 /// Core's `NoteDrafts`, as on the Mac.
@@ -364,6 +365,10 @@ final class NotesModel {
     func newNote(body: String = "", sourceAppName: String? = nil) -> Note? {
         var note = Note(body: body, createdAt: Date(), sourceAppName: sourceAppName)
         note.title = RuleTitler.title(for: body, kind: ContentKind.detect(body))
+        return insert(note)
+    }
+
+    private func insert(_ note: Note) -> Note? {
         do {
             try store.save(note)
             // A filter that would hide the new note is cleared, as on the
@@ -380,24 +385,82 @@ final class NotesModel {
 
     /// New Note from Clipboard: an explicit tap, so the system's paste
     /// prompt is the user's own doing. Password-manager and transient items
-    /// are refused (ADR 0001), as on the Mac.
+    /// are refused (ADR 0001), as on the Mac. Text when there is any;
+    /// otherwise an image becomes a note holding it (#310).
     func newNoteFromClipboard() -> Note? {
-        let pasteboard = UIPasteboard.general
-        switch CapturePolicy.decide(types: pasteboard.types) {
-        case .refuseConcealed:
-            banner = "Not saved: the clipboard holds a password manager item."
+        switch ClipboardRead.read() {
+        case .refused(let decision):
+            banner = ClipboardPaste.message(for: decision, verb: "saved")
             return nil
-        case .refuseTransient:
-            banner = "Not saved: the app it came from marked it as not to be kept."
+        case .text(let text):
+            return newNote(body: text)
+        case .image(let data, let type):
+            return newNote(holding: data, type: type)
+        case .unsupportedImage(let name):
+            banner = ImageImport.message(for: .unsupported(type: name))
             return nil
-        case .accept:
-            break
+        case .unreadableImage:
+            banner = "Could not read the image on the clipboard."
+            return nil
+        case .empty:
+            banner = "The clipboard has no text or image."
+            return nil
         }
-        guard let text = pasteboard.string, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            banner = "The clipboard has no text."
+    }
+
+    /// A new note holding one image, as the Mac makes of a copied image
+    /// (#51). The image and the note go in together: an image whose note
+    /// was not saved goes again.
+    func newNote(holding data: Data, type: UTType) -> Note? {
+        if case .failure(let refusal) = ImageImport.check(data, type: type) {
+            banner = ImageImport.message(for: refusal)
             return nil
         }
-        return newNote(body: text)
+        var note = Note(body: "", createdAt: Date())
+        let attachment: NoteAttachment
+        do {
+            attachment = try store.addAttachment(data, contentType: type.identifier, noteID: note.id)
+        } catch {
+            banner = "Could not save the image: \(error.localizedDescription)"
+            return nil
+        }
+        note.body = AttachmentReference.markdown(for: attachment.id) + "\n"
+        note.title = RuleTitler.title(for: note.body, kind: .plain)
+        guard let saved = insert(note) else {
+            try? store.deleteAttachment(id: attachment.id)
+            return nil
+        }
+        recognizePendingImages()
+        return saved
+    }
+
+    /// An image pasted into an open note (#310): stored as the note's
+    /// attachment; returns the markdown to insert, or nil with the reason
+    /// in the banner. As the Mac's `AppModel.addImage`.
+    func addImage(_ data: Data, type: UTType, to noteID: UUID) -> String? {
+        if case .failure(let refusal) = ImageImport.check(data, type: type) {
+            banner = ImageImport.message(for: refusal)
+            return nil
+        }
+        do {
+            let attachment = try store.addAttachment(data, contentType: type.identifier, noteID: noteID)
+            // Its text is read now, not at the next change of the list.
+            recognizePendingImages()
+            return AttachmentReference.markdown(for: attachment.id)
+        } catch {
+            banner = "Could not save the image: \(error.localizedDescription)"
+            return nil
+        }
+    }
+
+    /// An image's text for Insert Text Below (#310), read on device first
+    /// if it has not been.
+    func imageText(of id: UUID) async -> ImageTextRead {
+        let store = self.store
+        let recognize = recognizeText
+        return await Task.detached(priority: .userInitiated) {
+            await store.recognizedText(of: id, recognizing: recognize)
+        }.value
     }
 
     /// The draft goes only once the row is gone, so a failed delete leaves

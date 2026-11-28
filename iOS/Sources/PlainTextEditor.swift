@@ -1,6 +1,7 @@
 import BoopstashCore
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
 
 /// A TextKit 2 text view that leaves text alone (ADR 0003): no smart
 /// quotes, dashes or autocorrection, and paste inserts plain text only.
@@ -10,6 +11,12 @@ struct PlainTextEditor: UIViewRepresentable {
     let choice: SyntaxChoice
     /// Why a paste was refused, for the banner (ADR 0001).
     var showMessage: (String) -> Void = { _ in }
+    /// Stores a pasted image for this note (#310); returns its markdown.
+    var storeImage: (Data, UTType) -> String? = { _, _ in nil }
+    /// An image's text, read on demand, for Insert Text Below (#310).
+    var imageText: (@MainActor (UUID) async -> ImageTextRead)?
+    /// Copy Text on the image the caret is on, as in the preview (#243).
+    var copyImageText: ((UUID) -> Void)?
     let onChange: (String) -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(onChange: onChange) }
@@ -19,6 +26,9 @@ struct PlainTextEditor: UIViewRepresentable {
         // Text off the screen's edges, as the title field above it.
         view.textContainerInset = UIEdgeInsets(top: 8, left: 12, bottom: 8, right: 12)
         view.showMessage = showMessage
+        view.storeImage = storeImage
+        view.imageText = imageText
+        view.copyImageText = copyImageText
         view.font = .monospacedSystemFont(ofSize: 15, weight: .regular)
         view.autocorrectionType = .no
         view.autocapitalizationType = .none
@@ -37,6 +47,10 @@ struct PlainTextEditor: UIViewRepresentable {
 
     func updateUIView(_ view: PlainTextView, context: Context) {
         context.coordinator.onChange = onChange
+        view.showMessage = showMessage
+        view.storeImage = storeImage
+        view.imageText = imageText
+        view.copyImageText = copyImageText
     }
 
     @MainActor
@@ -62,6 +76,23 @@ struct PlainTextEditor: UIViewRepresentable {
 
         func scrollViewDidScroll(_ scrollView: UIScrollView) {
             painter.schedulePaint(after: .milliseconds(40))
+        }
+
+        /// On an image's reference, the edit menu has the image's two
+        /// commands (#310), as the Mac's chip menu does.
+        func textView(_ textView: UITextView, editMenuForTextIn range: NSRange, suggestedActions: [UIMenuElement]) -> UIMenu? {
+            guard let view = textView as? PlainTextView,
+                  let reference = ImageTextInsertion.reference(in: view.text, at: range) else { return nil }
+            var actions: [UIMenuElement] = []
+            if view.copyImageText != nil {
+                actions.append(UIAction(title: "Copy Text from Image") { [weak view] _ in view?.copyImageText?(reference.id) })
+            }
+            if view.imageText != nil, view.isEditable {
+                actions.append(UIAction(title: "Insert Text Below") { [weak view] _ in
+                    view?.insertImageText(of: reference.id, chosenAt: reference.range.location)
+                })
+            }
+            return UIMenu(children: suggestedActions + actions)
         }
     }
 
@@ -224,23 +255,66 @@ struct PlainTextEditor: UIViewRepresentable {
     }
 }
 
-/// Paste is plain text, as on the Mac (ADR 0003).
+/// Paste is plain text, as on the Mac (ADR 0003); with no text on the
+/// clipboard, an image becomes the note's attachment (#310).
 final class PlainTextView: UITextView {
     var showMessage: (String) -> Void = { _ in }
+    var storeImage: (Data, UTType) -> String? = { _, _ in nil }
+    var imageText: (@MainActor (UUID) async -> ImageTextRead)?
+    var copyImageText: ((UUID) -> Void)?
+
+    /// Paste is offered for an image too. `hasImages` and `hasStrings`
+    /// say what kind of thing is there without reading it (ADR 0001).
+    override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+        if action == #selector(paste(_:)), isEditable, UIPasteboard.general.hasImages { return true }
+        return super.canPerformAction(action, withSender: sender)
+    }
 
     override func paste(_ sender: Any?) {
         // A refusal says why rather than looking like a broken paste (#102).
-        switch CapturePolicy.decide(types: UIPasteboard.general.types) {
-        case .refuseConcealed:
-            showMessage("Not pasted: the clipboard holds a password manager item.")
-            return
-        case .refuseTransient:
-            showMessage("Not pasted: the app it came from marked it as not to be kept.")
-            return
-        case .accept:
-            break
+        switch ClipboardRead.read() {
+        case .refused(let decision):
+            if let message = ClipboardPaste.message(for: decision, verb: "pasted") { showMessage(message) }
+        case .text(let text):
+            insertText(text)
+        case .image(let data, let type):
+            // A refusal (too large, not kept) is in the banner already.
+            if let reference = storeImage(data, type) { insertText(reference) }
+        case .unsupportedImage(let name):
+            showMessage(ImageImport.message(for: .unsupported(type: name)))
+        case .unreadableImage:
+            showMessage("Could not read the image on the clipboard.")
+        case .empty(let blank):
+            if let blank { insertText(blank) }
         }
-        guard let text = UIPasteboard.general.string else { return }
-        insertText(text)
+    }
+
+    /// Insert Text Below (#310): the image's text on a line of its own
+    /// under the reference's line, as one undo step, and selected. The
+    /// image is read first if it has not been; the note may change
+    /// meanwhile, so where the text goes is decided on the text as it is
+    /// then (`ImageTextInsertion`), and when that cannot be told nothing
+    /// is inserted and a message says so.
+    @discardableResult
+    func insertImageText(of id: UUID, chosenAt: Int) -> Task<Void, Never> {
+        Task { [weak self] in
+            guard let read = await self?.imageText?(id), let self else { return }
+            guard case .text(let text) = read else {
+                if let message = read.message { self.showMessage(message) }
+                return
+            }
+            // Gone from the screen meanwhile: there is no note to change.
+            guard self.window != nil, self.isEditable else { return }
+            switch ImageTextInsertion.insertion(of: text, under: id, chosenAt: chosenAt, in: self.text) {
+            case .edit(let edit):
+                // One insertText, the path typing takes: one undo step.
+                self.selectedRange = NSRange(location: edit.location, length: 0)
+                self.insertText(edit.text)
+                self.selectedRange = edit.selection
+                self.scrollRangeToVisible(edit.selection)
+            case let refusal:
+                if let message = refusal.message { self.showMessage(message) }
+            }
+        }
     }
 }

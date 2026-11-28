@@ -201,7 +201,10 @@ struct NoteEditorView: View {
                     return UIImage(contentsOfFile: store.fileURL(for: attachment).path)
                 }, copyImageText: { model.copyImageText(of: $0) })
             } else {
-                PlainTextEditor(text: model.drafts.note(id: note.id)?.body ?? note.body, choice: note.syntaxChoice, showMessage: { model.banner = $0 }) {
+                PlainTextEditor(text: model.drafts.note(id: note.id)?.body ?? note.body, choice: note.syntaxChoice, showMessage: { model.banner = $0 },
+                                storeImage: { [id = note.id] data, type in model.addImage(data, type: type, to: id) },
+                                imageText: { await model.imageText(of: $0) },
+                                copyImageText: { model.copyImageText(of: $0) }) {
                     model.drafts.edit(note.id, body: $0)
                 }
             }
