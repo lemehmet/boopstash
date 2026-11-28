@@ -89,7 +89,7 @@ struct PlainTextEditor: UIViewRepresentable {
             }
             if view.imageText != nil, view.isEditable {
                 actions.append(UIAction(title: "Insert Text Below") { [weak view] _ in
-                    view?.insertImageText(of: reference.id, chosenAt: reference.range.location)
+                    view?.insertImageText(of: reference.id, chosen: reference.range)
                 })
             }
             return UIMenu(children: suggestedActions + actions)
@@ -291,13 +291,27 @@ final class PlainTextView: UITextView {
 
     /// Insert Text Below (#310): the image's text on a line of its own
     /// under the reference's line, as one undo step, and selected. The
-    /// image is read first if it has not been; the note may change
-    /// meanwhile, so where the text goes is decided on the text as it is
-    /// then (`ImageTextInsertion`), and when that cannot be told nothing
-    /// is inserted and a message says so.
+    /// image is read first if it has not been, and the note may change
+    /// meanwhile: the chosen reference is followed through every edit of
+    /// the storage (undo included), as the Mac does (#255), and only a
+    /// reference to the image exactly where it now is takes the text
+    /// (`ImageTextInsertion`). Otherwise nothing is inserted and a message
+    /// says why.
     @discardableResult
-    func insertImageText(of id: UUID, chosenAt: Int) -> Task<Void, Never> {
-        Task { [weak self] in
+    func insertImageText(of id: UUID, chosen: NSRange) -> Task<Void, Never> {
+        let anchor = ChosenReference(range: chosen)
+        anchor.observer = NotificationCenter.default.addObserver(
+            forName: NSTextStorage.didProcessEditingNotification, object: textStorage, queue: nil
+        ) { [anchor] notification in
+            guard let storage = notification.object as? NSTextStorage, storage.editedMask.contains(.editedCharacters) else { return }
+            let edited = storage.editedRange
+            let delta = storage.changeInLength
+            MainActor.assumeIsolated {
+                anchor.range = anchor.range.flatMap { TrackedRange.adjusted($0, editedRange: edited, delta: delta) }
+            }
+        }
+        return Task { [weak self] in
+            defer { anchor.stop() }
             guard let read = await self?.imageText?(id), let self else { return }
             guard case .text(let text) = read else {
                 if let message = read.message { self.showMessage(message) }
@@ -305,16 +319,32 @@ final class PlainTextView: UITextView {
             }
             // Gone from the screen meanwhile: there is no note to change.
             guard self.window != nil, self.isEditable else { return }
-            switch ImageTextInsertion.insertion(of: text, under: id, chosenAt: chosenAt, in: self.text) {
+            switch ImageTextInsertion.insertion(of: text, under: id, at: anchor.range, in: self.text) {
             case .edit(let edit):
+                anchor.stop()
                 // One insertText, the path typing takes: one undo step.
                 self.selectedRange = NSRange(location: edit.location, length: 0)
                 self.insertText(edit.text)
                 self.selectedRange = edit.selection
                 self.scrollRangeToVisible(edit.selection)
-            case let refusal:
-                if let message = refusal.message { self.showMessage(message) }
+            case .gone:
+                if let message = ImageTextInsertion.Outcome.gone.message { self.showMessage(message) }
             }
         }
+    }
+}
+
+/// The reference Insert Text Below was chosen on, followed through the
+/// edits made while its image is read; nil once an edit touched it.
+@MainActor
+final class ChosenReference {
+    var range: NSRange?
+    var observer: (any NSObjectProtocol)?
+
+    init(range: NSRange) { self.range = range }
+
+    func stop() {
+        if let observer { NotificationCenter.default.removeObserver(observer) }
+        observer = nil
     }
 }

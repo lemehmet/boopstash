@@ -57,18 +57,15 @@ public enum ImageTextInsertion {
 
     public enum Outcome: Equatable, Sendable {
         case edit(Edit)
-        /// The note no longer refers to the image.
+        /// The chosen reference is not in the note as it now is: deleted,
+        /// or edited into something else. Never another copy instead.
         case gone
-        /// The image is in the note more than once and none is where the
-        /// chosen one was: the text never goes under another copy.
-        case ambiguous
 
         /// What to tell the user when nothing is inserted; nil for an edit.
         public var message: String? {
             switch self {
             case .edit: nil
             case .gone: "The image is no longer in this note, so its text was not inserted."
-            case .ambiguous: "The note changed, and the image you chose cannot be told from its other copies, so its text was not inserted."
             }
         }
     }
@@ -85,15 +82,14 @@ public enum ImageTextInsertion {
     }
 
     /// The edit that puts `imageText` on a line of its own under the line
-    /// of the reference to `id`. Reading an image takes a moment and the
-    /// note may change meanwhile, so the reference is found again in the
-    /// text as it now is: the one still starting at `chosenAt`, or else
-    /// the only one there is.
-    public static func insertion(of imageText: String, under id: UUID, chosenAt: Int?, in text: String) -> Outcome {
-        let references = AttachmentReference.matches(in: text).filter { $0.id == id }
-        guard !references.isEmpty else { return .gone }
-        guard let reference = references.first(where: { $0.range.location == chosenAt }) ?? (references.count == 1 ? references[0] : nil) else {
-            return .ambiguous
+    /// of the chosen reference to `id`. Reading an image takes a moment and
+    /// the note may change meanwhile, so the caller follows the chosen
+    /// reference through those edits (`TrackedRange.adjusted`) and passes
+    /// where it now is, or nil when an edit touched it. Only a reference
+    /// to `id` exactly there takes the text: never another copy (#310).
+    public static func insertion(of imageText: String, under id: UUID, at chosen: NSRange?, in text: String) -> Outcome {
+        guard let chosen, let reference = AttachmentReference.matches(in: text).first(where: { $0.id == id && $0.range == chosen }) else {
+            return .gone
         }
         var lineEnd = 0
         (text as NSString).getLineStart(nil, end: nil, contentsEnd: &lineEnd, for: NSRange(location: NSMaxRange(reference.range), length: 0))
