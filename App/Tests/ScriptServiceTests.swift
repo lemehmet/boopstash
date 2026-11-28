@@ -69,13 +69,23 @@ struct ScriptServiceTests {
     }
 
     @Test func anExceptionInALibrarySaysWhereTheScriptCalledIt() async {
-        // `decode` is not given a string: whatever the library throws, the
-        // place is the script's line, or none; never the library's.
-        let source = "const { decode } = require('@boop/base64')\nfunction main(state) {\n  state.text = decode(null)\n}\n"
+        // js-yaml's `load` throws on a stream of two documents: the place
+        // is the script's line that called it, never the library's.
+        let source = "const yaml = require('@boop/js-yaml')\nfunction main(state) {\n  state.text = yaml.load('a: 1\\n---\\nb: 2')\n}\n"
         let response = await run(source)
-        if !response.errors.isEmpty, let location = response.errorLocations[0] {
-            #expect(location.line == 3, "\(response.errorLocations)")
-        }
+        #expect(response.errors.first?.contains("expected a single document") == true, "\(response.errors)")
+        #expect(response.errorLocations[0]?.line == 3, "\(response.errorLocations)")
+    }
+
+    @Test func anErrorFromAThrowingToStringKeepsItsOwnPlace() async {
+        // Building the message throws again: each error keeps its own place.
+        let source = "function main(state) {\n  const e = new Error('outer')\n  e.toString = function () { throw new Error('inner') }\n  throw e\n}\n"
+        let response = await run(source)
+        let outer = response.errors.firstIndex { !$0.contains("inner") }
+        let inner = response.errors.firstIndex { $0.contains("inner") }
+        #expect(outer != nil, "\(response.errors)")
+        if let outer { #expect(response.errorLocations[outer]?.line == 2, "\(response.errors) \(response.errorLocations)") }
+        if let inner { #expect(response.errorLocations[inner]?.line == 3, "\(response.errors) \(response.errorLocations)") }
     }
 
     @Test func aPostedErrorAndAThrownStringHaveNoPlace() async {

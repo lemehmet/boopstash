@@ -860,7 +860,11 @@ struct ScriptWorkbenchFlowTests {
         let location = try #require(note.location)
         #expect(location.line == 3)
 
-        view.window?.makeFirstResponder(nil)
+        // The workbench gave the script the keyboard when it opened: take
+        // it away, so the call is what gives it back.
+        let scriptWindow = try #require(session.scriptView.window)
+        scriptWindow.makeFirstResponder(nil)
+        #expect(scriptWindow.firstResponder !== session.scriptView)
         session.showInScript(location)
         let caret = session.scriptView.selectedRange()
         let third = (script as NSString).range(of: "    null.x")

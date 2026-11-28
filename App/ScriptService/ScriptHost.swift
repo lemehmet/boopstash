@@ -92,10 +92,13 @@ final class ScriptHost: NSObject, ScriptServiceProtocol {
         let context = JSContext()!
         context.name = name
         context.exceptionHandler = { _, exception in
-            // The place first: reading it must not be what `toString` of
-            // a hostile exception object changes.
-            if let location = location(of: exception) { messages.locations[messages.errors.count] = location }
-            messages.errors.append("[\(name)] \(exception?.toString() ?? "Unknown error")")
+            // Both read before either is kept: a getter or `toString` that
+            // throws runs this handler again in between, and its error must
+            // not take this one's index or place.
+            let location = location(of: exception)
+            let text = "[\(name)] \(exception?.toString() ?? "Unknown error")"
+            if let location { messages.locations[messages.errors.count] = location }
+            messages.errors.append(text)
         }
         // `require('@boop/<module>')`: Boop's bundled libraries, wrapped as
         // CommonJS modules the way Boop wraps them. Nothing else resolves.
