@@ -17,6 +17,7 @@ Each milestone ends in something that runs. Decisions behind them are in
 | v0.4.5 — Find and replace | Done; v0.4.5 (GitHub, Homebrew, TestFlight) |
 | v0.4.6 — Reopen the main window (App Review) | Window ▸ BoopStash (⌘0); Mac App Store resubmission |
 | v0.5.0 — Script workbench, a model you run, diff review, text from images | Done; v0.5.0 (GitHub, Homebrew, TestFlight) |
+| v0.5.1 — Undo crash fix, script error locations, iOS image paste | Done; v0.5.1 (GitHub, Homebrew, TestFlight) |
 
 GitHub, Homebrew and TestFlight releases do not wait for the App Store:
 a new version goes out there while an earlier one is waiting for review.

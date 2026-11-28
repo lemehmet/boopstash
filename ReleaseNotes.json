@@ -1,11 +1,17 @@
 {
   "appStoreSince": { "mac": "0.3.0", "ios": "0.3.0" },
   "unreleased": [
-    { "on": "ios", "text": "Paste an image into a note, or make a note of it with From Clipboard. Select its reference in the editor for Copy Text from Image and Insert Text Below." },
-    { "on": "mac", "text": "A script that fails says the line and column of the error. In the script workbench, double-click the error to go there." },
-    { "on": "mac", "text": "Fixed a crash that Undo (⌘Z) could cause after switching notes." }
   ],
   "releases": [
+    {
+      "version": "0.5.1",
+      "date": "2026-11-28",
+      "notes": [
+        { "on": "ios", "text": "Paste an image into a note, or make a note of it with From Clipboard. Select its reference in the editor for Copy Text from Image and Insert Text Below." },
+        { "on": "mac", "text": "A script that fails says the line and column of the error. In the script workbench, double-click the error to go there." },
+        { "on": "mac", "text": "Fixed a crash that Undo (⌘Z) could cause after switching notes." }
+      ]
+    },
     {
       "version": "0.5.0",
       "date": "2026-11-26",

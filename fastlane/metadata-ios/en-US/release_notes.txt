@@ -1,3 +1,4 @@
+• Paste an image into a note, or make a note of it with From Clipboard. Select its reference in the editor for Copy Text from Image and Insert Text Below.
 • Settings ▸ Help shows what the app does and how it treats your notes, without going online.
 • What's New: after an update, BoopStash shows once what changed. The notes stay in Settings ▸ What's New, and can be copied or saved as a note.
 • Touch and hold an image in a note's preview to copy the text in it.
